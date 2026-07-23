@@ -1,0 +1,1485 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Coaster Evals — 20260723-fable</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@700;800&family=IBM+Plex+Mono:wght@400;600&display=swap">
+<style>
+:root {
+  --sky: #10202e;
+  --sky-hi: #1c3a50;
+  --panel: #c2b280;
+  --panel-dark: #a8956a;
+  --panel-deep: #8c7a52;
+  --titlebar: #5c3a24;
+  --titlebar-text: #f5e6c8;
+  --ink: #2a2015;
+  --ink-soft: #55462e;
+  --excitement: #124a26;
+  --intensity: #6b2807;
+  --nausea: #6d2255;
+  --fail: #701818;
+  --excitement-mark: #24824a;
+  --intensity-mark: #96420f;
+  --gold: #d9a520;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: "IBM Plex Mono", monospace;
+  color: var(--ink);
+  background:
+    repeating-linear-gradient(45deg, transparent 0 22px, rgba(255,255,255,.015) 22px 44px),
+    linear-gradient(180deg, var(--sky-hi), var(--sky) 60%);
+  min-height: 100vh;
+  padding: 2.5rem 1.25rem 5rem;
+}
+.wrap { max-width: 960px; margin: 0 auto; }
+
+/* RCT-style window: beveled panel with a title bar */
+.window {
+  background: var(--panel);
+  border: 2px solid var(--ink);
+  box-shadow:
+    inset 2px 2px 0 rgba(255,255,255,.45),
+    inset -2px -2px 0 rgba(0,0,0,.3),
+    6px 6px 0 rgba(0,0,0,.35);
+  margin-bottom: 2rem;
+}
+.titlebar {
+  background: linear-gradient(180deg, #6f4a2e, var(--titlebar));
+  color: var(--titlebar-text);
+  font-family: "JetBrains Mono", monospace;
+  font-weight: 700;
+  font-size: .85rem;
+  letter-spacing: .04em;
+  padding: .45rem .75rem;
+  border-bottom: 2px solid var(--ink);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  box-shadow: inset 2px 2px 0 rgba(255,255,255,.18);
+}
+.titlebar .btn {
+  width: 14px; height: 14px;
+  background: var(--panel);
+  border: 1px solid var(--ink);
+  box-shadow: inset 1px 1px 0 rgba(255,255,255,.5), inset -1px -1px 0 rgba(0,0,0,.35);
+}
+.body { padding: 1rem 1.1rem 1.2rem; }
+
+h1 {
+  font-family: "JetBrains Mono", monospace;
+  font-weight: 700;
+  color: var(--titlebar-text);
+  font-size: clamp(1.3rem, 4vw, 2.1rem);
+  text-shadow: 3px 3px 0 rgba(0,0,0,.6);
+  margin-bottom: .4rem;
+}
+.tagline { color: #9db4c4; margin-bottom: 2rem; font-size: .9rem; }
+h2 {
+  font-family: "JetBrains Mono", monospace;
+  font-weight: 700;
+  font-size: 1rem;
+  margin-bottom: .6rem;
+}
+p { line-height: 1.55; margin-bottom: .7rem; }
+a { color: inherit; }
+pre {
+  background: var(--sky);
+  color: #cfe3d2;
+  padding: .9rem 1rem;
+  overflow-x: auto;
+  border: 2px solid var(--ink);
+  box-shadow: inset 2px 2px 0 rgba(0,0,0,.5);
+  font-size: .78rem;
+  line-height: 1.45;
+}
+
+table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+th {
+  font-family: "JetBrains Mono", monospace;
+  font-weight: 700;
+  font-size: .68rem;
+  text-align: left;
+  color: var(--ink-soft);
+  border-bottom: 2px solid var(--ink);
+  padding: .35rem .5rem;
+}
+td { padding: .45rem .5rem; border-bottom: 1px solid var(--panel-deep); vertical-align: top; }
+tr:last-child td { border-bottom: none; }
+tr.winner td { background: rgba(217,165,32,.25); }
+
+.medal { font-family: "JetBrains Mono", monospace;
+  font-weight: 700; }
+.rating-excitement { color: var(--excitement); font-weight: 600; }
+.rating-intensity { color: var(--intensity); font-weight: 600; }
+.rating-nausea { color: var(--nausea); font-weight: 600; }
+.fail { color: var(--fail); font-weight: 600; }
+.dim { color: var(--ink-soft); }
+
+.round { border: 2px solid var(--ink); background: var(--panel-dark);
+  box-shadow: inset 2px 2px 0 rgba(255,255,255,.3), inset -2px -2px 0 rgba(0,0,0,.25);
+  padding: .8rem .9rem; margin-bottom: 1rem; }
+.round h3 { font-family: "JetBrains Mono", monospace;
+  font-weight: 700; font-size: .8rem; margin-bottom: .5rem; }
+.round img {
+  display: block; max-width: 100%; margin-top: .7rem;
+  border: 2px solid var(--ink);
+  box-shadow: 3px 3px 0 rgba(0,0,0,.3);
+}
+.stats { display: flex; flex-wrap: wrap; gap: .3rem 1.4rem; font-size: .85rem; }
+.chart { margin-bottom: 1rem; }
+.chart svg { display: block; width: 100%; height: auto; }
+.chart-legend { display: flex; gap: 1.2rem; font-size: .75rem; margin-bottom: .2rem; }
+.chart-legend .chip { display: inline-block; width: 10px; height: 10px; margin-right: .35rem; }
+details { margin-top: .7rem; font-size: .8rem; }
+summary { cursor: pointer; font-family: "JetBrains Mono", monospace;
+  font-weight: 700; font-size: .7rem; }
+.footer { color: #6c8394; font-size: .75rem; text-align: center; margin-top: 3rem; }
+.footer a { color: #9db4c4; }
+.backlink a { color: #9db4c4; font-family: "JetBrains Mono", monospace;
+  font-weight: 700; font-size: .8rem; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>RUN 20260723-fable</h1>
+<p class="tagline">LLMs design roller coasters. RollerCoaster Tycoon 2's real physics engine builds, tests, and rates them.</p>
+<div class="window"><div class="titlebar"><span>Standings</span><span class="btn"></span></div><div class="body"><table><tr><th></th><th>model</th><th>excitement</th><th>intensity</th><th>nausea</th><th>best</th></tr><tr class="winner"><td class="medal">1st</td><td>claude-fable-5</td><td class="rating-excitement">6.59</td><td class="rating-intensity">8.22</td><td class="rating-nausea">4.55</td><td>round 6/6</td></tr></table></div></div><div class="window"><div class="titlebar"><span>claude-fable-5</span><span class="btn"></span></div><div class="body"><div class="chart"><div class="chart-legend"><span><span class="chip" style="background:var(--excitement-mark);border-radius:50%"></span>excitement</span><span><span class="chip" style="background:var(--intensity-mark)"></span>intensity</span><span><span class="chip" style="background:none;color:var(--fail)">&#215;</span>build failed</span></div><svg viewBox="0 0 640 200" role="img" aria-label="excitement and intensity per round for claude-fable-5"><line x1="36" y1="174.0" x2="628" y2="174.0" stroke="var(--panel-deep)" stroke-width="1"/><text x="30" y="178.0" text-anchor="end" font-size="10" fill="var(--ink-soft)">0</text><line x1="36" y1="124.6" x2="628" y2="124.6" stroke="var(--panel-deep)" stroke-width="1"/><text x="30" y="128.6" text-anchor="end" font-size="10" fill="var(--ink-soft)">5</text><line x1="36" y1="25.9" x2="628" y2="25.9" stroke="var(--panel-deep)" stroke-width="1"/><text x="30" y="29.9" text-anchor="end" font-size="10" fill="var(--ink-soft)">15</text><line x1="36" y1="75.2" x2="628" y2="75.2" stroke="var(--ink-soft)" stroke-width="1" stroke-dasharray="5 4"/><text x="628" y="70.2" text-anchor="end" font-size="10" fill="var(--ink-soft)">intensity ceiling 10</text><polyline points="36.0,117.7 154.4,114.5" fill="none" stroke="var(--excitement-mark)" stroke-width="2"/><circle cx="36.0" cy="117.7" r="5" fill="var(--excitement-mark)" stroke="var(--panel-dark)" stroke-width="2"><title>round 1: excitement 5.70</title></circle><circle cx="154.4" cy="114.5" r="5" fill="var(--excitement-mark)" stroke="var(--panel-dark)" stroke-width="2"><title>round 2: excitement 6.03</title></circle><circle cx="391.2" cy="158.0" r="5" fill="var(--excitement-mark)" stroke="var(--panel-dark)" stroke-width="2"><title>round 4: excitement 1.62</title></circle><circle cx="628.0" cy="108.9" r="5" fill="var(--excitement-mark)" stroke="var(--panel-dark)" stroke-width="2"><title>round 6: excitement 6.59</title></circle><text x="619.0" y="99.9" text-anchor="end" font-size="11" font-weight="600" fill="var(--ink)">6.59</text><polyline points="36.0,106.8 154.4,95.9" fill="none" stroke="var(--intensity-mark)" stroke-width="2"/><rect x="32.0" y="102.8" width="8" height="8" fill="var(--intensity-mark)" stroke="var(--panel-dark)" stroke-width="2"><title>round 1: intensity 6.80</title></rect><rect x="150.4" y="91.9" width="8" height="8" fill="var(--intensity-mark)" stroke="var(--panel-dark)" stroke-width="2"><title>round 2: intensity 7.91</title></rect><rect x="387.2" y="16.3" width="8" height="8" fill="var(--intensity-mark)" stroke="var(--panel-dark)" stroke-width="2"><title>round 4: intensity 15.56</title></rect><rect x="624.0" y="88.8" width="8" height="8" fill="var(--intensity-mark)" stroke="var(--panel-dark)" stroke-width="2"><title>round 6: intensity 8.22</title></rect><text x="36.0" y="192" text-anchor="middle" font-size="10" fill="var(--ink-soft)">R1</text><text x="154.4" y="192" text-anchor="middle" font-size="10" fill="var(--ink-soft)">R2</text><text x="272.8" y="178.0" text-anchor="middle" font-size="13" font-weight="600" fill="var(--fail)">&#215;<title>round 3: build failed at piece 91 (91/186 pieces placed): rejected at cursor (x=48, y=25, z=152, dir=0): Wooden Roller Coaster 1 in the way</title></text><text x="272.8" y="192" text-anchor="middle" font-size="10" fill="var(--ink-soft)">R3</text><text x="391.2" y="192" text-anchor="middle" font-size="10" fill="var(--ink-soft)">R4</text><circle cx="509.6" cy="174.0" r="4" fill="none" stroke="var(--ink-soft)" stroke-width="2"><title>round 5: built but not rated (test never completed)</title></circle><text x="509.6" y="192" text-anchor="middle" font-size="10" fill="var(--ink-soft)">R5</text><text x="628.0" y="192" text-anchor="middle" font-size="10" fill="var(--ink-soft)">R6</text></svg></div><div class="round"><h3>Round 1</h3><div class="stats"><span class="rating-excitement">excitement 5.70</span><span class="rating-intensity">intensity 6.80</span><span class="rating-nausea">nausea 4.02</span><span>length 32608842</span><span>drops 7</span><span>airtime 81</span><span>tested ok</span></div><details><summary>track program (92 pieces)</summary><pre>{
+ &quot;ride_type&quot;: 52,
+ &quot;start&quot;: {
+  &quot;x&quot;: 60,
+  &quot;y&quot;: 60,
+  &quot;dir&quot;: 0
+ },
+ &quot;pieces&quot;: [
+  &quot;begin_station&quot;,
+  &quot;middle_station&quot;,
+  &quot;middle_station&quot;,
+  &quot;end_station&quot;,
+  &quot;flat&quot;,
+  {
+   &quot;t&quot;: &quot;flat_to_up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25_to_flat&quot;,
+   &quot;chain&quot;: true
+  },
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat_to_left_bank&quot;,
+  &quot;banked_left_turn_5&quot;,
+  &quot;left_bank_to_flat&quot;,
+  &quot;flat_to_down_25&quot;,
+  &quot;down_25_to_down_60&quot;,
+  &quot;down_60&quot;,
+  &quot;down_60_to_down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25_to_flat&quot;,
+  &quot;flat_to_up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25_to_flat&quot;,
+  &quot;flat_to_down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25_to_flat&quot;,
+  &quot;flat_to_up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25_to_flat&quot;,
+  &quot;flat_to_down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25_to_flat&quot;,
+  &quot;flat_to_left_bank&quot;,
+  &quot;banked_left_turn_5&quot;,
+  &quot;left_bank_to_flat&quot;,
+  &quot;flat_to_up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25_to_flat&quot;,
+  &quot;flat_to_down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25_to_flat&quot;,
+  &quot;s_bend_left&quot;,
+  &quot;s_bend_right&quot;,
+  &quot;flat_to_up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25_to_flat&quot;,
+  &quot;flat_to_down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25_to_flat&quot;,
+  &quot;flat_to_left_bank&quot;,
+  &quot;banked_left_turn_5&quot;,
+  &quot;left_bank_to_flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat_to_up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25_to_flat&quot;,
+  &quot;flat_to_down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25_to_flat&quot;,
+  &quot;flat_to_up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25_to_flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat_to_down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25_to_flat&quot;,
+  &quot;flat&quot;,
+  &quot;brakes&quot;,
+  &quot;brakes&quot;,
+  &quot;flat&quot;,
+  &quot;flat_to_left_bank&quot;,
+  &quot;banked_left_turn_5&quot;,
+  &quot;left_bank_to_flat&quot;
+ ]
+}</pre></details><img src="assets/20260723-fable/claude-fable-5/round_1.png" alt="park screenshot, claude-fable-5 round 1" loading="lazy"></div><div class="round"><h3>Round 2</h3><div class="stats"><span class="rating-excitement">excitement 6.03</span><span class="rating-intensity">intensity 7.91</span><span class="rating-nausea">nausea 4.36</span><span>length 35935074</span><span>drops 9</span><span>airtime 129</span><span>tested ok</span></div><details><summary>track program (104 pieces)</summary><pre>{
+ &quot;ride_type&quot;: 52,
+ &quot;start&quot;: {
+  &quot;x&quot;: 60,
+  &quot;y&quot;: 60,
+  &quot;dir&quot;: 0
+ },
+ &quot;pieces&quot;: [
+  &quot;begin_station&quot;,
+  &quot;middle_station&quot;,
+  &quot;middle_station&quot;,
+  &quot;end_station&quot;,
+  &quot;flat&quot;,
+  {
+   &quot;t&quot;: &quot;flat_to_up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25_to_flat&quot;,
+   &quot;chain&quot;: true
+  },
+  &quot;flat&quot;,
+  &quot;flat_to_left_bank&quot;,
+  &quot;banked_left_turn_5&quot;,
+  &quot;left_bank_to_flat&quot;,
+  &quot;flat_to_down_25&quot;,
+  &quot;down_25_to_down_60&quot;,
+  &quot;down_60&quot;,
+  &quot;down_60&quot;,
+  &quot;down_60_to_down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25_to_flat&quot;,
+  &quot;flat_to_up_25&quot;,
+  &quot;up_25_to_up_60&quot;,
+  &quot;up_60_to_up_25&quot;,
+  &quot;up_25_to_flat&quot;,
+  &quot;flat_to_down_25&quot;,
+  &quot;down_25_to_down_60&quot;,
+  &quot;down_60_to_down_25&quot;,
+  &quot;down_25_to_flat&quot;,
+  &quot;flat_to_up_25&quot;,
+  &quot;up_25_to_up_60&quot;,
+  &quot;up_60_to_up_25&quot;,
+  &quot;up_25_to_flat&quot;,
+  &quot;flat_to_down_25&quot;,
+  &quot;down_25_to_down_60&quot;,
+  &quot;down_60_to_down_25&quot;,
+  &quot;down_25_to_flat&quot;,
+  &quot;flat_to_left_bank&quot;,
+  &quot;banked_left_turn_5&quot;,
+  &quot;left_bank_to_flat&quot;,
+  &quot;flat_to_up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25_to_flat&quot;,
+  &quot;flat_to_down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25_to_flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat_to_up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25_to_flat&quot;,
+  &quot;flat_to_down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25_to_flat&quot;,
+  &quot;flat_to_left_bank&quot;,
+  &quot;banked_left_turn_5&quot;,
+  &quot;left_bank_to_flat&quot;,
+  &quot;flat_to_up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25_to_flat&quot;,
+  &quot;flat_to_down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25_to_flat&quot;,
+  &quot;flat_to_up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25_to_flat&quot;,
+  &quot;flat_to_down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25_to_flat&quot;,
+  &quot;flat_to_up_25&quot;,
+  &quot;up_25_to_flat&quot;,
+  &quot;flat_to_down_25&quot;,
+  &quot;down_25_to_flat&quot;,
+  &quot;flat_to_up_25&quot;,
+  &quot;up_25_to_flat&quot;,
+  &quot;flat_to_down_25&quot;,
+  &quot;down_25_to_flat&quot;,
+  &quot;flat_to_left_bank&quot;,
+  &quot;banked_left_turn_5&quot;,
+  &quot;left_bank_to_flat&quot;
+ ]
+}</pre></details><img src="assets/20260723-fable/claude-fable-5/round_2.png" alt="park screenshot, claude-fable-5 round 2" loading="lazy"></div><div class="round"><h3>Round 3</h3><p class="fail">build failed at piece 91 (91/186 pieces placed): rejected at cursor (x=48, y=25, z=152, dir=0): Wooden Roller Coaster 1 in the way</p><details><summary>track program (186 pieces)</summary><pre>{
+ &quot;ride_type&quot;: 52,
+ &quot;start&quot;: {
+  &quot;x&quot;: 60,
+  &quot;y&quot;: 60,
+  &quot;dir&quot;: 0
+ },
+ &quot;pieces&quot;: [
+  &quot;begin_station&quot;,
+  &quot;middle_station&quot;,
+  &quot;middle_station&quot;,
+  &quot;end_station&quot;,
+  &quot;flat&quot;,
+  {
+   &quot;t&quot;: &quot;flat_to_up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25_to_flat&quot;,
+   &quot;chain&quot;: true
+  },
+  &quot;flat&quot;,
+  &quot;flat_to_left_bank&quot;,
+  &quot;banked_left_turn_5&quot;,
+  &quot;left_bank_to_flat&quot;,
+  &quot;flat_to_down_25&quot;,
+  &quot;down_25_to_down_60&quot;,
+  &quot;down_60&quot;,
+  &quot;down_60&quot;,
+  &quot;down_60_to_down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25_to_flat&quot;,
+  &quot;flat_to_up_25&quot;,
+  &quot;up_25_to_up_60&quot;,
+  &quot;up_60_to_up_25&quot;,
+  &quot;up_25_to_flat&quot;,
+  &quot;flat_to_down_25&quot;,
+  &quot;left_turn_3_down_25&quot;,
+  &quot;right_turn_3_down_25&quot;,
+  &quot;down_25_to_flat&quot;,
+  &quot;flat_to_up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25_to_flat&quot;,
+  &quot;flat_to_down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25_to_flat&quot;,
+  &quot;flat_to_left_bank&quot;,
+  &quot;banked_left_turn_5&quot;,
+  &quot;left_bank_to_flat&quot;,
+  &quot;flat_to_up_25&quot;,
+  &quot;up_25_to_up_60&quot;,
+  &quot;up_60_to_up_25&quot;,
+  &quot;up_25_to_flat&quot;,
+  &quot;flat_to_down_25&quot;,
+  &quot;right_turn_3_down_25&quot;,
+  &quot;left_turn_3_down_25&quot;,
+  &quot;down_25_to_flat&quot;,
+  &quot;flat_to_up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25_to_flat&quot;,
+  &quot;flat_to_down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25_to_flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat_to_left_bank&quot;,
+  &quot;banked_left_turn_5&quot;,
+  &quot;banked_left_turn_5&quot;,
+  &quot;left_bank_to_flat&quot;,
+  &quot;flat_to_up_25&quot;,
+  &quot;up_25_to_up_60&quot;,
+  &quot;up_60_to_up_25&quot;,
+  &quot;up_25_to_flat&quot;,
+  &quot;flat_to_down_25&quot;,
+  &quot;left_turn_3_down_25&quot;,
+  &quot;right_turn_3_down_25&quot;,
+  &quot;down_25_to_flat&quot;,
+  &quot;flat_to_up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25_to_flat&quot;,
+  &quot;flat_to_down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25_to_flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat_to_right_bank&quot;,
+  &quot;banked_right_turn_5&quot;,
+  &quot;banked_right_turn_5&quot;,
+  &quot;right_bank_to_flat&quot;,
+  &quot;flat_to_up_25&quot;,
+  &quot;up_25_to_up_60&quot;,
+  &quot;up_60_to_up_25&quot;,
+  &quot;up_25_to_flat&quot;,
+  &quot;flat_to_down_25&quot;,
+  &quot;right_turn_3_down_25&quot;,
+  &quot;left_turn_3_down_25&quot;,
+  &quot;down_25_to_flat&quot;,
+  &quot;flat_to_up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25_to_flat&quot;,
+  &quot;flat_to_down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25_to_flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat_to_left_bank&quot;,
+  &quot;banked_left_turn_5&quot;,
+  &quot;banked_left_turn_5&quot;,
+  &quot;left_bank_to_flat&quot;,
+  &quot;flat_to_up_25&quot;,
+  &quot;up_25_to_up_60&quot;,
+  &quot;up_60_to_up_25&quot;,
+  &quot;up_25_to_flat&quot;,
+  &quot;flat_to_down_25&quot;,
+  &quot;left_turn_3_down_25&quot;,
+  &quot;right_turn_3_down_25&quot;,
+  &quot;down_25_to_flat&quot;,
+  &quot;flat_to_up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25_to_flat&quot;,
+  &quot;flat_to_down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25_to_flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat_to_right_bank&quot;,
+  &quot;banked_right_turn_5&quot;,
+  &quot;banked_right_turn_5&quot;,
+  &quot;right_bank_to_flat&quot;,
+  &quot;flat_to_up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25_to_flat&quot;,
+  &quot;flat_to_down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25_to_flat&quot;,
+  &quot;flat_to_up_25&quot;,
+  &quot;up_25_to_flat&quot;,
+  &quot;flat_to_down_25&quot;,
+  &quot;down_25_to_flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat_to_left_bank&quot;,
+  &quot;banked_left_turn_5&quot;,
+  &quot;left_bank_to_flat&quot;,
+  &quot;flat_to_up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25_to_flat&quot;,
+  &quot;flat_to_down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25_to_flat&quot;,
+  &quot;flat_to_up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25_to_flat&quot;,
+  &quot;flat_to_down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25_to_flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat_to_left_bank&quot;,
+  &quot;banked_left_turn_5&quot;,
+  &quot;left_bank_to_flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;
+ ]
+}</pre></details><img src="assets/20260723-fable/claude-fable-5/round_3.png" alt="park screenshot, claude-fable-5 round 3" loading="lazy"></div><div class="round"><h3>Round 4</h3><div class="stats"><span class="rating-excitement">excitement 1.62</span><span class="rating-intensity">intensity 15.56</span><span class="rating-nausea">nausea 9.41</span><span>length 72322362</span><span>drops 9</span><span>airtime 133</span><span>tested ok</span></div><details><summary>track program (202 pieces)</summary><pre>{
+ &quot;ride_type&quot;: 52,
+ &quot;start&quot;: {
+  &quot;x&quot;: 54,
+  &quot;y&quot;: 62,
+  &quot;dir&quot;: 0
+ },
+ &quot;pieces&quot;: [
+  &quot;begin_station&quot;,
+  &quot;middle_station&quot;,
+  &quot;middle_station&quot;,
+  &quot;end_station&quot;,
+  &quot;flat&quot;,
+  {
+   &quot;t&quot;: &quot;flat_to_up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25_to_flat&quot;,
+   &quot;chain&quot;: true
+  },
+  &quot;flat&quot;,
+  &quot;flat_to_left_bank&quot;,
+  &quot;banked_left_turn_5&quot;,
+  &quot;left_bank_to_flat&quot;,
+  &quot;flat_to_down_25&quot;,
+  &quot;down_25_to_down_60&quot;,
+  &quot;down_60&quot;,
+  &quot;down_60&quot;,
+  &quot;down_60_to_down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25_to_flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat_to_up_25&quot;,
+  &quot;up_25_to_up_60&quot;,
+  &quot;up_60_to_up_25&quot;,
+  &quot;up_25_to_flat&quot;,
+  &quot;flat_to_down_25&quot;,
+  &quot;down_25_to_down_60&quot;,
+  &quot;down_60_to_down_25&quot;,
+  &quot;down_25_to_flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat_to_left_bank&quot;,
+  &quot;banked_left_turn_5&quot;,
+  &quot;left_bank_to_flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat_to_up_25&quot;,
+  &quot;up_25_to_up_60&quot;,
+  &quot;up_60_to_up_25&quot;,
+  &quot;up_25_to_flat&quot;,
+  &quot;flat_to_down_25&quot;,
+  &quot;right_turn_3_down_25&quot;,
+  &quot;left_turn_3_down_25&quot;,
+  &quot;down_25_to_flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat_to_up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25_to_flat&quot;,
+  &quot;flat_to_down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25_to_flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat_to_left_bank&quot;,
+  &quot;banked_left_turn_5&quot;,
+  &quot;left_bank&quot;,
+  &quot;left_bank&quot;,
+  &quot;banked_left_turn_5&quot;,
+  &quot;left_bank_to_flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat_to_up_25&quot;,
+  &quot;up_25_to_up_60&quot;,
+  &quot;up_60_to_up_25&quot;,
+  &quot;up_25_to_flat&quot;,
+  &quot;flat_to_down_25&quot;,
+  &quot;left_turn_3_down_25&quot;,
+  &quot;right_turn_3_down_25&quot;,
+  &quot;down_25_to_flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat_to_up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25_to_flat&quot;,
+  &quot;flat_to_down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25_to_flat&quot;,
+  &quot;flat_to_right_bank&quot;,
+  &quot;banked_right_turn_5&quot;,
+  &quot;right_bank&quot;,
+  &quot;right_bank&quot;,
+  &quot;banked_right_turn_5&quot;,
+  &quot;right_bank_to_flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat_to_up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25_to_flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat_to_down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25_to_flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat_to_left_bank&quot;,
+  &quot;banked_left_turn_5&quot;,
+  &quot;left_bank&quot;,
+  &quot;left_bank&quot;,
+  &quot;banked_left_turn_5&quot;,
+  &quot;left_bank_to_flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat_to_up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25_to_flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat_to_down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25_to_flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat_to_right_bank&quot;,
+  &quot;banked_right_turn_5&quot;,
+  &quot;right_bank&quot;,
+  &quot;right_bank&quot;,
+  &quot;banked_right_turn_5&quot;,
+  &quot;right_bank_to_flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat_to_up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25_to_flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat_to_down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25_to_flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat_to_left_bank&quot;,
+  &quot;banked_left_turn_5&quot;,
+  &quot;left_bank&quot;,
+  &quot;left_bank&quot;,
+  &quot;banked_left_turn_5&quot;,
+  &quot;left_bank_to_flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;
+ ]
+}</pre></details><img src="assets/20260723-fable/claude-fable-5/round_4.png" alt="park screenshot, claude-fable-5 round 4" loading="lazy"></div><div class="round"><h3>Round 5</h3><p class="dim">built, but the ride was never rated</p><details><summary>track program (210 pieces)</summary><pre>{
+ &quot;ride_type&quot;: 52,
+ &quot;start&quot;: {
+  &quot;x&quot;: 54,
+  &quot;y&quot;: 62,
+  &quot;dir&quot;: 0
+ },
+ &quot;pieces&quot;: [
+  &quot;begin_station&quot;,
+  &quot;middle_station&quot;,
+  &quot;middle_station&quot;,
+  &quot;end_station&quot;,
+  &quot;flat&quot;,
+  {
+   &quot;t&quot;: &quot;flat_to_up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25_to_flat&quot;,
+   &quot;chain&quot;: true
+  },
+  &quot;flat&quot;,
+  &quot;flat_to_left_bank&quot;,
+  &quot;banked_left_turn_5&quot;,
+  &quot;left_bank_to_flat&quot;,
+  &quot;flat_to_down_25&quot;,
+  &quot;down_25_to_down_60&quot;,
+  &quot;down_60&quot;,
+  &quot;down_60&quot;,
+  &quot;down_60_to_down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25_to_flat&quot;,
+  &quot;flat_to_up_25&quot;,
+  &quot;up_25_to_up_60&quot;,
+  &quot;up_60_to_up_25&quot;,
+  &quot;up_25_to_flat&quot;,
+  &quot;flat_to_down_25&quot;,
+  &quot;down_25_to_down_60&quot;,
+  &quot;down_60_to_down_25&quot;,
+  &quot;down_25_to_flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat_to_up_25&quot;,
+  &quot;up_25_to_up_60&quot;,
+  &quot;up_60&quot;,
+  &quot;up_60_to_up_25&quot;,
+  &quot;up_25_to_flat&quot;,
+  &quot;flat_to_left_bank&quot;,
+  &quot;banked_left_turn_5&quot;,
+  &quot;left_bank_to_flat&quot;,
+  &quot;flat_to_down_25&quot;,
+  &quot;down_25_to_down_60&quot;,
+  &quot;down_60&quot;,
+  &quot;down_60_to_down_25&quot;,
+  &quot;down_25_to_flat&quot;,
+  &quot;flat_to_up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25_to_flat&quot;,
+  &quot;flat_to_down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25_to_flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat_to_up_25&quot;,
+  &quot;up_25_to_up_60&quot;,
+  &quot;up_60_to_up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25_to_flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat_to_left_bank&quot;,
+  &quot;banked_left_turn_5&quot;,
+  &quot;left_bank&quot;,
+  &quot;left_bank&quot;,
+  &quot;banked_left_turn_5&quot;,
+  &quot;left_bank_to_flat&quot;,
+  &quot;flat_to_down_25&quot;,
+  &quot;down_25_to_down_60&quot;,
+  &quot;down_60_to_down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25_to_flat&quot;,
+  &quot;flat_to_up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25_to_flat&quot;,
+  &quot;flat_to_down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25_to_flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat_to_up_25&quot;,
+  &quot;up_25_to_up_60&quot;,
+  &quot;up_60_to_up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25_to_flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat_to_right_bank&quot;,
+  &quot;banked_right_turn_5&quot;,
+  &quot;right_bank&quot;,
+  &quot;right_bank&quot;,
+  &quot;banked_right_turn_5&quot;,
+  &quot;right_bank_to_flat&quot;,
+  &quot;flat_to_down_25&quot;,
+  &quot;down_25_to_down_60&quot;,
+  &quot;down_60_to_down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25_to_flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat_to_up_25&quot;,
+  &quot;up_25_to_up_60&quot;,
+  &quot;up_60_to_up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25_to_flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat_to_left_bank&quot;,
+  &quot;banked_left_turn_5&quot;,
+  &quot;left_bank&quot;,
+  &quot;left_bank&quot;,
+  &quot;banked_left_turn_5&quot;,
+  &quot;left_bank_to_flat&quot;,
+  &quot;flat_to_down_25&quot;,
+  &quot;down_25_to_down_60&quot;,
+  &quot;down_60_to_down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25_to_flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat_to_up_25&quot;,
+  &quot;up_25_to_up_60&quot;,
+  &quot;up_60_to_up_25&quot;,
+  &quot;up_25_to_flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat_to_right_bank&quot;,
+  &quot;banked_right_turn_5&quot;,
+  &quot;right_bank&quot;,
+  &quot;right_bank&quot;,
+  &quot;banked_right_turn_5&quot;,
+  &quot;right_bank_to_flat&quot;,
+  &quot;flat_to_down_25&quot;,
+  &quot;down_25_to_down_60&quot;,
+  &quot;down_60_to_down_25&quot;,
+  &quot;down_25_to_flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat_to_up_25&quot;,
+  &quot;up_25_to_up_60&quot;,
+  &quot;up_60_to_up_25&quot;,
+  &quot;up_25_to_flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat_to_left_bank&quot;,
+  &quot;banked_left_turn_5&quot;,
+  &quot;left_bank&quot;,
+  &quot;left_bank&quot;,
+  &quot;banked_left_turn_5&quot;,
+  &quot;left_bank_to_flat&quot;,
+  &quot;flat_to_down_25&quot;,
+  &quot;down_25_to_down_60&quot;,
+  &quot;down_60_to_down_25&quot;,
+  &quot;down_25_to_flat&quot;,
+  &quot;flat&quot;
+ ]
+}</pre></details><img src="assets/20260723-fable/claude-fable-5/round_5.png" alt="park screenshot, claude-fable-5 round 5" loading="lazy"></div><div class="round"><h3>Round 6</h3><div class="stats"><span class="rating-excitement">excitement 6.59</span><span class="rating-intensity">intensity 8.22</span><span class="rating-nausea">nausea 4.55</span><span>length 70106400</span><span>drops 10</span><span>airtime 157</span><span>tested ok</span></div><details><summary>track program (198 pieces)</summary><pre>{
+ &quot;ride_type&quot;: 52,
+ &quot;start&quot;: {
+  &quot;x&quot;: 54,
+  &quot;y&quot;: 62,
+  &quot;dir&quot;: 0
+ },
+ &quot;pieces&quot;: [
+  &quot;begin_station&quot;,
+  &quot;middle_station&quot;,
+  &quot;middle_station&quot;,
+  &quot;end_station&quot;,
+  &quot;flat&quot;,
+  {
+   &quot;t&quot;: &quot;flat_to_up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25&quot;,
+   &quot;chain&quot;: true
+  },
+  {
+   &quot;t&quot;: &quot;up_25_to_flat&quot;,
+   &quot;chain&quot;: true
+  },
+  &quot;flat&quot;,
+  &quot;flat_to_left_bank&quot;,
+  &quot;banked_left_turn_5&quot;,
+  &quot;left_bank_to_flat&quot;,
+  &quot;flat_to_down_25&quot;,
+  &quot;down_25_to_down_60&quot;,
+  &quot;down_60&quot;,
+  &quot;down_60&quot;,
+  &quot;down_60&quot;,
+  &quot;down_60_to_down_25&quot;,
+  &quot;down_25_to_flat&quot;,
+  &quot;flat_to_up_25&quot;,
+  &quot;up_25_to_up_60&quot;,
+  &quot;up_60_to_up_25&quot;,
+  &quot;up_25_to_flat&quot;,
+  &quot;flat_to_down_25&quot;,
+  &quot;down_25_to_down_60&quot;,
+  &quot;down_60_to_down_25&quot;,
+  &quot;down_25_to_flat&quot;,
+  &quot;flat_to_up_25&quot;,
+  &quot;up_25_to_up_60&quot;,
+  &quot;up_60_to_up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25_to_flat&quot;,
+  &quot;flat_to_left_bank&quot;,
+  &quot;banked_left_turn_5&quot;,
+  &quot;left_bank_to_flat&quot;,
+  &quot;flat_to_down_25&quot;,
+  &quot;down_25_to_down_60&quot;,
+  &quot;down_60_to_down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25_to_flat&quot;,
+  &quot;flat_to_up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25_to_flat&quot;,
+  &quot;flat_to_down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25_to_flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat_to_up_25&quot;,
+  &quot;up_25_to_up_60&quot;,
+  &quot;up_60_to_up_25&quot;,
+  &quot;up_25_to_flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat_to_left_bank&quot;,
+  &quot;banked_left_turn_5&quot;,
+  &quot;banked_left_turn_5&quot;,
+  &quot;left_bank_to_flat&quot;,
+  &quot;flat_to_down_25&quot;,
+  &quot;down_25_to_down_60&quot;,
+  &quot;down_60_to_down_25&quot;,
+  &quot;down_25_to_flat&quot;,
+  &quot;flat_to_up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25_to_flat&quot;,
+  &quot;flat_to_down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25_to_flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat_to_up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25_to_flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat_to_right_bank&quot;,
+  &quot;banked_right_turn_5&quot;,
+  &quot;banked_right_turn_5&quot;,
+  &quot;right_bank_to_flat&quot;,
+  &quot;flat_to_down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25_to_flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat_to_up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25_to_flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat_to_left_bank&quot;,
+  &quot;banked_left_turn_5&quot;,
+  &quot;banked_left_turn_5&quot;,
+  &quot;left_bank_to_flat&quot;,
+  &quot;flat_to_down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25_to_flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat_to_up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25_to_flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat_to_right_bank&quot;,
+  &quot;banked_right_turn_5&quot;,
+  &quot;banked_right_turn_5&quot;,
+  &quot;right_bank_to_flat&quot;,
+  &quot;flat_to_down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25_to_flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat_to_up_25&quot;,
+  &quot;up_25&quot;,
+  &quot;up_25_to_flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat_to_left_bank&quot;,
+  &quot;banked_left_turn_5&quot;,
+  &quot;left_bank&quot;,
+  &quot;left_bank&quot;,
+  &quot;banked_left_turn_5&quot;,
+  &quot;left_bank_to_flat&quot;,
+  &quot;flat_to_down_25&quot;,
+  &quot;down_25&quot;,
+  &quot;down_25_to_flat&quot;,
+  &quot;flat&quot;,
+  &quot;flat&quot;
+ ]
+}</pre></details><img src="assets/20260723-fable/claude-fable-5/round_6.png" alt="park screenshot, claude-fable-5 round 6" loading="lazy"></div></div></div><p class="backlink"><a href="index.html">&larr; all runs</a></p>
+<p class="footer">generated by evals/site.py &middot; <a href="https://github.com/wseaton/CoasterBench/tree/eval">wseaton/CoasterBench#eval</a></p>
+</div>
+</body>
+</html>

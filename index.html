@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Coaster Evals</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@700;800&family=IBM+Plex+Mono:wght@400;600&display=swap">
+<style>
+:root {
+  --sky: #10202e;
+  --sky-hi: #1c3a50;
+  --panel: #c2b280;
+  --panel-dark: #a8956a;
+  --panel-deep: #8c7a52;
+  --titlebar: #5c3a24;
+  --titlebar-text: #f5e6c8;
+  --ink: #2a2015;
+  --ink-soft: #55462e;
+  --excitement: #124a26;
+  --intensity: #6b2807;
+  --nausea: #6d2255;
+  --fail: #701818;
+  --excitement-mark: #24824a;
+  --intensity-mark: #96420f;
+  --gold: #d9a520;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: "IBM Plex Mono", monospace;
+  color: var(--ink);
+  background:
+    repeating-linear-gradient(45deg, transparent 0 22px, rgba(255,255,255,.015) 22px 44px),
+    linear-gradient(180deg, var(--sky-hi), var(--sky) 60%);
+  min-height: 100vh;
+  padding: 2.5rem 1.25rem 5rem;
+}
+.wrap { max-width: 960px; margin: 0 auto; }
+
+/* RCT-style window: beveled panel with a title bar */
+.window {
+  background: var(--panel);
+  border: 2px solid var(--ink);
+  box-shadow:
+    inset 2px 2px 0 rgba(255,255,255,.45),
+    inset -2px -2px 0 rgba(0,0,0,.3),
+    6px 6px 0 rgba(0,0,0,.35);
+  margin-bottom: 2rem;
+}
+.titlebar {
+  background: linear-gradient(180deg, #6f4a2e, var(--titlebar));
+  color: var(--titlebar-text);
+  font-family: "JetBrains Mono", monospace;
+  font-weight: 700;
+  font-size: .85rem;
+  letter-spacing: .04em;
+  padding: .45rem .75rem;
+  border-bottom: 2px solid var(--ink);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  box-shadow: inset 2px 2px 0 rgba(255,255,255,.18);
+}
+.titlebar .btn {
+  width: 14px; height: 14px;
+  background: var(--panel);
+  border: 1px solid var(--ink);
+  box-shadow: inset 1px 1px 0 rgba(255,255,255,.5), inset -1px -1px 0 rgba(0,0,0,.35);
+}
+.body { padding: 1rem 1.1rem 1.2rem; }
+
+h1 {
+  font-family: "JetBrains Mono", monospace;
+  font-weight: 700;
+  color: var(--titlebar-text);
+  font-size: clamp(1.3rem, 4vw, 2.1rem);
+  text-shadow: 3px 3px 0 rgba(0,0,0,.6);
+  margin-bottom: .4rem;
+}
+.tagline { color: #9db4c4; margin-bottom: 2rem; font-size: .9rem; }
+h2 {
+  font-family: "JetBrains Mono", monospace;
+  font-weight: 700;
+  font-size: 1rem;
+  margin-bottom: .6rem;
+}
+p { line-height: 1.55; margin-bottom: .7rem; }
+a { color: inherit; }
+pre {
+  background: var(--sky);
+  color: #cfe3d2;
+  padding: .9rem 1rem;
+  overflow-x: auto;
+  border: 2px solid var(--ink);
+  box-shadow: inset 2px 2px 0 rgba(0,0,0,.5);
+  font-size: .78rem;
+  line-height: 1.45;
+}
+
+table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+th {
+  font-family: "JetBrains Mono", monospace;
+  font-weight: 700;
+  font-size: .68rem;
+  text-align: left;
+  color: var(--ink-soft);
+  border-bottom: 2px solid var(--ink);
+  padding: .35rem .5rem;
+}
+td { padding: .45rem .5rem; border-bottom: 1px solid var(--panel-deep); vertical-align: top; }
+tr:last-child td { border-bottom: none; }
+tr.winner td { background: rgba(217,165,32,.25); }
+
+.medal { font-family: "JetBrains Mono", monospace;
+  font-weight: 700; }
+.rating-excitement { color: var(--excitement); font-weight: 600; }
+.rating-intensity { color: var(--intensity); font-weight: 600; }
+.rating-nausea { color: var(--nausea); font-weight: 600; }
+.fail { color: var(--fail); font-weight: 600; }
+.dim { color: var(--ink-soft); }
+
+.round { border: 2px solid var(--ink); background: var(--panel-dark);
+  box-shadow: inset 2px 2px 0 rgba(255,255,255,.3), inset -2px -2px 0 rgba(0,0,0,.25);
+  padding: .8rem .9rem; margin-bottom: 1rem; }
+.round h3 { font-family: "JetBrains Mono", monospace;
+  font-weight: 700; font-size: .8rem; margin-bottom: .5rem; }
+.round img {
+  display: block; max-width: 100%; margin-top: .7rem;
+  border: 2px solid var(--ink);
+  box-shadow: 3px 3px 0 rgba(0,0,0,.3);
+}
+.stats { display: flex; flex-wrap: wrap; gap: .3rem 1.4rem; font-size: .85rem; }
+.chart { margin-bottom: 1rem; }
+.chart svg { display: block; width: 100%; height: auto; }
+.chart-legend { display: flex; gap: 1.2rem; font-size: .75rem; margin-bottom: .2rem; }
+.chart-legend .chip { display: inline-block; width: 10px; height: 10px; margin-right: .35rem; }
+details { margin-top: .7rem; font-size: .8rem; }
+summary { cursor: pointer; font-family: "JetBrains Mono", monospace;
+  font-weight: 700; font-size: .7rem; }
+.footer { color: #6c8394; font-size: .75rem; text-align: center; margin-top: 3rem; }
+.footer a { color: #9db4c4; }
+.backlink a { color: #9db4c4; font-family: "JetBrains Mono", monospace;
+  font-weight: 700; font-size: .8rem; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>COASTER EVALS</h1>
+<p class="tagline">LLMs design roller coasters. RollerCoaster Tycoon 2's real physics engine builds, tests, and rates them.</p>
+<div class="window"><div class="titlebar"><span>How the harness works</span><span class="btn"></span></div><div class="body"><p>Each round a model submits a <em>track program</em>: a ride type, a start tile, and an ordered list of track pieces. The harness executes it inside the game via the same validated action path a human player uses, runs the simulation for ~10 game-minutes, then feeds the eval report and a screenshot back to the model for the next round.</p><pre> model (tool_use)          openrct2-cli eval               feedback
++------------------+     +----------------------+     +------------------+
+| JSON track       | --&gt; | build piece by piece | --&gt; | ratings report   |
+| program          |     | test with real train | --&gt; | park screenshot  |
+| (pieces, chain)  |     | rate the ride        |     | -&gt; next round    |
++------------------+     +----------------------+     +------------------+</pre><p>Excitement is the score. Intensity above 10 tanks it; crashes disqualify. The game engine is the judge, no LLM grading anywhere.</p></div></div><div class="window"><div class="titlebar"><span>Run 20260723-showdown</span><span class="btn"></span></div><div class="body"><table><tr><th></th><th>model</th><th>excitement</th><th>intensity</th><th>nausea</th><th>best</th></tr><tr class="winner"><td class="medal">1st</td><td>claude-fable-5</td><td class="rating-excitement">6.59</td><td class="rating-intensity">8.22</td><td class="rating-nausea">4.55</td><td>round 6/6</td></tr><tr><td class="medal">2nd</td><td>claude-sonnet-5</td><td class="rating-excitement">5.95</td><td class="rating-intensity">7.49</td><td class="rating-nausea">4.12</td><td>round 6/6</td></tr><tr><td class="medal">3rd</td><td>claude-opus-4-8</td><td class="rating-excitement">5.78</td><td class="rating-intensity">7.28</td><td class="rating-nausea">4.11</td><td>round 3/6</td></tr></table><p style="margin-top:.8rem"><a href="run-20260723-showdown.html">full rounds, programs &amp; screenshots &rarr;</a></p></div></div><div class="window"><div class="titlebar"><span>Run 20260722-224837</span><span class="btn"></span></div><div class="body"><table><tr><th></th><th>model</th><th>excitement</th><th>intensity</th><th>nausea</th><th>best</th></tr><tr><td class="medal">1st</td><td>claude-opus-4-6</td><td colspan="4" class="fail">no successful coaster</td></tr><tr><td class="medal">2nd</td><td>claude-sonnet-5</td><td colspan="4" class="fail">no successful coaster</td></tr></table><p style="margin-top:.8rem"><a href="run-20260722-224837.html">full rounds, programs &amp; screenshots &rarr;</a></p></div></div>
+<p class="footer">generated by evals/site.py &middot; <a href="https://github.com/wseaton/CoasterBench/tree/eval">wseaton/CoasterBench#eval</a></p>
+</div>
+</body>
+</html>
