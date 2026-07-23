@@ -35,6 +35,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -124,6 +125,8 @@ Your track is also compared against the stock RCT2 track design library (mirrore
 ## Map
 Flat grass around tile (60, 60); a lake sits near map centre roughly tiles (68-85, 55-75) — do NOT build into it. Stay within tiles 20-120. Directions: dir 0 faces -x, dir 1 faces +y, dir 2 faces +x, dir 3 faces -y.
 
+Before submitting, use the validate_track_program tool (same payload) to dry-run your program: it reports placement errors with the exact piece index, or whether the circuit closes, without spending your round. You get a limited number of validations per round, use them to fix geometry, then submit.
+
 Submit via the submit_track_program tool. After each attempt you get the eval report (placement errors with exact piece index, or ride stats) and a park screenshot. Iterate and maximise excitement."""
 
 LIBRARY_PROMPT = """
@@ -153,6 +156,14 @@ LIBRARY_TOOLS = [
         },
     },
 ]
+
+VALIDATE_TOOL = {
+    "name": "validate_track_program",
+    "description": "Dry-run a track program: builds it in the game and reports placement errors "
+    "(with exact piece index) or whether the circuit closes, WITHOUT spending your round. "
+    "Same payload as submit_track_program. Use it to iterate before submitting.",
+    "input_schema": None,  # filled below with TOOL's schema
+}
 
 TOOL = {
     "name": "submit_track_program",
@@ -188,6 +199,9 @@ TOOL = {
         },
     },
 }
+
+
+VALIDATE_TOOL["input_schema"] = TOOL["input_schema"]
 
 
 # Similarity below this is free; above it the score scales linearly to zero
@@ -297,6 +311,41 @@ def run_eval(program: dict, scenario: Path, workdir: Path, ticks: int) -> tuple[
                 shot = small
                 break
     return report, shot
+
+
+def validate_program(program: dict, scenario: Path) -> str:
+    """Placement + circuit-closure dry run; a few ticks is enough because both
+    are checked at build time, before any real simulation."""
+    with tempfile.TemporaryDirectory() as d:
+        program_path = Path(d) / "program.json"
+        report_path = Path(d) / "report.json"
+        program_path.write_text(json.dumps(program))
+        subprocess.run(
+            [
+                str(CLI), "eval", str(scenario),
+                "--ticks", "5",
+                "--rct2-data-path", str(RCT2_DATA),
+                "--program", str(program_path),
+                "--out", str(report_path),
+            ],
+            capture_output=True,
+            timeout=300,
+        )
+        if not report_path.exists():
+            return json.dumps({"ok": False, "error": "eval crashed"})
+        prog = json.loads(report_path.read_text()).get("program", {})
+    if prog.get("ok"):
+        return json.dumps({"ok": True, "note": "placement OK and circuit closed; ready to submit"})
+    err = prog.get("error") or {}
+    return json.dumps(
+        {
+            "ok": False,
+            "piece_index": err.get("piece_index"),
+            "error": err.get("message"),
+            "pieces_placed": prog.get("pieces_placed"),
+            "pieces_total": prog.get("pieces_total"),
+        }
+    )
 
 
 def dump_library(scenario: Path, run_dir: Path) -> list[dict]:
@@ -436,7 +485,7 @@ def compete(
     contender = Contender(model=model)
     ride_name, _ = ride_type_info(ride_type)
     system_prompt = build_system_prompt(ride_type) + (LIBRARY_PROMPT if library is not None else "")
-    tools = [TOOL] + (LIBRARY_TOOLS if library is not None else [])
+    tools = [TOOL, VALIDATE_TOOL] + (LIBRARY_TOOLS if library is not None else [])
     messages: list[dict] = [
         {
             "role": "user",
@@ -450,7 +499,7 @@ def compete(
         tool_use = None
         lookups: list[dict] = []
         for step in range(MAX_LOOKUPS_PER_ROUND + 1):
-            force_submit = library is None or step == MAX_LOOKUPS_PER_ROUND
+            force_submit = step == MAX_LOOKUPS_PER_ROUND
             response = client.messages.create(
                 model=model,
                 max_tokens=8000,
@@ -466,9 +515,13 @@ def compete(
             if tool_use.name == "submit_track_program":
                 program = tool_use.input
                 break
-            print(f"  [{model}] round {rnd}: {tool_use.name}({json.dumps(tool_use.input)})", flush=True)
-            result, lookup = library_tool_result(tool_use.name, tool_use.input, library or [])
-            lookups.append(lookup)
+            if tool_use.name == "validate_track_program":
+                result = validate_program(tool_use.input, scenario)
+                print(f"  [{model}] round {rnd}: validate -> {result[:120]}", flush=True)
+            else:
+                print(f"  [{model}] round {rnd}: {tool_use.name}({json.dumps(tool_use.input)})", flush=True)
+                result, lookup = library_tool_result(tool_use.name, tool_use.input, library or [])
+                lookups.append(lookup)
             messages.append(
                 {
                     "role": "user",
