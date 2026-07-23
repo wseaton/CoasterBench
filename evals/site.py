@@ -474,6 +474,10 @@ def round_block(model: ModelRun, rnd: Round, asset: str | None) -> str:
 
 def build_site(runs: list[EvalRun], out: Path) -> None:
     out.mkdir(parents=True, exist_ok=True)
+    # Clear previously generated output so renamed/deleted runs don't linger.
+    shutil.rmtree(out / "assets", ignore_errors=True)
+    for stale in out.glob("*.html"):
+        stale.unlink()
 
     index_body = [how_it_works()]
     for run in runs:
