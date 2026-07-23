@@ -33,6 +33,7 @@ import argparse
 import base64
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -313,6 +314,26 @@ def run_eval(program: dict, scenario: Path, workdir: Path, ticks: int) -> tuple[
     return report, shot
 
 
+CLOSURE_RE = re.compile(
+    r"starts at tile \((\d+), (\d+), z=(\d+), dir=(\d+), bank=(\d+), slope=(\d+)\) "
+    r"and ends at tile \((\d+), (\d+), z=(\d+), dir=(\d+), bank=(\d+), slope=(\d+)\)"
+)
+
+
+def closure_hint(message: str) -> str | None:
+    """Turns the closure error's two cursors into the net move still needed."""
+    m = CLOSURE_RE.search(message)
+    if m is None:
+        return None
+    sx, sy, sz, sd, sb, ss, ex, ey, ez, ed, eb, es = (int(g) for g in m.groups())
+    parts = [f"from the end cursor you still need net dx={sx - ex} tiles, dy={sy - ey} tiles, dz={sz - ez} z-units"]
+    if ed != sd:
+        parts.append(f"turn heading from dir {ed} to dir {sd}")
+    if eb != sb or es != ss:
+        parts.append("level out bank/slope before the station")
+    return "; ".join(parts)
+
+
 def validate_program(program: dict, scenario: Path) -> str:
     """Placement + circuit-closure dry run; a few ticks is enough because both
     are checked at build time, before any real simulation."""
@@ -337,15 +358,17 @@ def validate_program(program: dict, scenario: Path) -> str:
     if prog.get("ok"):
         return json.dumps({"ok": True, "note": "placement OK and circuit closed; ready to submit"})
     err = prog.get("error") or {}
-    return json.dumps(
-        {
-            "ok": False,
-            "piece_index": err.get("piece_index"),
-            "error": err.get("message"),
-            "pieces_placed": prog.get("pieces_placed"),
-            "pieces_total": prog.get("pieces_total"),
-        }
-    )
+    result = {
+        "ok": False,
+        "piece_index": err.get("piece_index"),
+        "error": err.get("message"),
+        "pieces_placed": prog.get("pieces_placed"),
+        "pieces_total": prog.get("pieces_total"),
+    }
+    hint = closure_hint(err.get("message") or "")
+    if hint:
+        result["hint"] = hint
+    return json.dumps(result)
 
 
 def dump_library(scenario: Path, run_dir: Path) -> list[dict]:
