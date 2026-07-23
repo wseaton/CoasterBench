@@ -65,6 +65,15 @@ body {
   padding: 2.5rem 1.25rem 5rem;
 }
 .wrap { max-width: 960px; margin: 0 auto; }
+.wrap-wide { max-width: min(1960px, 96vw); }
+
+/* Run pages: stack model windows side by side when the viewport allows,
+   so comparing rounds across models doesn't mean scrolling one full model
+   at a time. The standings window above the grid keeps full width. */
+.model-grid { display: grid; grid-template-columns: 1fr; gap: 0 1.5rem; align-items: start; }
+@media (min-width: 1200px) {
+  .model-grid { grid-template-columns: repeat(auto-fit, minmax(560px, 1fr)); }
+}
 
 /* RCT-style window: beveled panel with a title bar */
 .window {
@@ -361,7 +370,8 @@ def unfurl_meta(title: str, path: str, base_url: str | None) -> str:
     return "\n".join(tags)
 
 
-def page(title: str, titlebar: str, body: str, path: str, base_url: str | None) -> str:
+def page(title: str, titlebar: str, body: str, path: str, base_url: str | None, wide: bool = False) -> str:
+    wrap_class = "wrap wrap-wide" if wide else "wrap"
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -374,7 +384,7 @@ def page(title: str, titlebar: str, body: str, path: str, base_url: str | None) 
 <style>{CSS}</style>
 </head>
 <body>
-<div class="wrap">
+<div class="{wrap_class}">
 <h1>{esc(titlebar)}</h1>
 <p class="tagline">{esc(TAGLINE)}</p>
 {body}
@@ -711,6 +721,7 @@ def build_site(runs: list[EvalRun], out: Path, runs_dir: Path, base_url: str | N
         body = [
             window("Standings", f"<p class=\"dim\">{esc(MODE_TAGLINES.get(run.mode, run.mode))}</p>" + standings_table(run))
         ]
+        model_windows = []
         for model in run.ranked:
             blocks = []
             for rnd in model.rounds:
@@ -736,7 +747,8 @@ def build_site(runs: list[EvalRun], out: Path, runs_dir: Path, base_url: str | N
                     + '<div style="height:1rem"></div>'
                     + inner
                 )
-            body.append(window(model.model, inner))
+            model_windows.append(window(model.model, inner))
+        body.append(f'<div class="model-grid">{"".join(model_windows)}</div>')
         body.append('<p class="backlink"><a href="index.html">&larr; all runs</a></p>')
         (out / f"run-{run.name}.html").write_text(
             page(
@@ -745,6 +757,7 @@ def build_site(runs: list[EvalRun], out: Path, runs_dir: Path, base_url: str | N
                 "".join(body),
                 f"run-{run.name}.html",
                 base_url,
+                wide=True,
             )
         )
 
@@ -791,9 +804,18 @@ def main() -> int:
         help="public URL the site deploys to; required for Slack unfurl images, "
         "which must be absolute URLs (default %(default)s)",
     )
+    parser.add_argument(
+        "--all",
+        action="store_true",
+        help="render every run; by default only the newest run per mode is shown",
+    )
     args = parser.parse_args()
 
     runs = load_runs(args.runs)
+    if not args.all:
+        # load_runs returns newest-first; keep only the latest run per mode.
+        newest: dict[str, str] = {}
+        runs = [r for r in runs if newest.setdefault(r.mode, r.name) == r.name]
     build_site(runs, args.out, args.runs, args.base_url)
     if not args.base_url:
         print(
