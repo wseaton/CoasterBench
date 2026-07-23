@@ -60,8 +60,13 @@ Banking: flat_to_left_bank, flat_to_right_bank, left_bank_to_flat, right_bank_to
   left_bank_to_up_25, right_bank_to_up_25, up_25_to_left_bank, up_25_to_right_bank,
   left_bank_to_down_25, right_bank_to_down_25, down_25_to_left_bank, down_25_to_right_bank
 S-bends: s_bend_left, s_bend_right
-Inversions (wooden coaster does NOT support these; steel types do): left_vertical_loop, right_vertical_loop,
-  half_loop_up, half_loop_down, left_corkscrew_up, right_corkscrew_up, left_corkscrew_down, right_corkscrew_down
+Inversions (steel types only; wooden does NOT support these). Entry/exit geometry is strict:
+  left_vertical_loop / right_vertical_loop: ENTER at a 25-up slope (place flat_to_up_25 first),
+    EXIT at a 25-down slope (follow with down_25 or down_25_to_flat). Needs lots of entry speed.
+  half_loop_up: enters at 25-up, exits flat but UPSIDE DOWN; must be followed immediately by
+    half_loop_down, which exits at a 25-down slope.
+  left_corkscrew_up / right_corkscrew_up: enter FLAT unbanked, exit upside down; follow immediately
+    with the mirrored corkscrew_down (left_corkscrew_up -> right_corkscrew_down and vice versa), which exits flat.
 Helices: left_helix_up_small, right_helix_up_small, left_helix_down_small, right_helix_down_small,
   left_helix_up_large, right_helix_up_large, left_helix_down_large, right_helix_down_large
 Special: brakes, booster
@@ -95,7 +100,7 @@ The game engine builds it piece by piece, tests it with a real train, and rates 
 - A trick for closure: any identical piece sequence ending in a 90-degree turn, repeated 4 times, closes a rectangle.
 - Start with begin_station, middle_station, end_station (station must be on flat ground, 3-7 pieces).
 - up_25 rises 16 z-units per piece; up_60 rises 48. You cannot go below the starting height (the ground).
-- Use {{"t": "up_25", "chain": true}} for chain lift hill pieces (needed to climb; trains start slow!).
+- Use {{"t": "up_25", "chain": true}} for chain lift hill pieces (needed to climb; trains start slow!). Chain lifts only work on 25-degree slopes, never on 60-degree pieces.
 - Banking must be entered and exited: flat_to_left_bank ... left_bank ... left_bank_to_flat.
 - Sloped pieces cannot be banked. Transitions matter: up_25 cannot follow flat directly, use flat_to_up_25.
 - The train coasts on gravity after the lift. If it stalls (too little energy for a hill), the test fails or takes forever. Drops give speed; friction bleeds it.
