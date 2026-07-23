@@ -173,12 +173,21 @@ tr.winner td { background: rgba(217,165,32,.25); }
 .gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(185px, 1fr));
   gap: .6rem; margin-top: .7rem; }
 .gallery figure { border: 2px solid var(--ink); background: var(--sky);
-  box-shadow: 2px 2px 0 rgba(0,0,0,.3); margin: 0; }
-.gallery img { display: block; width: 100%; image-rendering: pixelated; }
+  box-shadow: 2px 2px 0 rgba(0,0,0,.3); margin: 0;
+  display: flex; flex-direction: column; }
+.gallery img, .gallery .no-preview {
+  display: block; width: 100%; aspect-ratio: 370 / 217; object-fit: cover;
+  image-rendering: pixelated; }
+.gallery .no-preview { display: flex; align-items: center; justify-content: center;
+  color: var(--ink-soft); font-size: .65rem; }
 .gallery figcaption { font-family: "JetBrains Mono", monospace; font-weight: 700;
   font-size: .62rem; padding: .3rem .4rem; color: var(--titlebar-text);
   background: linear-gradient(180deg, #6f4a2e, var(--titlebar));
-  border-top: 2px solid var(--ink); overflow-wrap: anywhere; }
+  border-top: 2px solid var(--ink); overflow-wrap: anywhere;
+  /* Uniform two-line caption well so every card is the same height and the
+     grid rows (and the model columns above them) stay aligned. */
+  margin-top: auto; min-height: 2.55em; display: flex; align-items: center;
+  overflow: hidden; }
 .chart { margin-bottom: 1rem; }
 .chart svg { display: block; width: 100%; height: auto; }
 .chart-legend { display: flex; gap: 1.2rem; font-size: .75rem; margin-bottom: .2rem; }
@@ -666,7 +675,10 @@ def design_gallery(out: Path, designs: list[tuple[str, str]]) -> str:
     for name, caption in designs:
         asset = copy_preview(out, name)
         if asset is None:
-            figures.append(f'<figure><figcaption>{esc(caption)} (no preview)</figcaption></figure>')
+            figures.append(
+                f'<figure><div class="no-preview">no preview</div>'
+                f'<figcaption>{esc(caption)}</figcaption></figure>'
+            )
         else:
             figures.append(
                 f'<figure><img src="{esc(asset)}" alt="track design preview: {esc(name)}" loading="lazy">'
