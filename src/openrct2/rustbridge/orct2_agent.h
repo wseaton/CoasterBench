@@ -144,6 +144,16 @@ int32_t orct2_agent_capture(const char *path, int32_t zoom, uint8_t rotation, bo
 int32_t orct2_agent_serve(const char *bind, uint16_t port);
 
 /**
+ * Writes the stock track design library to `out_path` as JSON:
+ * [{name, ride_type, piece_count, pieces}], pieces in track-program form.
+ * For the eval driver's library mode. Returns 0 on success.
+ *
+ * # Safety
+ * `out_path` must be null or a valid NUL-terminated string.
+ */
+int32_t orct2_agent_dump_library(const char *out_path);
+
+/**
  * Called by `openrct2-cli eval` after the tick loop: logs a per-ride summary
  * through the host so results land in the game's console output.
  */
@@ -212,6 +222,12 @@ extern bool orct2_host_track_remove(uint16_t ride_id,
 extern bool orct2_host_piece_delta(uint16_t track_type,
                                    uint8_t dir_in,
                                    struct Orct2TrackCursor *out);
+
+extern char *orct2_host_track_library_json(void);
+
+extern void orct2_host_string_free(char *s);
+
+extern uint16_t orct2_host_track_mirror(uint16_t track_type);
 
 #ifdef __cplusplus
 }  // extern "C"

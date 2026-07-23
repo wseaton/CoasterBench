@@ -4,7 +4,9 @@
 use serde::Serialize;
 
 use crate::host;
+use crate::library;
 use crate::program::ProgramOutcome;
+use crate::similarity::{self, SimilarityReport};
 
 #[derive(Debug, Serialize)]
 pub struct EvalReport {
@@ -13,6 +15,9 @@ pub struct EvalReport {
     /// Tile bbox + z range of all track in the park; None when trackless.
     pub bounds: Option<host::TrackBounds>,
     pub rides: Vec<RideReport>,
+    /// Closest stock library design to the built track; the driver penalises
+    /// high similarity. None when nothing was built or no library is present.
+    pub similarity: Option<SimilarityReport>,
 }
 
 #[derive(Debug, Serialize)]
@@ -52,9 +57,39 @@ fn fixed2dp(raw: i16) -> f32 {
     f32::from(raw) / 100.0
 }
 
+/// Below this many pieces similarity is noise: any station + a few flats
+/// matches a substring of half the library. Real circuits are far longer.
+const MIN_PIECES_FOR_SIMILARITY: usize = 10;
+
+/// Scores `pieces` against the stock design library. None when there is
+/// nothing meaningful to compare (too little track, or no library).
+pub fn library_similarity(pieces: &[u16]) -> Option<SimilarityReport> {
+    if pieces.len() < MIN_PIECES_FOR_SIMILARITY {
+        return None;
+    }
+    match library::load() {
+        Ok(designs) => similarity::best_match(pieces, &designs, host::track_mirror),
+        Err(e) => {
+            host::log(&format!("orct2-agent: similarity check skipped: {e}"));
+            None
+        }
+    }
+}
+
 /// Collects every non-stall ride's detail into a report. `only_ride` narrows
 /// to the program's ride so pre-existing park rides don't drown the signal.
-pub fn build(program: Option<ProgramOutcome>, only_ride: Option<u16>) -> EvalReport {
+/// `agent_pieces` is the built track for the similarity check; when None it
+/// falls back to the program outcome's placed pieces.
+pub fn build(
+    program: Option<ProgramOutcome>,
+    only_ride: Option<u16>,
+    agent_pieces: Option<&[u16]>,
+) -> EvalReport {
+    let similarity = match (agent_pieces, program.as_ref()) {
+        (Some(pieces), _) => library_similarity(pieces),
+        (None, Some(outcome)) => library_similarity(&outcome.placed_types),
+        (None, None) => None,
+    };
     let mut rides = Vec::new();
     for index in 0..host::ride_count() {
         let Some(stats) = host::ride_stats(index) else {
@@ -97,6 +132,7 @@ pub fn build(program: Option<ProgramOutcome>, only_ride: Option<u16>) -> EvalRep
         program,
         bounds: host::track_bounds(),
         rides,
+        similarity,
     }
 }
 

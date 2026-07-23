@@ -82,6 +82,14 @@ Non-bundled binaries look for `data/` next to the exe. One-time setup:
 - Head-to-head driver: `uv run evals/driver.py` (needs ANTHROPIC_API_KEY, or
   `--vertex` with GCP ADC; project defaults from $ANTHROPIC_VERTEX_PROJECT_ID);
   results under `evals/runs/<timestamp>/`.
+- Two driver modes (`--mode`, recorded in run.json + standings.json, separate
+  leaderboard sections in the site): `design` (from scratch) and `library`
+  (model can search the stock .TD6 library via extra tools; tests retrieval +
+  adaptation). Both modes penalize similarity to stock designs: report.json
+  carries the nearest-design similarity (edit distance + longest common
+  substring, mirrored variants included; rust similarity.rs), and scores scale
+  linearly to zero above 0.5 similarity. Library JSON dump for the driver:
+  `openrct2-cli eval <scenario> --rct2-data-path ... --dump-library lib.json`.
 
 ## MCP server (interactive per-piece building)
 
@@ -92,7 +100,9 @@ Non-bundled binaries look for `data/` next to the exe. One-time setup:
   thread by design (game API is single-threaded); rmcp/tokio deliberately
   avoided. Tools: new_ride, place_piece, place_pieces (batch placement, max 200
   pieces), valid_next_pieces (game-as-oracle query of the whole catalog),
-  get_state, finish_and_test, screenshot (MCP image content), demolish.
+  get_state, finish_and_test, screenshot (MCP image content), demolish,
+  search_track_designs + get_track_design (stock .TD6 library browsing;
+  recorded ratings deliberately hidden).
 - Cursor state now tracks bank (TrackRoll: 0=none, 2=left, 4=right, 15=upside_down)
   and slope (TrackPitch: 0=none, 2=up25, 4=up60, 6=down25, 8=down60); circuit
   closure check compares full cursor (x/y/z/dir/bank/slope) to catch incomplete

@@ -17,6 +17,7 @@ use base64::Engine;
 use serde_json::{json, Value};
 
 use crate::host;
+use crate::library::{self, LibraryDesign};
 use crate::pieces;
 use crate::program;
 use crate::report;
@@ -55,6 +56,18 @@ impl Build {
 #[derive(Default)]
 struct Session {
     build: Option<Build>,
+    /// Stock design library, loaded from the host on first use.
+    library: Option<Vec<LibraryDesign>>,
+}
+
+impl Session {
+    fn library(&mut self) -> Result<&[LibraryDesign], String> {
+        if self.library.is_none() {
+            self.library = Some(library::load()?);
+        }
+        // The Option was just filled; unwrap_or_default keeps this panic-free.
+        Ok(self.library.as_deref().unwrap_or_default())
+    }
 }
 
 /// Runs the MCP server until the process is killed. Never panics; per-request
@@ -282,6 +295,20 @@ fn tool_definitions() -> Value {
             "inputSchema": {"type": "object", "properties": {}}
         },
         {
+            "name": "search_track_designs",
+            "description": "List the stock track design library (the coasters shipped with the game), optionally filtered by ride type. Returns name, ride type, and piece count per design. Study them for ideas, but note: the final score is penalized for similarity to any library design (mirrored copies included), so submitting a copy scores near zero.",
+            "inputSchema": {"type": "object", "properties": {
+                "ride_type": {"type": "integer", "description": "Only designs for this game ride type, e.g. 52 = wooden roller coaster"}
+            }}
+        },
+        {
+            "name": "get_track_design",
+            "description": "Full piece sequence of one stock library design, in the same format place_pieces accepts (catalog names where known, raw numeric track types otherwise). Remember the similarity penalty: adapt, don't copy.",
+            "inputSchema": {"type": "object", "required": ["name"], "properties": {
+                "name": {"type": "string", "description": "Design name as returned by search_track_designs"}
+            }}
+        },
+        {
             "name": "place_pieces",
             "description": "Batch placement: place a sequence of track pieces in one call. Stops at the FIRST rejection; all pieces placed BEFORE a rejection stay. Returns: number placed this call, total pieces placed, cursor state (with bank/slope), circuit_closed flag, and rejection details if any (index, piece, game error). Maximum 200 pieces per call. Still verify circuit closure arithmetic first; this just reduces round trips.",
             "inputSchema": {"type": "object", "required": ["pieces"], "properties": {
@@ -428,7 +455,9 @@ fn call_tool(name: &str, args: &Value, session: &mut Session) -> Result<Vec<Valu
             }
             host::run_ticks(ticks);
             host::update_ratings(build.ride_id);
-            let eval_report = report::build(None, Some(build.ride_id));
+            let ride_id = build.ride_id;
+            let placed: Vec<u16> = build.placed.iter().map(|p| p.track_type).collect();
+            let eval_report = report::build(None, Some(ride_id), Some(&placed));
             serde_json::to_value(&eval_report)
                 .map(text_content)
                 .map_err(|e| format!("report serialise: {e}"))
@@ -488,6 +517,42 @@ fn call_tool(name: &str, args: &Value, session: &mut Session) -> Result<Vec<Valu
             let build = session.build.take().ok_or("no active ride")?;
             host::ride_demolish(build.ride_id)?;
             Ok(text_content(json!({"demolished": build.ride_id})))
+        }
+        "search_track_designs" => {
+            let ride_type = arg_i64(args, "ride_type").map(|t| t as u16);
+            let designs: Vec<Value> = session
+                .library()?
+                .iter()
+                .filter(|d| ride_type.is_none() || ride_type == Some(d.ride_type))
+                .map(|d| {
+                    json!({
+                        "name": d.name,
+                        "ride_type": d.ride_type,
+                        "piece_count": d.pieces.len(),
+                    })
+                })
+                .collect();
+            Ok(text_content(json!({
+                "designs": designs,
+                "note": "final score is penalized for similarity to any of these designs",
+            })))
+        }
+        "get_track_design" => {
+            let name = args
+                .get("name")
+                .and_then(Value::as_str)
+                .ok_or("name required")?;
+            let design = session
+                .library()?
+                .iter()
+                .find(|d| d.name.eq_ignore_ascii_case(name))
+                .ok_or_else(|| format!("no such design: {name}"))?;
+            Ok(text_content(json!({
+                "name": design.name,
+                "ride_type": design.ride_type,
+                "piece_count": design.pieces.len(),
+                "pieces": library::program_pieces(design),
+            })))
         }
         "place_pieces" => {
             let build = session
@@ -639,9 +704,25 @@ mod tests {
             "finish_and_test",
             "screenshot",
             "demolish",
+            "search_track_designs",
+            "get_track_design",
         ] {
             assert!(names.contains(&expected), "missing tool {expected}");
         }
+    }
+
+    #[test]
+    fn search_without_a_library_errors_cleanly() {
+        // The test stub host has no track library; the tool should report
+        // that as a tool error, not panic.
+        let mut session = Session::default();
+        let msg = json!({"jsonrpc": "2.0", "id": 5, "method": "tools/call",
+                         "params": {"name": "search_track_designs", "arguments": {}}});
+        let resp = dispatch(&msg, &mut session);
+        assert_eq!(
+            resp.pointer("/result/isError").and_then(Value::as_bool),
+            Some(true)
+        );
     }
 
     #[test]

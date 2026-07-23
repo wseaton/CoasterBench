@@ -37,6 +37,10 @@ namespace OpenRCT2::RustBridge
     // Runs the MCP server on bind:port (null bind = 127.0.0.1); blocks the
     // game thread until the process exits. Tool calls drive the game directly.
     int32_t Serve(const char* bind, uint16_t port);
+
+    // Writes the stock track design library as JSON for the eval driver's
+    // library mode. Returns 0 on success.
+    int32_t DumpLibrary(const char* path);
 } // namespace OpenRCT2::RustBridge
 
 #endif // ENABLE_RUST_AGENT

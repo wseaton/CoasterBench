@@ -134,6 +134,9 @@ unsafe extern "C" {
         err_len: usize,
     ) -> bool;
     fn orct2_host_piece_delta(track_type: u16, dir_in: u8, out: *mut TrackCursor) -> bool;
+    fn orct2_host_track_library_json() -> *mut c_char;
+    fn orct2_host_string_free(s: *mut c_char);
+    fn orct2_host_track_mirror(track_type: u16) -> u16;
 }
 
 #[cfg(test)]
@@ -335,6 +338,26 @@ pub fn piece_delta(track_type: u16, dir_in: u8) -> Option<TrackCursor> {
     unsafe { orct2_host_piece_delta(track_type, dir_in, &mut out) }.then_some(out)
 }
 
+/// The stock track design library as a JSON string (see library.rs for the
+/// shape). None when the host has no library to give.
+pub fn track_library_json() -> Option<String> {
+    let ptr = unsafe { orct2_host_track_library_json() };
+    if ptr.is_null() {
+        return None;
+    }
+    let json = unsafe { CStr::from_ptr(ptr) }
+        .to_string_lossy()
+        .into_owned();
+    unsafe { orct2_host_string_free(ptr) };
+    Some(json)
+}
+
+/// Left/right mirrored counterpart of a track piece (the game's TED mirror
+/// table). Symmetric pieces map to themselves.
+pub fn track_mirror(track_type: u16) -> u16 {
+    unsafe { orct2_host_track_mirror(track_type) }
+}
+
 // Link stubs for `cargo test`: the C++ host only exists inside the game
 // binary, so the unit-test binary needs these symbols to link. Unit tests
 // cover pure logic only (parsing, protocol, formatting); anything that
@@ -426,5 +449,12 @@ mod test_stubs {
     }
     pub unsafe fn orct2_host_piece_delta(_t: u16, _d: u8, _cur: *mut TrackCursor) -> bool {
         false
+    }
+    pub unsafe fn orct2_host_track_library_json() -> *mut c_char {
+        std::ptr::null_mut()
+    }
+    pub unsafe fn orct2_host_string_free(_s: *mut c_char) {}
+    pub unsafe fn orct2_host_track_mirror(t: u16) -> u16 {
+        t
     }
 }

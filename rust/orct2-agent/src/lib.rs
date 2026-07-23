@@ -10,10 +10,12 @@
 //! into orct2_agent.h; the extern block in host.rs is the single source of truth.
 
 mod host;
+mod library;
 mod mcp;
 mod pieces;
 mod program;
 mod report;
+mod similarity;
 
 use std::ffi::CStr;
 use std::os::raw::c_char;
@@ -80,7 +82,7 @@ pub unsafe extern "C" fn orct2_agent_eval_finish(
     };
 
     let only_ride = outcome.as_ref().and_then(|o| o.ride_id);
-    let eval_report = report::build(outcome, only_ride);
+    let eval_report = report::build(outcome, only_ride, None);
 
     let Some(path) = read_c_path(out_path) else {
         host::log("orct2-agent: no report path given, skipping report");
@@ -136,6 +138,54 @@ pub unsafe extern "C" fn orct2_agent_serve(bind: *const c_char, port: u16) -> i3
             1
         }
     }
+}
+
+/// Writes the stock track design library to `out_path` as JSON:
+/// [{name, ride_type, piece_count, pieces}], pieces in track-program form.
+/// For the eval driver's library mode. Returns 0 on success.
+///
+/// # Safety
+/// `out_path` must be null or a valid NUL-terminated string.
+#[no_mangle]
+pub unsafe extern "C" fn orct2_agent_dump_library(out_path: *const c_char) -> i32 {
+    let Some(path) = read_c_path(out_path) else {
+        host::log("orct2-agent: no library dump path given");
+        return 1;
+    };
+    let designs = match library::load() {
+        Ok(designs) => designs,
+        Err(e) => {
+            host::log(&format!("orct2-agent: library dump failed: {e}"));
+            return 1;
+        }
+    };
+    let entries: Vec<serde_json::Value> = designs
+        .iter()
+        .map(|d| {
+            serde_json::json!({
+                "name": d.name,
+                "ride_type": d.ride_type,
+                "piece_count": d.pieces.len(),
+                "pieces": library::program_pieces(d),
+            })
+        })
+        .collect();
+    let json = match serde_json::to_string_pretty(&entries) {
+        Ok(j) => j,
+        Err(e) => {
+            host::log(&format!("orct2-agent: library serialise failed: {e}"));
+            return 1;
+        }
+    };
+    if let Err(e) = std::fs::write(&path, json) {
+        host::log(&format!("orct2-agent: library write failed ({path}): {e}"));
+        return 1;
+    }
+    host::log(&format!(
+        "orct2-agent: {} design(s) written to {path}",
+        entries.len()
+    ));
+    0
 }
 
 /// Called by `openrct2-cli eval` after the tick loop: logs a per-ride summary
