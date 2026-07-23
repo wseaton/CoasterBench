@@ -88,8 +88,16 @@ Non-bundled binaries look for `data/` next to the exe. One-time setup:
   adaptation). Both modes penalize similarity to stock designs: report.json
   carries the nearest-design similarity (edit distance + longest common
   substring, mirrored variants included; rust similarity.rs), and scores scale
-  linearly to zero above 0.5 similarity. Library JSON dump for the driver:
-  `openrct2-cli eval <scenario> --rct2-data-path ... --dump-library lib.json`.
+  linearly to zero above the grace threshold (driver's SIMILARITY_GRACE,
+  recorded per run in run.json; site reads it from there). Library JSON dump:
+  `openrct2-cli eval <scenario> --rct2-data-path ... --dump-library lib.json`;
+  preview PNGs (game's own TrackDesignDrawPreview, 370x217, needs a park
+  loaded): `... --render-library <dir>`, cached at evals/library-previews/
+  (gitignored, auto-rendered by the driver in library mode).
+- Library lookups are persisted per round as `round_N/lookups.json` (written
+  by driver.py, but any harness can drop the same file); the site shows
+  per-round lookup chips, a "studied designs" preview gallery per model, and
+  a full library.html gallery.
 
 ## MCP server (interactive per-piece building)
 

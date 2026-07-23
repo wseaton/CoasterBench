@@ -18,9 +18,10 @@ from __future__ import annotations
 import argparse
 import html
 import json
+import re
 import shutil
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from PIL import Image, ImageDraw
@@ -158,6 +159,17 @@ tr.winner td { background: rgba(217,165,32,.25); }
   box-shadow: 3px 3px 0 rgba(0,0,0,.3);
 }
 .stats { display: flex; flex-wrap: wrap; gap: .3rem 1.4rem; font-size: .85rem; }
+
+/* Track design preview gallery (library mode) */
+.gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(185px, 1fr));
+  gap: .6rem; margin-top: .7rem; }
+.gallery figure { border: 2px solid var(--ink); background: var(--sky);
+  box-shadow: 2px 2px 0 rgba(0,0,0,.3); margin: 0; }
+.gallery img { display: block; width: 100%; image-rendering: pixelated; }
+.gallery figcaption { font-family: "JetBrains Mono", monospace; font-weight: 700;
+  font-size: .62rem; padding: .3rem .4rem; color: var(--titlebar-text);
+  background: linear-gradient(180deg, #6f4a2e, var(--titlebar));
+  border-top: 2px solid var(--ink); overflow-wrap: anywhere; }
 .chart { margin-bottom: 1rem; }
 .chart svg { display: block; width: 100%; height: auto; }
 .chart-legend { display: flex; gap: 1.2rem; font-size: .75rem; margin-bottom: .2rem; }
@@ -172,15 +184,17 @@ summary { cursor: pointer; font-family: "JetBrains Mono", monospace;
 """
 
 
-# Mirror of the driver's copy penalty: similarity to a stock library design
-# up to 0.5 is free, then the score scales linearly to zero at 1.0.
-SIMILARITY_GRACE = 0.5
+# The driver's copy penalty: similarity to a stock library design up to the
+# grace threshold is free, then the score scales linearly to zero at 1.0.
+# Each run records its threshold in run.json (the driver is the source of
+# truth); this default only covers runs from before it was recorded.
+DEFAULT_SIMILARITY_GRACE = 0.5
 
 
-def similarity_multiplier(similarity: float) -> float:
-    if similarity <= SIMILARITY_GRACE:
+def similarity_multiplier(similarity: float, grace: float) -> float:
+    if similarity <= grace:
         return 1.0
-    return max(0.0, (1.0 - similarity) / (1.0 - SIMILARITY_GRACE))
+    return max(0.0, (1.0 - similarity) / (1.0 - grace))
 
 
 MODE_TAGLINES = {
@@ -195,6 +209,9 @@ class Round:
     report: dict
     program: dict | None
     screenshot: Path | None
+    # Library tool calls the model made before submitting (library mode).
+    lookups: list[dict] = field(default_factory=list)
+    grace: float = DEFAULT_SIMILARITY_GRACE
 
     @property
     def ride(self) -> dict | None:
@@ -214,7 +231,11 @@ class Round:
         if ride is None:
             return 0.0
         sim = (self.similarity or {}).get("similarity", 0.0)
-        return ride["excitement"] * similarity_multiplier(sim)
+        return ride["excitement"] * similarity_multiplier(sim, self.grace)
+
+    @property
+    def fetched_designs(self) -> list[str]:
+        return [l["name"] for l in self.lookups if l.get("tool") == "get" and l.get("found")]
 
     @property
     def build_error(self) -> str | None:
@@ -244,6 +265,7 @@ class ModelRun:
 class EvalRun:
     name: str
     mode: str
+    grace: float
     models: list[ModelRun]
 
     @property
@@ -255,6 +277,19 @@ def esc(text: object) -> str:
     return html.escape(str(text))
 
 
+PREVIEWS_DIR = Path(__file__).resolve().parent / "library-previews"
+
+
+def sanitise_name(name: str) -> str:
+    # Keep in sync with RenderTrackLibrary in src/openrct2/rustbridge/RustBridge.cpp.
+    return re.sub(r"[^A-Za-z0-9._-]", "_", name)
+
+
+def preview_path(design_name: str) -> Path | None:
+    path = PREVIEWS_DIR / f"{sanitise_name(design_name)}.png"
+    return path if path.is_file() else None
+
+
 def load_runs(runs_dir: Path) -> list[EvalRun]:
     runs: list[EvalRun] = []
     if not runs_dir.is_dir():
@@ -262,6 +297,14 @@ def load_runs(runs_dir: Path) -> list[EvalRun]:
     for run_dir in sorted(runs_dir.iterdir(), reverse=True):
         if not run_dir.is_dir():
             continue
+        # Mode and penalty parameters live in run.json (newer runs); older
+        # runs are design mode with the default grace.
+        meta = {}
+        meta_path = run_dir / "run.json"
+        if meta_path.is_file():
+            meta = json.loads(meta_path.read_text())
+        mode = meta.get("mode", "design")
+        grace = meta.get("similarity_grace", DEFAULT_SIMILARITY_GRACE)
         models: list[ModelRun] = []
         for model_dir in sorted(run_dir.iterdir()):
             if not model_dir.is_dir():
@@ -272,6 +315,7 @@ def load_runs(runs_dir: Path) -> list[EvalRun]:
                 if not report_path.is_file():
                     continue
                 program_path = round_dir / "program.json"
+                lookups_path = round_dir / "lookups.json"
                 shot = next(
                     (p for p in (round_dir / "park_small.png", round_dir / "park.png") if p.is_file()),
                     None,
@@ -282,17 +326,14 @@ def load_runs(runs_dir: Path) -> list[EvalRun]:
                         report=json.loads(report_path.read_text()),
                         program=json.loads(program_path.read_text()) if program_path.is_file() else None,
                         screenshot=shot,
+                        lookups=json.loads(lookups_path.read_text()) if lookups_path.is_file() else [],
+                        grace=grace,
                     )
                 )
             if rounds:
                 models.append(ModelRun(model=model_dir.name, rounds=rounds))
         if models:
-            # Mode lives in run.json (newer runs); older runs are design mode.
-            mode = "design"
-            meta_path = run_dir / "run.json"
-            if meta_path.is_file():
-                mode = json.loads(meta_path.read_text()).get("mode", "design")
-            runs.append(EvalRun(name=run_dir.name, mode=mode, models=models))
+            runs.append(EvalRun(name=run_dir.name, mode=mode, grace=grace, models=models))
     return runs
 
 
@@ -395,7 +436,7 @@ def standings_table(run: EvalRun) -> str:
         "<table><tr><th></th><th>model</th><th>score</th><th>intensity</th>"
         "<th>nausea</th><th>similarity</th><th>best</th></tr>" + "".join(rows) + "</table>"
         '<p class="dim" style="margin-top:.5rem;font-size:.75rem">score = excitement, scaled down when '
-        "similarity to a stock library design exceeds 0.5 (an exact or mirrored copy scores 0)</p>"
+        f"similarity to a stock library design exceeds {run.grace:g} (an exact or mirrored copy scores 0)</p>"
     )
 
 
@@ -529,6 +570,12 @@ def round_block(model: ModelRun, rnd: Round, asset: str | None) -> str:
         parts.append(f'<div class="stats">{stats}</div>')
     elif not error:
         parts.append('<p class="dim">built, but the ride was never rated</p>')
+    if rnd.lookups:
+        searches = sum(1 for lookup in rnd.lookups if lookup.get("tool") == "search")
+        chips = f"library: {searches} search(es)" if searches else "library:"
+        if rnd.fetched_designs:
+            chips += " studied " + ", ".join(rnd.fetched_designs)
+        parts.append(f'<p class="dim" style="font-size:.75rem;margin-top:.4rem">{esc(chips)}</p>')
     if rnd.program is not None:
         pieces = rnd.program.get("pieces", [])
         parts.append(
@@ -538,6 +585,47 @@ def round_block(model: ModelRun, rnd: Round, asset: str | None) -> str:
     if asset is not None:
         parts.append(f'<img src="{esc(asset)}" alt="park screenshot, {esc(model.model)} round {rnd.number}" loading="lazy">')
     return f'<div class="round">{"".join(parts)}</div>'
+
+
+def copy_preview(out: Path, design_name: str) -> str | None:
+    """Copies a design's preview into the site assets; returns the relative
+    asset path, or None when no preview was rendered for it."""
+    src = preview_path(design_name)
+    if src is None:
+        return None
+    rel = Path("assets") / "library" / src.name
+    dest = out / rel
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if not dest.is_file():
+        shutil.copyfile(src, dest)
+    return rel.as_posix()
+
+
+def design_gallery(out: Path, designs: list[tuple[str, str]]) -> str:
+    """Thumbnail grid of (design name, caption) pairs."""
+    figures = []
+    for name, caption in designs:
+        asset = copy_preview(out, name)
+        if asset is None:
+            figures.append(f'<figure><figcaption>{esc(caption)} (no preview)</figcaption></figure>')
+        else:
+            figures.append(
+                f'<figure><img src="{esc(asset)}" alt="track design preview: {esc(name)}" loading="lazy">'
+                f"<figcaption>{esc(caption)}</figcaption></figure>"
+            )
+    return f'<div class="gallery">{"".join(figures)}</div>'
+
+
+def latest_library_index(runs_dir: Path) -> list[dict]:
+    """The most recent run's library.json: name/ride_type/piece_count per
+    design, used to caption and order the full gallery page."""
+    if not runs_dir.is_dir():
+        return []
+    for run_dir in sorted(runs_dir.iterdir(), reverse=True):
+        library_path = run_dir / "library.json"
+        if library_path.is_file():
+            return json.loads(library_path.read_text())
+    return []
 
 
 def write_og_card(runs: list[EvalRun], out: Path) -> bool:
@@ -590,19 +678,24 @@ def write_og_card(runs: list[EvalRun], out: Path) -> bool:
     return True
 
 
-def build_site(runs: list[EvalRun], out: Path, base_url: str | None) -> None:
+def build_site(runs: list[EvalRun], out: Path, runs_dir: Path, base_url: str | None) -> None:
     out.mkdir(parents=True, exist_ok=True)
     # Clear previously generated output so renamed/deleted runs don't linger.
     shutil.rmtree(out / "assets", ignore_errors=True)
     for stale in out.glob("*.html"):
         stale.unlink()
 
+    have_previews = PREVIEWS_DIR.is_dir() and any(PREVIEWS_DIR.glob("*.png"))
+
     index_body = [how_it_works()]
     for mode in ("design", "library"):
         mode_runs = [r for r in runs if r.mode == mode]
         if not mode_runs:
             continue
-        index_body.append(window(f"{mode.capitalize()} mode", f"<p>{esc(MODE_TAGLINES[mode])}</p>"))
+        mode_intro = f"<p>{esc(MODE_TAGLINES[mode])}</p>"
+        if mode == "library" and have_previews:
+            mode_intro += '<p style="margin-top:.4rem"><a href="library.html">browse the full track design library &rarr;</a></p>'
+        index_body.append(window(f"{mode.capitalize()} mode", mode_intro))
         for run in mode_runs:
             inner = standings_table(run) + (
                 f'<p style="margin-top:.8rem"><a href="run-{esc(run.name)}.html">full rounds, programs &amp; screenshots &rarr;</a></p>'
@@ -629,7 +722,21 @@ def build_site(runs: list[EvalRun], out: Path, base_url: str | None) -> None:
                     shutil.copyfile(rnd.screenshot, dest)
                     asset = rel.as_posix()
                 blocks.append(round_block(model, rnd, asset))
-            body.append(window(model.model, round_chart(model) + "".join(blocks)))
+            # Gallery of the stock designs this model studied, in fetch order.
+            studied: list[str] = []
+            for rnd in model.rounds:
+                for name in rnd.fetched_designs:
+                    if name not in studied:
+                        studied.append(name)
+            inner = round_chart(model) + "".join(blocks)
+            if studied:
+                inner = (
+                    f"<h2>studied {len(studied)} library design(s)</h2>"
+                    + design_gallery(out, [(name, name) for name in studied])
+                    + '<div style="height:1rem"></div>'
+                    + inner
+                )
+            body.append(window(model.model, inner))
         body.append('<p class="backlink"><a href="index.html">&larr; all runs</a></p>')
         (out / f"run-{run.name}.html").write_text(
             page(
@@ -637,6 +744,35 @@ def build_site(runs: list[EvalRun], out: Path, base_url: str | None) -> None:
                 f"RUN {run.name} ({run.mode})",
                 "".join(body),
                 f"run-{run.name}.html",
+                base_url,
+            )
+        )
+
+    if have_previews:
+        index = latest_library_index(runs_dir)
+        if index:
+            entries = [
+                (d["name"], f"{d['name']} · type {d['ride_type']} · {d['piece_count']} pieces")
+                for d in sorted(index, key=lambda d: (d["ride_type"], d["name"]))
+            ]
+        else:
+            # No library.json yet: caption with the (sanitised) file names.
+            entries = [(p.stem, p.stem) for p in sorted(PREVIEWS_DIR.glob("*.png"))]
+        body = [
+            window(
+                f"Track design library ({len(entries)} designs)",
+                "<p>The stock RCT2 designs models can search in library mode. "
+                "Previews are rendered by the game's own track-preview pipeline.</p>"
+                + design_gallery(out, entries),
+            ),
+            '<p class="backlink"><a href="index.html">&larr; all runs</a></p>',
+        ]
+        (out / "library.html").write_text(
+            page(
+                "Coaster Evals — Track Design Library",
+                "TRACK DESIGN LIBRARY",
+                "".join(body),
+                "library.html",
                 base_url,
             )
         )
@@ -658,7 +794,7 @@ def main() -> int:
     args = parser.parse_args()
 
     runs = load_runs(args.runs)
-    build_site(runs, args.out, args.base_url)
+    build_site(runs, args.out, args.runs, args.base_url)
     if not args.base_url:
         print(
             "note: no --base-url given, og:image/og:url omitted (Slack unfurls will be text-only)",

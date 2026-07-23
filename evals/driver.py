@@ -179,6 +179,8 @@ class Attempt:
     program: dict
     report: dict
     screenshot: Path | None
+    # Library tool calls made before this round's submission (library mode).
+    lookups: list[dict] = field(default_factory=list)
 
     @property
     def raw_excitement(self) -> float:
@@ -277,12 +279,37 @@ def dump_library(scenario: Path, run_dir: Path) -> list[dict]:
     return json.loads(out.read_text())
 
 
+PREVIEWS_DIR = REPO / "evals" / "library-previews"
+
+
+def ensure_library_previews(scenario: Path) -> None:
+    """Renders design preview PNGs once; the library is static, so the cache
+    survives across runs (evals/library-previews/, gitignored)."""
+    if PREVIEWS_DIR.is_dir() and any(PREVIEWS_DIR.glob("*.png")):
+        return
+    print("rendering track design previews (one-time)...")
+    cmd = [
+        str(CLI), "eval", str(scenario),
+        "--rct2-data-path", str(RCT2_DATA),
+        "--render-library", str(PREVIEWS_DIR),
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+    count = len(list(PREVIEWS_DIR.glob("*.png"))) if PREVIEWS_DIR.is_dir() else 0
+    if count == 0:
+        # Previews only feed the site gallery; a render failure shouldn't
+        # block the eval itself.
+        print(f"warning: preview render produced no images: {proc.stderr[-300:]}", file=sys.stderr)
+    else:
+        print(f"library previews: {count} images in {PREVIEWS_DIR}")
+
+
 # In library mode the model may look designs up before submitting; cap the
 # lookups per round so a browsing spree cannot stall the eval.
 MAX_LOOKUPS_PER_ROUND = 6
 
 
-def library_tool_result(name: str, tool_input: dict, library: list[dict]) -> str:
+def library_tool_result(name: str, tool_input: dict, library: list[dict]) -> tuple[str, dict]:
+    """Answers a library tool call. Returns (tool_result_json, lookup_record)."""
     if name == "search_track_designs":
         ride_type = tool_input.get("ride_type")
         designs = [
@@ -290,14 +317,51 @@ def library_tool_result(name: str, tool_input: dict, library: list[dict]) -> str
             for d in library
             if ride_type is None or d["ride_type"] == ride_type
         ]
-        return json.dumps(
+        result = json.dumps(
             {"designs": designs, "note": "final score is penalized for similarity to any of these designs"}
         )
+        return result, {"tool": "search", "ride_type": ride_type, "results": len(designs)}
     target = tool_input.get("name", "")
     for d in library:
         if d["name"].lower() == target.lower():
-            return json.dumps({k: d[k] for k in ("name", "ride_type", "piece_count", "pieces")})
-    return json.dumps({"error": f"no such design: {target}"})
+            result = json.dumps({k: d[k] for k in ("name", "ride_type", "piece_count", "pieces")})
+            return result, {"tool": "get", "name": d["name"], "found": True}
+    return json.dumps({"error": f"no such design: {target}"}), {"tool": "get", "name": target, "found": False}
+
+
+def prune_history(messages: list[dict]) -> None:
+    """Trims completed-round bulk from the message history, in place.
+
+    Two payloads dominate context growth: the base64 park screenshot in each
+    round's feedback and the full piece list of every get_track_design result.
+    The model has already consumed both, and the submitted programs stay in
+    history, so all but the most recent screenshot collapse to a stub and old
+    design payloads keep only their name and piece count.
+    """
+    image_stub = {"type": "text", "text": "[park screenshot elided; see latest round]"}
+    last_image: tuple[int, int, int] | None = None
+    for m, message in enumerate(messages):
+        if message.get("role") != "user" or not isinstance(message.get("content"), list):
+            continue
+        for c, block in enumerate(message["content"]):
+            if not isinstance(block, dict) or block.get("type") != "tool_result":
+                continue
+            content = block.get("content")
+            if isinstance(content, list):
+                for b, inner in enumerate(content):
+                    if isinstance(inner, dict) and inner.get("type") == "image":
+                        if last_image is not None:
+                            pm, pc, pb = last_image
+                            messages[pm]["content"][pc]["content"][pb] = image_stub
+                        last_image = (m, c, b)
+            elif isinstance(content, str) and '"pieces"' in content:
+                try:
+                    payload = json.loads(content)
+                except json.JSONDecodeError:
+                    continue
+                if "pieces" in payload:
+                    payload["pieces"] = f"[{payload.get('piece_count', '?')} pieces elided; fetch again if needed]"
+                    block["content"] = json.dumps(payload)
 
 
 def feedback_content(attempt: Attempt) -> list[dict]:
@@ -345,6 +409,7 @@ def compete(
         # forces a submission so every round produces an attempt.
         program = None
         tool_use = None
+        lookups: list[dict] = []
         for step in range(MAX_LOOKUPS_PER_ROUND + 1):
             force_submit = library is None or step == MAX_LOOKUPS_PER_ROUND
             response = client.messages.create(
@@ -363,7 +428,8 @@ def compete(
                 program = tool_use.input
                 break
             print(f"  [{model}] round {rnd}: {tool_use.name}({json.dumps(tool_use.input)})", flush=True)
-            result = library_tool_result(tool_use.name, tool_use.input, library or [])
+            result, lookup = library_tool_result(tool_use.name, tool_use.input, library or [])
+            lookups.append(lookup)
             messages.append(
                 {
                     "role": "user",
@@ -375,9 +441,12 @@ def compete(
             raise RuntimeError(f"{model} never submitted a program in round {rnd}")
         print(f"  [{model}] round {rnd}: {len(program.get('pieces', []))} pieces submitted", flush=True)
 
-        report, shot = run_eval(program, scenario, run_dir / model.replace("/", "_") / f"round_{rnd}", ticks)
-        attempt = Attempt(round=rnd, program=program, report=report, screenshot=shot)
+        round_dir = run_dir / model.replace("/", "_") / f"round_{rnd}"
+        report, shot = run_eval(program, scenario, round_dir, ticks)
+        attempt = Attempt(round=rnd, program=program, report=report, screenshot=shot, lookups=lookups)
         contender.attempts.append(attempt)
+        if lookups:
+            (round_dir / "lookups.json").write_text(json.dumps(lookups, indent=2))
         print(f"  [{model}] round {rnd}: {attempt.summary}", flush=True)
 
         messages.append(
@@ -388,6 +457,7 @@ def compete(
                 ],
             }
         )
+        prune_history(messages)
     return contender
 
 
@@ -431,6 +501,7 @@ def main() -> int:
     if args.mode == "library":
         library = dump_library(args.scenario, run_dir)
         print(f"track design library: {len(library)} designs")
+        ensure_library_previews(args.scenario)
 
     (run_dir / "run.json").write_text(
         json.dumps(
@@ -440,6 +511,9 @@ def main() -> int:
                 "rounds": args.rounds,
                 "ticks": args.ticks,
                 "scenario": args.scenario.name,
+                # The site reads the penalty parameters from here; keep the
+                # driver the single source of truth for the scoring math.
+                "similarity_grace": SIMILARITY_GRACE,
             },
             indent=2,
         )
@@ -476,7 +550,9 @@ def main() -> int:
                         "best_excitement": c.best.excitement if c.best else None,
                         "best_raw_excitement": c.best.raw_excitement if c.best else None,
                         "best_similarity": c.best.similarity if c.best else None,
-                        "attempts": [{"round": a.round, "summary": a.summary} for a in c.attempts],
+                        "attempts": [
+                            {"round": a.round, "summary": a.summary, "lookups": a.lookups} for a in c.attempts
+                        ],
                     }
                     for c in ranked
                 ],

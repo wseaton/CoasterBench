@@ -4,7 +4,7 @@
 use serde::Serialize;
 
 use crate::host;
-use crate::library;
+use crate::library::{self, LibraryDesign};
 use crate::program::ProgramOutcome;
 use crate::similarity::{self, SimilarityReport};
 
@@ -61,33 +61,43 @@ fn fixed2dp(raw: i16) -> f32 {
 /// matches a substring of half the library. Real circuits are far longer.
 const MIN_PIECES_FOR_SIMILARITY: usize = 10;
 
-/// Scores `pieces` against the stock design library. None when there is
-/// nothing meaningful to compare (too little track, or no library).
-pub fn library_similarity(pieces: &[u16]) -> Option<SimilarityReport> {
+/// Scores `pieces` against the stock design library. Pass an already-loaded
+/// `library` to skip the (slow) rescan of every .TD6 file; None loads fresh.
+/// Returns None when there is nothing meaningful to compare (too little
+/// track, or no library).
+pub fn library_similarity(
+    pieces: &[u16],
+    library: Option<&[LibraryDesign]>,
+) -> Option<SimilarityReport> {
     if pieces.len() < MIN_PIECES_FOR_SIMILARITY {
         return None;
     }
-    match library::load() {
-        Ok(designs) => similarity::best_match(pieces, &designs, host::track_mirror),
-        Err(e) => {
-            host::log(&format!("orct2-agent: similarity check skipped: {e}"));
-            None
-        }
+    match library {
+        Some(designs) => similarity::best_match(pieces, designs, host::track_mirror),
+        None => match library::load() {
+            Ok(designs) => similarity::best_match(pieces, &designs, host::track_mirror),
+            Err(e) => {
+                host::log(&format!("orct2-agent: similarity check skipped: {e}"));
+                None
+            }
+        },
     }
 }
 
 /// Collects every non-stall ride's detail into a report. `only_ride` narrows
 /// to the program's ride so pre-existing park rides don't drown the signal.
 /// `agent_pieces` is the built track for the similarity check; when None it
-/// falls back to the program outcome's placed pieces.
+/// falls back to the program outcome's placed pieces. `library` is an
+/// optional pre-loaded design library (see library_similarity).
 pub fn build(
     program: Option<ProgramOutcome>,
     only_ride: Option<u16>,
     agent_pieces: Option<&[u16]>,
+    library: Option<&[LibraryDesign]>,
 ) -> EvalReport {
     let similarity = match (agent_pieces, program.as_ref()) {
-        (Some(pieces), _) => library_similarity(pieces),
-        (None, Some(outcome)) => library_similarity(&outcome.placed_types),
+        (Some(pieces), _) => library_similarity(pieces, library),
+        (None, Some(outcome)) => library_similarity(&outcome.placed_types, library),
         (None, None) => None,
     };
     let mut rides = Vec::new();

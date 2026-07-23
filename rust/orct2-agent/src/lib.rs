@@ -82,7 +82,7 @@ pub unsafe extern "C" fn orct2_agent_eval_finish(
     };
 
     let only_ride = outcome.as_ref().and_then(|o| o.ride_id);
-    let eval_report = report::build(outcome, only_ride, None);
+    let eval_report = report::build(outcome, only_ride, None, None);
 
     let Some(path) = read_c_path(out_path) else {
         host::log("orct2-agent: no report path given, skipping report");

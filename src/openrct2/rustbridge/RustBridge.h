@@ -41,6 +41,11 @@ namespace OpenRCT2::RustBridge
     // Writes the stock track design library as JSON for the eval driver's
     // library mode. Returns 0 on success.
     int32_t DumpLibrary(const char* path);
+
+    // Renders a preview PNG (370x217, rotation 0) of every stock track design
+    // into outDir, named after the design. Needs a park loaded (the preview
+    // renderer stashes and restores the live map). Returns 0 on success.
+    int32_t RenderTrackLibrary(const char* outDir);
 } // namespace OpenRCT2::RustBridge
 
 #endif // ENABLE_RUST_AGENT

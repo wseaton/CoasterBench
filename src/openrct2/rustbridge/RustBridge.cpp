@@ -24,8 +24,11 @@
     #include "../actions/ride/RideSetStatusAction.h"
     #include "../actions/track/TrackPlaceAction.h"
     #include "../actions/track/TrackRemoveAction.h"
+    #include "../drawing/Drawing.h"
+    #include "../OpenRCT2.h"
     #include "../core/Console.hpp"
     #include "../core/FileScanner.h"
+    #include "../core/Imaging.h"
     #include "../core/Json.hpp"
     #include "../core/Path.hpp"
     #include "../core/String.hpp"
@@ -44,6 +47,8 @@
     #include "../world/Map.h"
     #include "orct2_agent.h"
 
+    #include <algorithm>
+    #include <cctype>
     #include <cstdlib>
     #include <cstring>
 
@@ -249,6 +254,34 @@ namespace
             }
         }
         return kObjectEntryIndexNull;
+    }
+
+    // Iterates every importable track design in the same directories the
+    // game's own track design index scans. Skips mazes (no track elements).
+    template<typename TCallback>
+    void ForEachLibraryDesign(TCallback&& callback)
+    {
+        auto& env = GetContext()->GetPlatformEnvironment();
+        for (auto base : { DirBase::rct1, DirBase::rct2, DirBase::user })
+        {
+            auto directory = env.GetDirectoryPath(base, DirId::trackDesigns);
+            if (directory.empty())
+            {
+                continue;
+            }
+            auto pattern = Path::Combine(directory, u8"*.td4;*.td6;*.td7");
+            auto scanner = Path::ScanDirectory(pattern, true);
+            while (scanner->Next())
+            {
+                const auto& path = scanner->GetPath();
+                auto td = TrackDesignImport(path.c_str());
+                if (td == nullptr || td->trackElements.empty())
+                {
+                    continue;
+                }
+                callback(GetNameFromTrackPath(path), *td);
+            }
+        }
     }
 } // namespace
 
@@ -562,37 +595,19 @@ char* orct2_host_track_library_json(void)
 {
     try
     {
-        auto& env = GetContext()->GetPlatformEnvironment();
         json_t library = json_t::array();
-        for (auto base : { DirBase::rct1, DirBase::rct2, DirBase::user })
-        {
-            auto directory = env.GetDirectoryPath(base, DirId::trackDesigns);
-            if (directory.empty())
+        ForEachLibraryDesign([&library](const std::string& name, const TrackDesign& td) {
+            json_t pieces = json_t::array();
+            for (const auto& element : td.trackElements)
             {
-                continue;
+                pieces.push_back(static_cast<uint16_t>(element.type));
             }
-            auto pattern = Path::Combine(directory, u8"*.td4;*.td6;*.td7");
-            auto scanner = Path::ScanDirectory(pattern, true);
-            while (scanner->Next())
-            {
-                const auto& path = scanner->GetPath();
-                auto td = TrackDesignImport(path.c_str());
-                if (td == nullptr || td->trackElements.empty())
-                {
-                    continue;
-                }
-                json_t pieces = json_t::array();
-                for (const auto& element : td->trackElements)
-                {
-                    pieces.push_back(static_cast<uint16_t>(element.type));
-                }
-                json_t entry;
-                entry["name"] = GetNameFromTrackPath(path);
-                entry["ride_type"] = static_cast<uint16_t>(td->trackAndVehicle.rtdIndex);
-                entry["pieces"] = std::move(pieces);
-                library.push_back(std::move(entry));
-            }
-        }
+            json_t entry;
+            entry["name"] = name;
+            entry["ride_type"] = static_cast<uint16_t>(td.trackAndVehicle.rtdIndex);
+            entry["pieces"] = std::move(pieces);
+            library.push_back(std::move(entry));
+        });
         auto dumped = library.dump();
         auto* out = static_cast<char*>(std::malloc(dumped.size() + 1));
         if (out == nullptr)
@@ -711,6 +726,87 @@ namespace OpenRCT2::RustBridge
     int32_t DumpLibrary(const char* path)
     {
         return orct2_agent_dump_library(path);
+    }
+
+    int32_t RenderTrackLibrary(const char* outDir)
+    {
+        // Same rule as evals/site.py sanitise_name(): [^A-Za-z0-9._-] -> '_'.
+        auto sanitise = [](const std::string& name) {
+            std::string out = name;
+            for (auto& c : out)
+            {
+                auto uc = static_cast<unsigned char>(c);
+                if (!(std::isalnum(uc) || c == '.' || c == '_' || c == '-'))
+                {
+                    c = '_';
+                }
+            }
+            return out;
+        };
+
+        constexpr uint32_t kPreviewWidth = 370;
+        constexpr uint32_t kPreviewHeight = 217;
+        static_assert(kPreviewWidth * kPreviewHeight == kTrackPreviewImageSize);
+
+        try
+        {
+            u8string out{ outDir };
+            if (!Path::CreateDirectory(out))
+            {
+                LOG_ERROR("could not create %s", out.c_str());
+                return 1;
+            }
+
+            // TrackDesignDrawPreview only auto-loads the design's vehicle and
+            // scenery objects in the track designs manager scene; flip it for
+            // the duration of the render loop.
+            auto previousScene = gLegacyScene;
+            gLegacyScene = LegacyScene::trackDesignsManager;
+
+            size_t rendered = 0;
+            size_t failed = 0;
+            // 4 rotations x 370x217 = ~321 KiB; too big for the stack.
+            auto pixels = std::make_unique<TrackDesignPreviewBuffer>();
+            ForEachLibraryDesign([&](const std::string& name, TrackDesign& td) {
+                TrackDesignDrawPreview(td, *pixels, true /*placeScenery*/);
+                // Placement failure leaves the buffer fully transparent.
+                auto begin = pixels->begin();
+                auto end = begin + kTrackPreviewImageSize;
+                if (std::all_of(begin, end, [](Drawing::PaletteIndex p) { return p == Drawing::PaletteIndex::transparent; }))
+                {
+                    LOG_WARNING("track preview failed for %s", name.c_str());
+                    failed++;
+                    return;
+                }
+                // Rotation 0 is the first 370x217 slice of the buffer.
+                Image image;
+                image.Width = kPreviewWidth;
+                image.Height = kPreviewHeight;
+                image.Depth = 8;
+                image.Stride = kPreviewWidth;
+                image.Palette = gPalette;
+                auto* bytes = reinterpret_cast<const uint8_t*>(pixels->data());
+                image.Pixels = std::vector<uint8_t>(bytes, bytes + kTrackPreviewImageSize);
+                auto path = Path::Combine(out, sanitise(name) + ".png");
+                // Duplicate design names exist (two stock "Goliath"s); first
+                // wins, matching get_track_design's first-match lookup.
+                if (fs::exists(fs::u8path(path)))
+                {
+                    return;
+                }
+                Imaging::WriteToFile(path, image, ImageFormat::png);
+                rendered++;
+            });
+
+            gLegacyScene = previousScene;
+            Console::WriteLine("orct2-agent: rendered %zu track design preview(s), %zu failed", rendered, failed);
+            return 0;
+        }
+        catch (const std::exception& e)
+        {
+            LOG_ERROR("track library render failed: %s", e.what());
+            return 1;
+        }
     }
 } // namespace OpenRCT2::RustBridge
 

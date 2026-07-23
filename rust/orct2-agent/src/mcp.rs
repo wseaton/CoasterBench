@@ -438,8 +438,15 @@ fn call_tool(name: &str, args: &Value, session: &mut Session) -> Result<Vec<Valu
         }
         "finish_and_test" => {
             let ticks = arg_i64(args, "ticks").unwrap_or(25000).clamp(1, 200_000) as u32;
-            let build = session
-                .build
+            // Disjoint field borrows: the cached library (shared with the
+            // search tools) is read while the build is mutated, so every
+            // finish_and_test doesn't re-import all 200+ .TD6 files.
+            let Session { build, library } = session;
+            if library.is_none() {
+                *library = library::load().ok();
+            }
+            let library = library.as_deref();
+            let build = build
                 .as_mut()
                 .ok_or("no active ride; call new_ride first")?;
             if !build.finalized {
@@ -457,7 +464,7 @@ fn call_tool(name: &str, args: &Value, session: &mut Session) -> Result<Vec<Valu
             host::update_ratings(build.ride_id);
             let ride_id = build.ride_id;
             let placed: Vec<u16> = build.placed.iter().map(|p| p.track_type).collect();
-            let eval_report = report::build(None, Some(ride_id), Some(&placed));
+            let eval_report = report::build(None, Some(ride_id), Some(&placed), library);
             serde_json::to_value(&eval_report)
                 .map(text_content)
                 .map_err(|e| format!("report serialise: {e}"))
