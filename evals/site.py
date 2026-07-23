@@ -37,10 +37,12 @@ CSS = """
   --titlebar-text: #f5e6c8;
   --ink: #2a2015;
   --ink-soft: #55462e;
-  --excitement: #1d7038;
-  --intensity: #b0480f;
-  --nausea: #a3357e;
-  --fail: #8c1f1f;
+  --excitement: #124a26;
+  --intensity: #6b2807;
+  --nausea: #6d2255;
+  --fail: #701818;
+  --excitement-mark: #24824a;
+  --intensity-mark: #96420f;
   --gold: #d9a520;
 }
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -148,6 +150,10 @@ tr.winner td { background: rgba(217,165,32,.25); }
   box-shadow: 3px 3px 0 rgba(0,0,0,.3);
 }
 .stats { display: flex; flex-wrap: wrap; gap: .3rem 1.4rem; font-size: .85rem; }
+.chart { margin-bottom: 1rem; }
+.chart svg { display: block; width: 100%; height: auto; }
+.chart-legend { display: flex; gap: 1.2rem; font-size: .75rem; margin-bottom: .2rem; }
+.chart-legend .chip { display: inline-block; width: 10px; height: 10px; margin-right: .35rem; }
 details { margin-top: .7rem; font-size: .8rem; }
 summary { cursor: pointer; font-family: "JetBrains Mono", monospace;
   font-weight: 700; font-size: .7rem; }
@@ -330,6 +336,112 @@ def standings_table(run: EvalRun) -> str:
     )
 
 
+def round_chart(model: ModelRun) -> str:
+    """Inline SVG of excitement/intensity per round, failed builds marked."""
+    rounds = model.rounds
+    if len(rounds) < 2:
+        return ""
+    width, height = 640, 200
+    left, right, top, bottom = 36, 12, 16, 26
+    plot_w, plot_h = width - left - right, height - top - bottom
+    y_max = 16.0
+
+    def x_of(i: int) -> float:
+        return left + plot_w * (i / max(1, len(rounds) - 1))
+
+    def y_of(value: float) -> float:
+        return top + plot_h * (1 - min(value, y_max) / y_max)
+
+    parts: list[str] = []
+    for gy in (0, 5, 15):
+        parts.append(
+            f'<line x1="{left}" y1="{y_of(gy):.1f}" x2="{width - right}" y2="{y_of(gy):.1f}" '
+            'stroke="var(--panel-deep)" stroke-width="1"/>'
+        )
+        parts.append(
+            f'<text x="{left - 6}" y="{y_of(gy) + 4:.1f}" text-anchor="end" font-size="10" '
+            f'fill="var(--ink-soft)">{gy}</text>'
+        )
+    # The intensity ceiling is the story; draw it as a labeled dashed line.
+    parts.append(
+        f'<line x1="{left}" y1="{y_of(10):.1f}" x2="{width - right}" y2="{y_of(10):.1f}" '
+        'stroke="var(--ink-soft)" stroke-width="1" stroke-dasharray="5 4"/>'
+    )
+    parts.append(
+        f'<text x="{width - right}" y="{y_of(10) - 5:.1f}" text-anchor="end" font-size="10" '
+        'fill="var(--ink-soft)">intensity ceiling 10</text>'
+    )
+
+    series = [
+        ("excitement", "var(--excitement-mark)", [(r, r.ride.get("excitement") if r.ride else None) for r in rounds]),
+        ("intensity", "var(--intensity-mark)", [(r, r.ride.get("intensity") if r.ride else None) for r in rounds]),
+    ]
+    best = model.best
+    for name, colour, points in series:
+        run: list[str] = []
+        for i, (_, value) in enumerate(points):
+            if value is None:
+                if len(run) > 1:
+                    parts.append(
+                        f'<polyline points="{" ".join(run)}" fill="none" stroke="{colour}" stroke-width="2"/>'
+                    )
+                run = []
+            else:
+                run.append(f"{x_of(i):.1f},{y_of(value):.1f}")
+        if len(run) > 1:
+            parts.append(f'<polyline points="{" ".join(run)}" fill="none" stroke="{colour}" stroke-width="2"/>')
+        for i, (rnd, value) in enumerate(points):
+            if value is None:
+                continue
+            cx, cy = x_of(i), y_of(value)
+            title = f"<title>round {rnd.number}: {name} {value:.2f}</title>"
+            if name == "excitement":
+                parts.append(
+                    f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="5" fill="{colour}" '
+                    f'stroke="var(--panel-dark)" stroke-width="2">{title}</circle>'
+                )
+                if best is not None and rnd.number == best.number:
+                    parts.append(
+                        f'<text x="{cx - 9:.1f}" y="{cy - 9:.1f}" text-anchor="end" font-size="11" '
+                        f'font-weight="600" fill="var(--ink)">{value:.2f}</text>'
+                    )
+            else:
+                parts.append(
+                    f'<rect x="{cx - 4:.1f}" y="{cy - 4:.1f}" width="8" height="8" fill="{colour}" '
+                    f'stroke="var(--panel-dark)" stroke-width="2">{title}</rect>'
+                )
+
+    for i, rnd in enumerate(rounds):
+        cx = x_of(i)
+        if rnd.build_error is not None:
+            parts.append(
+                f'<text x="{cx:.1f}" y="{y_of(0) + 4:.1f}" text-anchor="middle" font-size="13" '
+                f'font-weight="600" fill="var(--fail)">&#215;<title>round {rnd.number}: {esc(rnd.build_error)}</title></text>'
+            )
+        elif rnd.ride is None:
+            parts.append(
+                f'<circle cx="{cx:.1f}" cy="{y_of(0):.1f}" r="4" fill="none" stroke="var(--ink-soft)" '
+                f'stroke-width="2"><title>round {rnd.number}: built but not rated (test never completed)</title></circle>'
+            )
+        parts.append(
+            f'<text x="{cx:.1f}" y="{height - 8}" text-anchor="middle" font-size="10" '
+            f'fill="var(--ink-soft)">R{rnd.number}</text>'
+        )
+
+    legend = (
+        '<div class="chart-legend">'
+        '<span><span class="chip" style="background:var(--excitement-mark);border-radius:50%"></span>excitement</span>'
+        '<span><span class="chip" style="background:var(--intensity-mark)"></span>intensity</span>'
+        f'<span><span class="chip" style="background:none;color:var(--fail)">&#215;</span>build failed</span>'
+        "</div>"
+    )
+    svg = (
+        f'<svg viewBox="0 0 {width} {height}" role="img" '
+        f'aria-label="excitement and intensity per round for {esc(model.model)}">{"".join(parts)}</svg>'
+    )
+    return f'<div class="chart">{legend}{svg}</div>'
+
+
 def round_block(model: ModelRun, rnd: Round, asset: str | None) -> str:
     parts = [f"<h3>Round {rnd.number}</h3>"]
     error = rnd.build_error
@@ -386,7 +498,7 @@ def build_site(runs: list[EvalRun], out: Path) -> None:
                     shutil.copyfile(rnd.screenshot, dest)
                     asset = rel.as_posix()
                 blocks.append(round_block(model, rnd, asset))
-            body.append(window(model.model, "".join(blocks)))
+            body.append(window(model.model, round_chart(model) + "".join(blocks)))
         body.append('<p class="backlink"><a href="index.html">&larr; all runs</a></p>')
         (out / f"run-{run.name}.html").write_text(
             page(f"Coaster Evals — {run.name}", f"RUN {run.name}", "".join(body))
