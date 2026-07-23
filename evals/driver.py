@@ -8,9 +8,16 @@ Each round the model submits a JSON track program (via forced tool use); the
 harness runs `openrct2-cli eval` on a fresh copy of the scenario, then feeds
 back the eval report and a park screenshot. Best excitement across rounds wins.
 
+Two modes:
+  design  (default) — the model designs from scratch; pure design ability.
+  library — the model can additionally search the stock RCT2 track design
+            library and read full piece sequences; tests information retrieval
+            and adaptation. Scores are penalized for similarity to any stock
+            design (mirrored copies included), so copying outright scores zero.
+
 Usage (first-party API):
   ANTHROPIC_API_KEY=... uv run evals/driver.py \
-      --models claude-fable-5 claude-sonnet-5 --rounds 4
+      --models claude-fable-5 claude-sonnet-5 --rounds 4 --mode library
 
 Usage (Google Vertex AI; auth via `gcloud auth application-default login`):
   uv run evals/driver.py --vertex --project my-gcp-project \
@@ -81,6 +88,8 @@ The game engine builds it piece by piece, tests it with a real train, and rates 
 ## Scoring (from the real game engine)
 Excitement is primary (higher wins). It rewards: drops, speed, airtime, direction changes, banked turns, length. Intensity above ~10 tanks excitement (guests won't ride); keep intensity under 10.00. Crashes disqualify.
 
+Your track is also compared against the stock RCT2 track design library (mirrored variants included). Similarity up to 0.5 is free; above that your excitement is scaled down linearly, reaching zero for an exact copy. Design something original; reproducing a stock coaster from memory scores nothing.
+
 ## Piece catalog
 {PIECE_CATALOG}
 
@@ -88,6 +97,34 @@ Excitement is primary (higher wins). It rewards: drops, speed, airtime, directio
 Flat grass around tile (60, 60); a lake sits near map centre roughly tiles (68-85, 55-75) — do NOT build into it. Stay within tiles 20-120. Directions: dir 0 faces -x, dir 1 faces +y, dir 2 faces +x, dir 3 faces -y.
 
 Submit via the submit_track_program tool. After each attempt you get the eval report (placement errors with exact piece index, or ride stats) and a park screenshot. Iterate and maximise excitement."""
+
+LIBRARY_PROMPT = """
+
+## Track design library
+You can browse the stock RCT2 track design library before submitting:
+- search_track_designs lists designs (name, ride type, piece count); pass ride_type 52 for wooden coasters.
+- get_track_design returns a design's full piece sequence in the same format you submit.
+Use them to study proven layouts, then design your own. The similarity penalty applies to these exact designs, so copying (or mirroring) one scores zero; the winning move is understanding why they work and building something original with that knowledge."""
+
+LIBRARY_TOOLS = [
+    {
+        "name": "search_track_designs",
+        "description": "List the stock track design library, optionally filtered by ride type. Returns name, ride type, and piece count per design.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"ride_type": {"type": "integer"}},
+        },
+    },
+    {
+        "name": "get_track_design",
+        "description": "Full piece sequence of one stock library design, in the same format submit_track_program accepts.",
+        "input_schema": {
+            "type": "object",
+            "required": ["name"],
+            "properties": {"name": {"type": "string"}},
+        },
+    },
+]
 
 TOOL = {
     "name": "submit_track_program",
@@ -125,6 +162,17 @@ TOOL = {
 }
 
 
+# Similarity below this is free; above it the score scales linearly to zero
+# at 1.0 (an exact copy of a stock design).
+SIMILARITY_GRACE = 0.5
+
+
+def similarity_multiplier(similarity: float) -> float:
+    if similarity <= SIMILARITY_GRACE:
+        return 1.0
+    return max(0.0, (1.0 - similarity) / (1.0 - SIMILARITY_GRACE))
+
+
 @dataclass
 class Attempt:
     round: int
@@ -133,11 +181,21 @@ class Attempt:
     screenshot: Path | None
 
     @property
-    def excitement(self) -> float:
+    def raw_excitement(self) -> float:
         for ride in self.report.get("rides", []):
             if ride.get("excitement") is not None:
                 return ride["excitement"]
         return 0.0
+
+    @property
+    def similarity(self) -> float:
+        sim = self.report.get("similarity") or {}
+        return sim.get("similarity", 0.0)
+
+    @property
+    def excitement(self) -> float:
+        """Raw excitement scaled down for copying a stock library design."""
+        return self.raw_excitement * similarity_multiplier(self.similarity)
 
     @property
     def summary(self) -> str:
@@ -153,11 +211,17 @@ class Attempt:
         if not rides:
             return "built but no ride data"
         r = rides[0]
-        return (
+        text = (
             f"excitement={r.get('excitement')} intensity={r.get('intensity')} nausea={r.get('nausea')} "
             f"tested={r.get('tested')} crashed={r.get('crashed')} length={r.get('ride_length')} "
             f"drops={r.get('num_drops')} airtime={r.get('total_air_time')}"
         )
+        sim = self.report.get("similarity") or {}
+        if sim:
+            text += f" similarity={sim.get('similarity', 0.0):.2f} (nearest: {sim.get('nearest_design')})"
+        if similarity_multiplier(self.similarity) < 1.0:
+            text += f" -> penalized excitement {self.excitement:.2f}"
+        return text
 
 
 @dataclass
@@ -199,6 +263,43 @@ def run_eval(program: dict, scenario: Path, workdir: Path, ticks: int) -> tuple[
     return report, shot
 
 
+def dump_library(scenario: Path, run_dir: Path) -> list[dict]:
+    """Exports the stock design library via the CLI (library mode only)."""
+    out = run_dir / "library.json"
+    cmd = [
+        str(CLI), "eval", str(scenario),
+        "--rct2-data-path", str(RCT2_DATA),
+        "--dump-library", str(out),
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+    if not out.exists():
+        raise RuntimeError(f"library dump failed: {proc.stderr[-500:]}")
+    return json.loads(out.read_text())
+
+
+# In library mode the model may look designs up before submitting; cap the
+# lookups per round so a browsing spree cannot stall the eval.
+MAX_LOOKUPS_PER_ROUND = 6
+
+
+def library_tool_result(name: str, tool_input: dict, library: list[dict]) -> str:
+    if name == "search_track_designs":
+        ride_type = tool_input.get("ride_type")
+        designs = [
+            {"name": d["name"], "ride_type": d["ride_type"], "piece_count": d["piece_count"]}
+            for d in library
+            if ride_type is None or d["ride_type"] == ride_type
+        ]
+        return json.dumps(
+            {"designs": designs, "note": "final score is penalized for similarity to any of these designs"}
+        )
+    target = tool_input.get("name", "")
+    for d in library:
+        if d["name"].lower() == target.lower():
+            return json.dumps({k: d[k] for k in ("name", "ride_type", "piece_count", "pieces")})
+    return json.dumps({"error": f"no such design: {target}"})
+
+
 def feedback_content(attempt: Attempt) -> list[dict]:
     content: list[dict] = [
         {
@@ -231,22 +332,47 @@ def compete(
     scenario: Path,
     run_dir: Path,
     ticks: int,
+    library: list[dict] | None = None,
 ) -> Contender:
     contender = Contender(model=model)
+    system_prompt = SYSTEM_PROMPT + (LIBRARY_PROMPT if library is not None else "")
+    tools = [TOOL] + (LIBRARY_TOOLS if library is not None else [])
     messages: list[dict] = [
         {"role": "user", "content": "Design your best wooden coaster (ride_type 52). Submit your first track program."}
     ]
     for rnd in range(1, rounds + 1):
-        response = client.messages.create(
-            model=model,
-            max_tokens=8000,
-            system=SYSTEM_PROMPT,
-            messages=messages,
-            tools=[TOOL],
-            tool_choice={"type": "tool", "name": "submit_track_program"},
-        )
-        tool_use = next(b for b in response.content if b.type == "tool_use")
-        program = tool_use.input
+        # In library mode the model may browse designs first; the last step
+        # forces a submission so every round produces an attempt.
+        program = None
+        tool_use = None
+        for step in range(MAX_LOOKUPS_PER_ROUND + 1):
+            force_submit = library is None or step == MAX_LOOKUPS_PER_ROUND
+            response = client.messages.create(
+                model=model,
+                max_tokens=8000,
+                system=system_prompt,
+                messages=messages,
+                tools=tools,
+                tool_choice=(
+                    {"type": "tool", "name": "submit_track_program"} if force_submit else {"type": "any"}
+                ),
+            )
+            tool_use = next(b for b in response.content if b.type == "tool_use")
+            messages.append({"role": "assistant", "content": response.content})
+            if tool_use.name == "submit_track_program":
+                program = tool_use.input
+                break
+            print(f"  [{model}] round {rnd}: {tool_use.name}({json.dumps(tool_use.input)})", flush=True)
+            result = library_tool_result(tool_use.name, tool_use.input, library or [])
+            messages.append(
+                {
+                    "role": "user",
+                    "content": [{"type": "tool_result", "tool_use_id": tool_use.id, "content": result}],
+                }
+            )
+        if program is None or tool_use is None:
+            # Unreachable: the final loop step forces submit_track_program.
+            raise RuntimeError(f"{model} never submitted a program in round {rnd}")
         print(f"  [{model}] round {rnd}: {len(program.get('pieces', []))} pieces submitted", flush=True)
 
         report, shot = run_eval(program, scenario, run_dir / model.replace("/", "_") / f"round_{rnd}", ticks)
@@ -254,7 +380,6 @@ def compete(
         contender.attempts.append(attempt)
         print(f"  [{model}] round {rnd}: {attempt.summary}", flush=True)
 
-        messages.append({"role": "assistant", "content": response.content})
         messages.append(
             {
                 "role": "user",
@@ -269,6 +394,12 @@ def compete(
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--models", nargs="+", default=["claude-fable-5", "claude-sonnet-5"])
+    parser.add_argument(
+        "--mode",
+        choices=["design", "library"],
+        default="design",
+        help="design = from scratch; library = with track design library search (retrieval eval)",
+    )
     parser.add_argument("--rounds", type=int, default=4)
     parser.add_argument("--ticks", type=int, default=25000)
     parser.add_argument("--scenario", type=Path, default=DEFAULT_SCENARIO)
@@ -294,7 +425,25 @@ def main() -> int:
 
     run_dir = REPO / "evals" / "runs" / time.strftime("%Y%m%d-%H%M%S")
     run_dir.mkdir(parents=True)
-    print(f"run dir: {run_dir}")
+    print(f"run dir: {run_dir} (mode: {args.mode})")
+
+    library = None
+    if args.mode == "library":
+        library = dump_library(args.scenario, run_dir)
+        print(f"track design library: {len(library)} designs")
+
+    (run_dir / "run.json").write_text(
+        json.dumps(
+            {
+                "mode": args.mode,
+                "models": args.models,
+                "rounds": args.rounds,
+                "ticks": args.ticks,
+                "scenario": args.scenario.name,
+            },
+            indent=2,
+        )
+    )
 
     if args.vertex:
         # Auth is GCP application-default credentials, not an Anthropic key.
@@ -305,7 +454,8 @@ def main() -> int:
     else:
         client = anthropic.Anthropic()
     contenders = [
-        compete(client, model, args.rounds, args.scenario, run_dir, args.ticks) for model in args.models
+        compete(client, model, args.rounds, args.scenario, run_dir, args.ticks, library)
+        for model in args.models
     ]
 
     print("\n=== FINAL STANDINGS ===")
@@ -318,14 +468,19 @@ def main() -> int:
             print(f"{place}. {contender.model}: excitement {best.excitement:.2f} (round {best.round}) — {best.summary}")
     (run_dir / "standings.json").write_text(
         json.dumps(
-            [
-                {
-                    "model": c.model,
-                    "best_excitement": c.best.excitement if c.best else None,
-                    "attempts": [{"round": a.round, "summary": a.summary} for a in c.attempts],
-                }
-                for c in ranked
-            ],
+            {
+                "mode": args.mode,
+                "standings": [
+                    {
+                        "model": c.model,
+                        "best_excitement": c.best.excitement if c.best else None,
+                        "best_raw_excitement": c.best.raw_excitement if c.best else None,
+                        "best_similarity": c.best.similarity if c.best else None,
+                        "attempts": [{"round": a.round, "summary": a.summary} for a in c.attempts],
+                    }
+                    for c in ranked
+                ],
+            },
             indent=2,
         )
     )

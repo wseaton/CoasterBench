@@ -25,6 +25,9 @@
     #include "../actions/track/TrackPlaceAction.h"
     #include "../actions/track/TrackRemoveAction.h"
     #include "../core/Console.hpp"
+    #include "../core/FileScanner.h"
+    #include "../core/Json.hpp"
+    #include "../core/Path.hpp"
     #include "../core/String.hpp"
     #include "../interface/Screenshot.h"
     #include "../object/ObjectLimits.h"
@@ -34,9 +37,14 @@
     #include "../ride/RideManager.hpp"
     #include "../ride/RideRatings.h"
     #include "../ride/TrackData.h"
+    #include "../ride/TrackDesign.h"
+    #include "../ride/TrackDesignRepository.h"
     #include "../ride/ted/TrackElemType.h"
     #include "../world/Map.h"
     #include "orct2_agent.h"
+
+    #include <cstdlib>
+    #include <cstring>
 
 using namespace OpenRCT2;
 
@@ -393,6 +401,73 @@ void orct2_host_update_ratings(uint16_t ride_id)
     }
 }
 
+// Scans the same directories as the game's track design index and imports
+// every design into a JSON array of {name, ride_type, pieces}. The result is
+// malloc'd; the Rust side frees it via orct2_host_string_free. Maze designs
+// (no track elements) are skipped: there is nothing to compare.
+char* orct2_host_track_library_json(void)
+{
+    try
+    {
+        auto& env = GetContext()->GetPlatformEnvironment();
+        json_t library = json_t::array();
+        for (auto base : { DirBase::rct1, DirBase::rct2, DirBase::user })
+        {
+            auto directory = env.GetDirectoryPath(base, DirId::trackDesigns);
+            if (directory.empty())
+            {
+                continue;
+            }
+            auto pattern = Path::Combine(directory, u8"*.td4;*.td6;*.td7");
+            auto scanner = Path::ScanDirectory(pattern, true);
+            while (scanner->Next())
+            {
+                const auto& path = scanner->GetPath();
+                auto td = TrackDesignImport(path.c_str());
+                if (td == nullptr || td->trackElements.empty())
+                {
+                    continue;
+                }
+                json_t pieces = json_t::array();
+                for (const auto& element : td->trackElements)
+                {
+                    pieces.push_back(static_cast<uint16_t>(element.type));
+                }
+                json_t entry;
+                entry["name"] = GetNameFromTrackPath(path);
+                entry["ride_type"] = static_cast<uint16_t>(td->trackAndVehicle.rtdIndex);
+                entry["pieces"] = std::move(pieces);
+                library.push_back(std::move(entry));
+            }
+        }
+        auto dumped = library.dump();
+        auto* out = static_cast<char*>(std::malloc(dumped.size() + 1));
+        if (out == nullptr)
+        {
+            return nullptr;
+        }
+        std::memcpy(out, dumped.c_str(), dumped.size() + 1);
+        return out;
+    }
+    catch (const std::exception& e)
+    {
+        LOG_ERROR("track library scan failed: %s", e.what());
+        return nullptr;
+    }
+}
+
+void orct2_host_string_free(char* s)
+{
+    std::free(s);
+}
+
+uint16_t orct2_host_track_mirror(uint16_t track_type)
+{
+    const auto& ted = TrackMetadata::GetTrackElementDescriptor(static_cast<TrackElemType>(track_type));
+    auto mirror = ted.mirrorElement;
+    return mirror == TrackElemType::none ? track_type : static_cast<uint16_t>(mirror);
+}
+
 bool orct2_host_capture(const char* path, int32_t zoom, uint8_t rotation)
 {
     if (path == nullptr)
@@ -470,6 +545,11 @@ namespace OpenRCT2::RustBridge
     int32_t Serve(const char* bind, uint16_t port)
     {
         return orct2_agent_serve(bind, port);
+    }
+
+    int32_t DumpLibrary(const char* path)
+    {
+        return orct2_agent_dump_library(path);
     }
 } // namespace OpenRCT2::RustBridge
 

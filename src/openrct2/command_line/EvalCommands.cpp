@@ -35,6 +35,7 @@ namespace OpenRCT2
     static u8string _capturePath{};
     static int32_t _servePort = 0;
     static u8string _serveBind{};
+    static u8string _dumpLibraryPath{};
 
     // clang-format off
     static constexpr CommandLineOptionDefinition kEvalOptions[]
@@ -47,6 +48,7 @@ namespace OpenRCT2
         { CMDLINE_TYPE_STRING,  &_capturePath,          kNAC, "capture",            "write a giant park screenshot (PNG) to this path"       },
         { CMDLINE_TYPE_INTEGER, &_servePort,            kNAC, "serve",              "run the MCP server on this port instead of a batch eval" },
         { CMDLINE_TYPE_STRING,  &_serveBind,            kNAC, "serve-bind",         "MCP server bind address (default 127.0.0.1; use 0.0.0.0 for containers)" },
+        { CMDLINE_TYPE_STRING,  &_dumpLibraryPath,      kNAC, "dump-library",       "write the stock track design library as JSON to this path and exit"      },
         kOptionTableEnd
     };
 
@@ -91,6 +93,13 @@ namespace OpenRCT2
         {
             Console::Error::WriteLine("Context initialization failed.");
             return ExitCode::fail;
+        }
+
+        if (!_dumpLibraryPath.empty())
+        {
+            // Standalone mode: the library scan only needs the data paths, so
+            // skip park loading and simulation entirely.
+            return RustBridge::DumpLibrary(_dumpLibraryPath.c_str()) == 0 ? ExitCode::ok : ExitCode::fail;
         }
 
         if (!context->LoadParkFromFile(inputPath))

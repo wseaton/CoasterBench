@@ -82,6 +82,10 @@ pub struct ProgramOutcome {
     pub pieces_total: usize,
     pub total_cost: i64,
     pub error: Option<ProgramError>,
+    /// Track types actually placed, in order, for the similarity check. Not
+    /// serialised: the program JSON already spells out the pieces.
+    #[serde(skip)]
+    pub placed_types: Vec<u16>,
 }
 
 #[derive(Debug, Serialize)]
@@ -203,6 +207,7 @@ pub fn run(json: &str) -> ProgramOutcome {
             Ok(cost) => {
                 outcome.pieces_placed += 1;
                 outcome.total_cost += cost;
+                outcome.placed_types.push(track_type);
                 // TrackElemType 1-3 are the station pieces.
                 if (1..=3).contains(&track_type) {
                     station_tiles.push(piece_tile);

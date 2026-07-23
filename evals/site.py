@@ -158,6 +158,23 @@ summary { cursor: pointer; font-family: "JetBrains Mono", monospace;
 """
 
 
+# Mirror of the driver's copy penalty: similarity to a stock library design
+# up to 0.5 is free, then the score scales linearly to zero at 1.0.
+SIMILARITY_GRACE = 0.5
+
+
+def similarity_multiplier(similarity: float) -> float:
+    if similarity <= SIMILARITY_GRACE:
+        return 1.0
+    return max(0.0, (1.0 - similarity) / (1.0 - SIMILARITY_GRACE))
+
+
+MODE_TAGLINES = {
+    "design": "design mode — models design from scratch",
+    "library": "library mode — models may search the stock track design library; tests retrieval and adaptation, copies score zero",
+}
+
+
 @dataclass
 class Round:
     number: int
@@ -173,9 +190,17 @@ class Round:
         return None
 
     @property
+    def similarity(self) -> dict | None:
+        return self.report.get("similarity") or None
+
+    @property
     def excitement(self) -> float:
+        """Raw excitement scaled down for copying a stock library design."""
         ride = self.ride
-        return ride["excitement"] if ride else 0.0
+        if ride is None:
+            return 0.0
+        sim = (self.similarity or {}).get("similarity", 0.0)
+        return ride["excitement"] * similarity_multiplier(sim)
 
     @property
     def build_error(self) -> str | None:
@@ -204,6 +229,7 @@ class ModelRun:
 @dataclass
 class EvalRun:
     name: str
+    mode: str
     models: list[ModelRun]
 
     @property
@@ -247,7 +273,12 @@ def load_runs(runs_dir: Path) -> list[EvalRun]:
             if rounds:
                 models.append(ModelRun(model=model_dir.name, rounds=rounds))
         if models:
-            runs.append(EvalRun(name=run_dir.name, models=models))
+            # Mode lives in run.json (newer runs); older runs are design mode.
+            mode = "design"
+            meta_path = run_dir / "run.json"
+            if meta_path.is_file():
+                mode = json.loads(meta_path.read_text()).get("mode", "design")
+            runs.append(EvalRun(name=run_dir.name, mode=mode, models=models))
     return runs
 
 
@@ -280,16 +311,6 @@ def window(title: str, inner: str) -> str:
     )
 
 
-def rating_cells(ride: dict | None) -> str:
-    if ride is None:
-        return '<td colspan="3" class="dim">not rated</td>'
-    return (
-        f'<td class="rating-excitement">{ride["excitement"]:.2f}</td>'
-        f'<td class="rating-intensity">{ride["intensity"]:.2f}</td>'
-        f'<td class="rating-nausea">{ride["nausea"]:.2f}</td>'
-    )
-
-
 def how_it_works() -> str:
     diagram = """\
  model (tool_use)          openrct2-cli eval               feedback
@@ -318,15 +339,24 @@ def standings_table(run: EvalRun) -> str:
         cls = ' class="winner"' if place == 1 and best else ""
         if best:
             ride = best.ride or {}
-            cells = rating_cells(ride) + f"<td>round {best.number}/{len(model.rounds)}</td>"
+            sim = (best.similarity or {}).get("similarity")
+            sim_cell = f'<td class="dim">{sim:.2f}</td>' if sim is not None else '<td class="dim">&mdash;</td>'
+            cells = (
+                f'<td class="rating-excitement">{best.excitement:.2f}</td>'
+                f'<td class="rating-intensity">{ride.get("intensity", 0):.2f}</td>'
+                f'<td class="rating-nausea">{ride.get("nausea", 0):.2f}</td>'
+                f"{sim_cell}<td>round {best.number}/{len(model.rounds)}</td>"
+            )
         else:
-            cells = '<td colspan="4" class="fail">no successful coaster</td>'
+            cells = '<td colspan="5" class="fail">no successful coaster</td>'
         rows.append(
             f'<tr{cls}><td class="medal">{medal}</td><td>{esc(model.model)}</td>{cells}</tr>'
         )
     return (
-        "<table><tr><th></th><th>model</th><th>excitement</th><th>intensity</th>"
-        "<th>nausea</th><th>best</th></tr>" + "".join(rows) + "</table>"
+        "<table><tr><th></th><th>model</th><th>score</th><th>intensity</th>"
+        "<th>nausea</th><th>similarity</th><th>best</th></tr>" + "".join(rows) + "</table>"
+        '<p class="dim" style="margin-top:.5rem;font-size:.75rem">score = excitement, scaled down when '
+        "similarity to a stock library design exceeds 0.5 (an exact or mirrored copy scores 0)</p>"
     )
 
 
@@ -346,6 +376,11 @@ def round_block(model: ModelRun, rnd: Round, asset: str | None) -> str:
             f"<span>airtime {ride.get('total_air_time', 0)}</span>"
             f"<span>{'CRASHED' if ride.get('crashed') else 'tested ok'}</span>"
         )
+        sim = rnd.similarity
+        if sim:
+            stats += f"<span class=\"dim\">similarity {sim.get('similarity', 0.0):.2f} (nearest: {esc(sim.get('nearest_design'))})</span>"
+            if rnd.excitement < ride["excitement"]:
+                stats += f'<span class="fail">penalized score {rnd.excitement:.2f}</span>'
         parts.append(f'<div class="stats">{stats}</div>')
     elif not error:
         parts.append('<p class="dim">built, but the ride was never rated</p>')
@@ -364,17 +399,24 @@ def build_site(runs: list[EvalRun], out: Path) -> None:
     out.mkdir(parents=True, exist_ok=True)
 
     index_body = [how_it_works()]
-    for run in runs:
-        inner = standings_table(run) + (
-            f'<p style="margin-top:.8rem"><a href="run-{esc(run.name)}.html">full rounds, programs &amp; screenshots &rarr;</a></p>'
-        )
-        index_body.append(window(f"Run {run.name}", inner))
+    for mode in ("design", "library"):
+        mode_runs = [r for r in runs if r.mode == mode]
+        if not mode_runs:
+            continue
+        index_body.append(window(f"{mode.capitalize()} mode", f"<p>{esc(MODE_TAGLINES[mode])}</p>"))
+        for run in mode_runs:
+            inner = standings_table(run) + (
+                f'<p style="margin-top:.8rem"><a href="run-{esc(run.name)}.html">full rounds, programs &amp; screenshots &rarr;</a></p>'
+            )
+            index_body.append(window(f"Run {run.name}", inner))
     if not runs:
         index_body.append(window("No runs yet", "<p>Run <code>uv run evals/driver.py</code> to generate one.</p>"))
     (out / "index.html").write_text(page("Coaster Evals", "COASTER EVALS", "".join(index_body)))
 
     for run in runs:
-        body = [window("Standings", standings_table(run))]
+        body = [
+            window("Standings", f"<p class=\"dim\">{esc(MODE_TAGLINES.get(run.mode, run.mode))}</p>" + standings_table(run))
+        ]
         for model in run.ranked:
             blocks = []
             for rnd in model.rounds:
@@ -389,7 +431,7 @@ def build_site(runs: list[EvalRun], out: Path) -> None:
             body.append(window(model.model, "".join(blocks)))
         body.append('<p class="backlink"><a href="index.html">&larr; all runs</a></p>')
         (out / f"run-{run.name}.html").write_text(
-            page(f"Coaster Evals — {run.name}", f"RUN {run.name}", "".join(body))
+            page(f"Coaster Evals — {run.name}", f"RUN {run.name} ({run.mode})", "".join(body))
         )
 
 
