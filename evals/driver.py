@@ -67,6 +67,24 @@ Helices: left_helix_up_small, right_helix_up_small, left_helix_down_small, right
 Special: brakes, booster
 """
 
+# Competition ride types the prompt knows how to describe; other ids work but
+# get a generic description.
+RIDE_TYPES = {
+    51: ("steel twister coaster", "51 = steel twister roller coaster (inversions ALLOWED and rewarded)."),
+    52: ("wooden coaster", "52 = wooden roller coaster (no inversions)."),
+}
+
+
+def ride_type_info(ride_type: int) -> tuple[str, str]:
+    name, line = RIDE_TYPES.get(ride_type, (f"ride type {ride_type} coaster", f"{ride_type} = the required ride type."))
+    return name, line + " This is the required type for this competition."
+
+
+def build_system_prompt(ride_type: int) -> str:
+    _, ride_line = ride_type_info(ride_type)
+    return SYSTEM_PROMPT.replace("{RIDE_TYPE_LINE}", ride_line)
+
+
 SYSTEM_PROMPT = f"""You are competing to design the best RollerCoaster Tycoon 2 roller coaster.
 You submit a "track program": a ride type, a start tile, and an ordered list of track pieces.
 The game engine builds it piece by piece, tests it with a real train, and rates it.
@@ -83,7 +101,7 @@ The game engine builds it piece by piece, tests it with a real train, and rates 
 - The train coasts on gravity after the lift. If it stalls (too little energy for a hill), the test fails or takes forever. Drops give speed; friction bleeds it.
 
 ## Ride types
-52 = wooden roller coaster (no inversions). This is the required type for this competition.
+{{RIDE_TYPE_LINE}}
 
 ## Scoring (from the real game engine)
 Excitement is primary (higher wins). It rewards: drops, speed, airtime, direction changes, banked turns, length. Intensity above ~10 tanks excitement (guests won't ride); keep intensity under 10.00. Crashes disqualify.
@@ -102,7 +120,7 @@ LIBRARY_PROMPT = """
 
 ## Track design library
 You can browse the stock RCT2 track design library before submitting:
-- search_track_designs lists designs (name, ride type, piece count); pass ride_type 52 for wooden coasters.
+- search_track_designs lists designs (name, ride type, piece count); filter with the ride_type parameter.
 - get_track_design returns a design's full piece sequence in the same format you submit.
 Use them to study proven layouts, then design your own. The similarity penalty applies to these exact designs, so copying (or mirroring) one scores zero; the winning move is understanding why they work and building something original with that knowledge."""
 
@@ -397,13 +415,18 @@ def compete(
     scenario: Path,
     run_dir: Path,
     ticks: int,
+    ride_type: int,
     library: list[dict] | None = None,
 ) -> Contender:
     contender = Contender(model=model)
-    system_prompt = SYSTEM_PROMPT + (LIBRARY_PROMPT if library is not None else "")
+    ride_name, _ = ride_type_info(ride_type)
+    system_prompt = build_system_prompt(ride_type) + (LIBRARY_PROMPT if library is not None else "")
     tools = [TOOL] + (LIBRARY_TOOLS if library is not None else [])
     messages: list[dict] = [
-        {"role": "user", "content": "Design your best wooden coaster (ride_type 52). Submit your first track program."}
+        {
+            "role": "user",
+            "content": f"Design your best {ride_name} (ride_type {ride_type}). Submit your first track program.",
+        }
     ]
     for rnd in range(1, rounds + 1):
         # In library mode the model may browse designs first; the last step
@@ -440,6 +463,12 @@ def compete(
         if program is None or tool_use is None:
             # Unreachable: the final loop step forces submit_track_program.
             raise RuntimeError(f"{model} never submitted a program in round {rnd}")
+        if program.get("ride_type") != ride_type:
+            print(
+                f"  [{model}] round {rnd}: submitted ride_type {program.get('ride_type')}, forcing {ride_type}",
+                flush=True,
+            )
+            program["ride_type"] = ride_type
         print(f"  [{model}] round {rnd}: {len(program.get('pieces', []))} pieces submitted", flush=True)
 
         round_dir = run_dir / model.replace("/", "_") / f"round_{rnd}"
@@ -472,6 +501,12 @@ def main() -> int:
         help="design = from scratch; library = with track design library search (retrieval eval)",
     )
     parser.add_argument("--rounds", type=int, default=4)
+    parser.add_argument(
+        "--ride-type",
+        type=int,
+        default=52,
+        help="required coaster ride type for the competition (52 wooden, 51 steel twister)",
+    )
     parser.add_argument("--ticks", type=int, default=25000)
     parser.add_argument("--scenario", type=Path, default=DEFAULT_SCENARIO)
     parser.add_argument("--vertex", action="store_true", help="use Google Vertex AI instead of the first-party API")
@@ -511,6 +546,7 @@ def main() -> int:
                 "models": args.models,
                 "rounds": args.rounds,
                 "ticks": args.ticks,
+                "ride_type": args.ride_type,
                 "scenario": args.scenario.name,
                 # The site reads the penalty parameters from here; keep the
                 # driver the single source of truth for the scoring math.
@@ -529,7 +565,7 @@ def main() -> int:
     else:
         client = anthropic.Anthropic()
     contenders = [
-        compete(client, model, args.rounds, args.scenario, run_dir, args.ticks, library)
+        compete(client, model, args.rounds, args.scenario, run_dir, args.ticks, args.ride_type, library)
         for model in args.models
     ]
 

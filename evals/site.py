@@ -899,19 +899,38 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    runs = load_runs(args.runs)
+    all_runs = load_runs(args.runs)
+    runs = all_runs
     if not args.all:
         # load_runs returns newest-first; keep only the latest run per mode.
         newest: dict[str, str] = {}
-        runs = [r for r in runs if newest.setdefault(r.mode, r.name) == r.name]
+        runs = [r for r in all_runs if newest.setdefault(r.mode, r.name) == r.name]
     build_site(runs, args.out, args.runs, args.base_url)
+    # Superseded run pages have been shared as links; keep their URLs alive
+    # with a redirect to the current board for the same mode.
+    kept = {r.name for r in runs}
+    latest_by_mode = {r.mode: r.name for r in runs}
+    stubs = 0
+    for run in all_runs:
+        if run.name in kept:
+            continue
+        target = f"run-{latest_by_mode[run.mode]}.html" if run.mode in latest_by_mode else "index.html"
+        (args.out / f"run-{esc(run.name)}.html").write_text(
+            "<!doctype html><html><head><meta charset=\"utf-8\">"
+            f"<meta http-equiv=\"refresh\" content=\"0; url={target}\">"
+            f"<link rel=\"canonical\" href=\"{target}\">"
+            f"<title>Run {esc(run.name)} (superseded)</title></head>"
+            f"<body><p>Run {esc(run.name)} has been superseded. "
+            f"<a href=\"{target}\">Latest {esc(run.mode)} board &rarr;</a></p></body></html>"
+        )
+        stubs += 1
     if not args.base_url:
         print(
             "note: no --base-url given, og:image/og:url omitted (Slack unfurls will be text-only)",
             file=sys.stderr,
         )
     pages = 1 + len(runs)
-    print(f"wrote {pages} page(s) for {len(runs)} run(s) to {args.out}")
+    print(f"wrote {pages} page(s) for {len(runs)} run(s) (+{stubs} redirect stub(s)) to {args.out}")
     return 0
 
 
