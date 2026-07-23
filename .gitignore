@@ -14,6 +14,7 @@ artifacts
 rust/orct2-agent/target/
 evals/runs/
 evals/site/
+.claude/settings.local.json
 bin.*/
 .cache
 .dependencies
