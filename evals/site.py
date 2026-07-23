@@ -24,7 +24,7 @@ from pathlib import Path
 
 RUNS_DIR = Path(__file__).resolve().parent / "runs"
 
-FONTS = "https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&family=IBM+Plex+Mono:wght@400;600&display=swap"
+FONTS = "https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@700;800&family=IBM+Plex+Mono:wght@400;600&display=swap"
 
 CSS = """
 :root {
@@ -68,7 +68,8 @@ body {
 .titlebar {
   background: linear-gradient(180deg, #6f4a2e, var(--titlebar));
   color: var(--titlebar-text);
-  font-family: "Silkscreen", monospace;
+  font-family: "JetBrains Mono", monospace;
+  font-weight: 700;
   font-size: .85rem;
   letter-spacing: .04em;
   padding: .45rem .75rem;
@@ -87,7 +88,8 @@ body {
 .body { padding: 1rem 1.1rem 1.2rem; }
 
 h1 {
-  font-family: "Silkscreen", monospace;
+  font-family: "JetBrains Mono", monospace;
+  font-weight: 700;
   color: var(--titlebar-text);
   font-size: clamp(1.3rem, 4vw, 2.1rem);
   text-shadow: 3px 3px 0 rgba(0,0,0,.6);
@@ -95,7 +97,8 @@ h1 {
 }
 .tagline { color: #9db4c4; margin-bottom: 2rem; font-size: .9rem; }
 h2 {
-  font-family: "Silkscreen", monospace;
+  font-family: "JetBrains Mono", monospace;
+  font-weight: 700;
   font-size: 1rem;
   margin-bottom: .6rem;
 }
@@ -114,7 +117,8 @@ pre {
 
 table { width: 100%; border-collapse: collapse; font-size: .85rem; }
 th {
-  font-family: "Silkscreen", monospace;
+  font-family: "JetBrains Mono", monospace;
+  font-weight: 700;
   font-size: .68rem;
   text-align: left;
   color: var(--ink-soft);
@@ -125,7 +129,8 @@ td { padding: .45rem .5rem; border-bottom: 1px solid var(--panel-deep); vertical
 tr:last-child td { border-bottom: none; }
 tr.winner td { background: rgba(217,165,32,.25); }
 
-.medal { font-family: "Silkscreen", monospace; }
+.medal { font-family: "JetBrains Mono", monospace;
+  font-weight: 700; }
 .rating-excitement { color: var(--excitement); font-weight: 600; }
 .rating-intensity { color: var(--intensity); font-weight: 600; }
 .rating-nausea { color: var(--nausea); font-weight: 600; }
@@ -135,7 +140,8 @@ tr.winner td { background: rgba(217,165,32,.25); }
 .round { border: 2px solid var(--ink); background: var(--panel-dark);
   box-shadow: inset 2px 2px 0 rgba(255,255,255,.3), inset -2px -2px 0 rgba(0,0,0,.25);
   padding: .8rem .9rem; margin-bottom: 1rem; }
-.round h3 { font-family: "Silkscreen", monospace; font-size: .8rem; margin-bottom: .5rem; }
+.round h3 { font-family: "JetBrains Mono", monospace;
+  font-weight: 700; font-size: .8rem; margin-bottom: .5rem; }
 .round img {
   display: block; max-width: 100%; margin-top: .7rem;
   border: 2px solid var(--ink);
@@ -143,10 +149,12 @@ tr.winner td { background: rgba(217,165,32,.25); }
 }
 .stats { display: flex; flex-wrap: wrap; gap: .3rem 1.4rem; font-size: .85rem; }
 details { margin-top: .7rem; font-size: .8rem; }
-summary { cursor: pointer; font-family: "Silkscreen", monospace; font-size: .7rem; }
+summary { cursor: pointer; font-family: "JetBrains Mono", monospace;
+  font-weight: 700; font-size: .7rem; }
 .footer { color: #6c8394; font-size: .75rem; text-align: center; margin-top: 3rem; }
 .footer a { color: #9db4c4; }
-.backlink a { color: #9db4c4; font-family: "Silkscreen", monospace; font-size: .8rem; }
+.backlink a { color: #9db4c4; font-family: "JetBrains Mono", monospace;
+  font-weight: 700; font-size: .8rem; }
 """
 
 
