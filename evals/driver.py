@@ -60,13 +60,18 @@ Banking: flat_to_left_bank, flat_to_right_bank, left_bank_to_flat, right_bank_to
   left_bank_to_up_25, right_bank_to_up_25, up_25_to_left_bank, up_25_to_right_bank,
   left_bank_to_down_25, right_bank_to_down_25, down_25_to_left_bank, down_25_to_right_bank
 S-bends: s_bend_left, s_bend_right
-Inversions (steel types only; wooden does NOT support these). Entry/exit geometry is strict:
-  left_vertical_loop / right_vertical_loop: ENTER at a 25-up slope (place flat_to_up_25 first),
-    EXIT at a 25-down slope (follow with down_25 or down_25_to_flat). Needs lots of entry speed.
-  half_loop_up: enters at 25-up, exits flat but UPSIDE DOWN; must be followed immediately by
-    half_loop_down, which exits at a 25-down slope.
-  left_corkscrew_up / right_corkscrew_up: enter FLAT unbanked, exit upside down; follow immediately
-    with the mirrored corkscrew_down (left_corkscrew_up -> right_corkscrew_down and vice versa), which exits flat.
+Inversions (steel types only; wooden does NOT support these). Exact cursor geometry, measured in-game:
+  left_vertical_loop / right_vertical_loop: a COMPLETE loop in ONE piece. Enter at a 25-up slope
+    (flat_to_up_25 first), exit at a 25-down slope (follow with down_25 or down_25_to_flat).
+    Net cursor move: 2 tiles forward, 1 tile toward the named side, exit at the SAME height and heading
+    as entry. The go-to inversion; needs lots of entry speed.
+  left_corkscrew_up + right_corkscrew_down (or right_up + left_down): the standard corkscrew pair,
+    placed back-to-back. Enters FLAT unbanked. Net for the pair: 3 tiles forward, 3 tiles toward the
+    first piece's named side, same heading, same height. Do not put anything between the two pieces.
+  half_loop_up: climbs 152 z-units, REVERSES your heading, and ends upside down directly above its own
+    entry tile. WARNING: half_loop_down placed right after descends along the corridor you approached on
+    and collides with your own approach track. Either follow half_loop_up with a corkscrew_down (exits
+    sideways and rights the train), or just use a vertical_loop instead.
 Helices: left_helix_up_small, right_helix_up_small, left_helix_down_small, right_helix_down_small,
   left_helix_up_large, right_helix_up_large, left_helix_down_large, right_helix_down_large
 Special: brakes, booster
