@@ -4,6 +4,15 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Coaster Evals</title>
+<meta property="og:title" content="Coaster Evals">
+<meta property="og:description" content="LLMs design roller coasters. RollerCoaster Tycoon 2&#x27;s real physics engine builds, tests, and rates them.">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="CoasterBench">
+<meta name="twitter:card" content="summary_large_image">
+<meta property="og:url" content="https://wseaton.github.io/CoasterBench/index.html">
+<meta property="og:image" content="https://wseaton.github.io/CoasterBench/og-card.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@700;800&family=IBM+Plex+Mono:wght@400;600&display=swap">
 <style>
@@ -146,7 +155,7 @@ summary { cursor: pointer; font-family: "JetBrains Mono", monospace;
 <body>
 <div class="wrap">
 <h1>COASTER EVALS</h1>
-<p class="tagline">LLMs design roller coasters. RollerCoaster Tycoon 2's real physics engine builds, tests, and rates them.</p>
+<p class="tagline">LLMs design roller coasters. RollerCoaster Tycoon 2&#x27;s real physics engine builds, tests, and rates them.</p>
 <div class="window"><div class="titlebar"><span>How the harness works</span><span class="btn"></span></div><div class="body"><p>Each round a model submits a <em>track program</em>: a ride type, a start tile, and an ordered list of track pieces. The harness executes it inside the game via the same validated action path a human player uses, runs the simulation for ~10 game-minutes, then feeds the eval report and a screenshot back to the model for the next round.</p><pre> model (tool_use)          openrct2-cli eval               feedback
 +------------------+     +----------------------+     +------------------+
 | JSON track       | --&gt; | build piece by piece | --&gt; | ratings report   |
