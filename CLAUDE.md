@@ -81,7 +81,17 @@ Non-bundled binaries look for `data/` next to the exe. One-time setup:
   a completed test circuit (RideFlag::tested) before ratings compute.
 - Head-to-head driver: `uv run evals/driver.py` (needs ANTHROPIC_API_KEY, or
   `--vertex` with GCP ADC; project defaults from $ANTHROPIC_VERTEX_PROJECT_ID);
-  results under `evals/runs/<timestamp>/`.
+  results under `evals/runs/<timestamp>/`. Models get a validate_track_program
+  dry-run tool (placement + closure errors with a net-displacement hint) with
+  a shared per-round budget alongside library lookups.
+- Sub-lane orchestrator: `rust/coaster-bench` (own crate, not linked into the
+  game). Spawns the game MCP server, then one sandboxed Claude Code session
+  per model per round (OpenShell sandbox `coaster-sub`, personal-sub OAuth via
+  the `claude-sub` provider) building interactively through the MCP tools;
+  collects report/program/park.png per round into the same evals/runs layout.
+  `./rust/coaster-bench/target/release/coaster-bench --models claude-fable-5
+  --rounds 4 --ride-type 51 --name my-run`. Port must be in the sandbox
+  policy (default 8791).
 - Two driver modes (`--mode`, recorded in run.json + standings.json, separate
   leaderboard sections in the site): `design` (from scratch) and `library`
   (model can search the stock .TD6 library via extra tools; tests retrieval +

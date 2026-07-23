@@ -327,6 +327,7 @@ class EvalRun:
     grace: float
     models: list[ModelRun]
     ride_type: int = 52
+    harness: str = "driver-api"
 
     @property
     def ride_name(self) -> str:
@@ -415,6 +416,7 @@ def load_runs(runs_dir: Path) -> list[EvalRun]:
                     grace=grace,
                     models=models,
                     ride_type=meta.get("ride_type", 52),
+                    harness=meta.get("harness", "driver-api"),
                 )
             )
     return runs
@@ -478,6 +480,7 @@ document.addEventListener('click', function (e) {{
       var show = true;
       if (active.mode && row.dataset.mode !== active.mode) show = false;
       if (active.coaster && row.dataset.coaster !== active.coaster) show = false;
+      if (active.harness && row.dataset.harness !== active.harness) show = false;
       if (active.model && row.dataset.models.split(' ').indexOf(active.model) < 0) show = false;
       row.style.display = show ? '' : 'none';
     }});
@@ -860,11 +863,13 @@ def facet_buttons(facet: str, values: list[str]) -> str:
 def run_table(runs: list[EvalRun], out: Path) -> str:
     modes = sorted({r.mode for r in runs})
     rides = sorted({r.ride_name for r in runs})
+    harnesses = sorted({r.harness for r in runs})
     models = sorted({m.model for r in runs for m in r.models})
     filters = (
         '<div class="facets">'
         + facet_buttons("mode", modes)
         + facet_buttons("coaster", rides)
+        + facet_buttons("harness", harnesses)
         + facet_buttons("model", models)
         + "</div>"
     )
@@ -889,17 +894,19 @@ def run_table(runs: list[EvalRun], out: Path) -> str:
         )
         rows.append(
             f'<tr data-mode="{esc(run.mode)}" data-coaster="{esc(run.ride_name)}" '
+            f'data-harness="{esc(run.harness)}" '
             f'data-models="{esc(" ".join(m.model for m in run.models))}">'
             f"<td>{thumb_cell}</td>"
             f'<td><a href="{href}">{esc(run.name)}</a><br><span class="dim">{esc(run.date)}</span></td>'
             f"<td>{esc(run.mode)}</td>"
             f"<td>{esc(run.ride_name)}</td>"
+            f"<td>{esc(run.harness)}</td>"
             f'<td class="scores">{"<br>".join(scores)}</td>'
             f"<td>{winner_cell}</td></tr>"
         )
     table = (
         '<table class="run-table"><thead><tr>'
-        "<th></th><th>run</th><th>mode</th><th>coaster</th><th>standings</th><th>winner</th>"
+        "<th></th><th>run</th><th>mode</th><th>coaster</th><th>harness</th><th>standings</th><th>winner</th>"
         f'</tr></thead><tbody>{"".join(rows)}</tbody></table>'
     )
     return filters + table

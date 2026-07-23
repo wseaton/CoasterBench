@@ -640,6 +640,7 @@ def main() -> int:
         json.dumps(
             {
                 "mode": args.mode,
+                "harness": "driver-api",
                 "models": args.models,
                 "rounds": args.rounds,
                 "ticks": args.ticks,

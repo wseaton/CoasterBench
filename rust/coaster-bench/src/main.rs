@@ -1,0 +1,468 @@
+//! CoasterBench orchestrator: runs a head-to-head eval where each contender is
+//! a Claude Code session inside an OpenShell sandbox (personal-sub auth),
+//! building interactively against the game's MCP server on this host.
+//!
+//!   coaster-bench --models claude-fable-5 claude-sonnet-5 --rounds 4 \
+//!       --ride-type 51 --name sub-twister-1
+//!
+//! The game server is spawned as a child (openrct2-cli eval --serve) and the
+//! orchestrator collects per-round artifacts (report.json, program.json,
+//! park.png) in the same evals/runs/<name>/ layout driver.py produces, so
+//! site.py needs no changes.
+
+mod mcp;
+mod prompt;
+
+use std::path::{Path, PathBuf};
+use std::process::{Child, Command, Stdio};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+use clap::Parser;
+use serde_json::{json, Value};
+
+#[derive(Parser, Debug)]
+#[command(version, about)]
+struct Args {
+    /// Contender model ids, one Claude Code session per round each.
+    #[arg(long, num_args = 1.., default_values_t = vec!["claude-sonnet-5".to_string()])]
+    models: Vec<String>,
+
+    #[arg(long, default_value_t = 4)]
+    rounds: u32,
+
+    /// Competition ride type (51 steel twister, 52 wooden).
+    #[arg(long, default_value_t = 51)]
+    ride_type: u16,
+
+    /// Test simulation budget passed to finish_and_test.
+    #[arg(long, default_value_t = 25000)]
+    ticks: u32,
+
+    /// Run dir suffix: evals/runs/<yyyymmdd>-<name>.
+    #[arg(long)]
+    name: Option<String>,
+
+    /// OpenShell sandbox that runs Claude Code (must reach this host's MCP port).
+    #[arg(long, default_value = "coaster-sub")]
+    sandbox: String,
+
+    /// OpenShell sandbox for opencode contenders (OpenRouter lane).
+    #[arg(long, default_value = "coaster-or")]
+    opencode_sandbox: String,
+
+    /// MCP port; must be allowed by the sandbox policy.
+    #[arg(long, default_value_t = 8791)]
+    port: u16,
+
+    /// Max agentic turns per round session.
+    #[arg(long, default_value_t = 120)]
+    max_turns: u32,
+
+    #[arg(
+        long,
+        default_value = "~/rct2-assets/Scenarios/Build your own Six Flags Park.SC6"
+    )]
+    scenario: String,
+
+    #[arg(long, default_value = "~/rct2-assets")]
+    rct2_data: String,
+
+    /// Reuse an already-running MCP server instead of spawning one.
+    #[arg(long)]
+    attach: bool,
+}
+
+fn expand_home(path: &str) -> PathBuf {
+    if let Some(rest) = path.strip_prefix("~/") {
+        if let Some(home) = std::env::var_os("HOME") {
+            return PathBuf::from(home).join(rest);
+        }
+    }
+    PathBuf::from(path)
+}
+
+fn repo_root() -> PathBuf {
+    // target/{debug,release}/coaster-bench -> rust/coaster-bench -> repo
+    let exe = std::env::current_exe().unwrap_or_default();
+    exe.ancestors()
+        .find(|p| p.join("src/openrct2").is_dir())
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from("."))
+}
+
+struct GameServer {
+    child: Option<Child>,
+}
+
+impl GameServer {
+    fn spawn(args: &Args, root: &Path) -> Result<GameServer, String> {
+        let cli = root.join("build/openrct2-cli");
+        if !cli.is_file() {
+            return Err(format!("{} not built", cli.display()));
+        }
+        let child = Command::new(cli)
+            .arg("eval")
+            .arg(expand_home(&args.scenario))
+            .arg("--rct2-data-path")
+            .arg(expand_home(&args.rct2_data))
+            .arg("--serve")
+            .arg(args.port.to_string())
+            .arg("--serve-bind")
+            .arg("0.0.0.0")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|e| format!("spawn game server: {e}"))?;
+        Ok(GameServer { child: Some(child) })
+    }
+}
+
+impl Drop for GameServer {
+    fn drop(&mut self) {
+        if let Some(mut child) = self.child.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
+
+fn wait_for_server(client: &mut mcp::McpClient, budget: Duration) -> Result<(), String> {
+    let start = Instant::now();
+    loop {
+        match client.initialize() {
+            Ok(()) => return Ok(()),
+            Err(e) if start.elapsed() > budget => return Err(format!("server not ready: {e}")),
+            Err(_) => std::thread::sleep(Duration::from_millis(500)),
+        }
+    }
+}
+
+/// A contender: which agent harness runs it and the model id that harness
+/// understands. Spec syntax: bare name = Claude Code on the sub lane;
+/// "opencode:<provider/model>" = opencode in the OpenRouter sandbox.
+#[derive(Debug, Clone, PartialEq)]
+struct Contender {
+    harness: Harness,
+    model: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Harness {
+    ClaudeCode,
+    Opencode,
+}
+
+impl Harness {
+    fn name(self) -> &'static str {
+        match self {
+            Harness::ClaudeCode => "claude-code",
+            Harness::Opencode => "opencode",
+        }
+    }
+}
+
+impl Contender {
+    fn parse(spec: &str) -> Contender {
+        match spec.split_once(':') {
+            Some(("opencode", model)) => Contender {
+                harness: Harness::Opencode,
+                model: model.to_string(),
+            },
+            _ => Contender {
+                harness: Harness::ClaudeCode,
+                model: spec.to_string(),
+            },
+        }
+    }
+
+    /// Directory / display name: the model id, filesystem-safe.
+    fn display(&self) -> String {
+        self.model.replace('/', "_")
+    }
+}
+
+/// One agent session in the harness's sandbox. Success is judged by game
+/// state, not the transcript, so we only surface exit status and tail output.
+fn run_agent_session(args: &Args, contender: &Contender, prompt: &str) -> Result<(), String> {
+    let mut cmd = Command::new("openshell");
+    match contender.harness {
+        Harness::ClaudeCode => {
+            let mcp_config = json!({
+                "mcpServers": {
+                    "coaster": {"type": "http", "url": format!("http://host.containers.internal:{}/mcp", args.port)}
+                }
+            });
+            cmd.args(["sandbox", "exec", "-n", &args.sandbox, "--"])
+                .args(["claude", "--model", &contender.model, "-p", prompt])
+                .args(["--mcp-config", &mcp_config.to_string()])
+                .args(["--allowedTools", "mcp__coaster__*"])
+                .args(["--max-turns", &args.max_turns.to_string()]);
+        }
+        Harness::Opencode => {
+            // MCP server location lives in the sandbox's opencode.json; the
+            // model comes fully qualified (e.g. openrouter/poolside/...).
+            cmd.args(["sandbox", "exec", "-n", &args.opencode_sandbox, "--"])
+                .args(["opencode", "run", prompt, "-m", &contender.model]);
+        }
+    }
+    let output = cmd.output().map_err(|e| format!("openshell exec: {e}"))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        return Err(format!(
+            "agent session failed ({}): {}",
+            output.status,
+            [stderr.trim(), stdout.trim()].join(" | ")
+        ));
+    }
+    Ok(())
+}
+
+/// Post-round artifact collection over MCP; agent may or may not have called
+/// finish_and_test itself (calling it again only adds test ticks).
+fn collect_round(
+    client: &mut mcp::McpClient,
+    args: &Args,
+    round_dir: &Path,
+) -> Result<Value, String> {
+    std::fs::create_dir_all(round_dir).map_err(|e| e.to_string())?;
+
+    // Both calls can legitimately fail (no ride built, open circuit); the
+    // round record must exist either way so the site can show what happened.
+    let state = client.call("get_state", json!({})).unwrap_or(json!({}));
+    let placed = state.get("pieces_placed").cloned().unwrap_or(json!(0));
+    let report = client
+        .call("finish_and_test", json!({"ticks": args.ticks}))
+        .unwrap_or_else(|e| {
+            json!({
+                "program": {
+                    "ok": false,
+                    "pieces_placed": placed,
+                    "pieces_total": placed,
+                    "error": {"piece_index": null, "message": e},
+                },
+                "rides": [],
+                "similarity": null,
+            })
+        });
+
+    // Reconstruct a program.json so the site's piece listing keeps working.
+    let pieces = state.get("placed_pieces").cloned().unwrap_or(json!([]));
+    let start = state.get("start").cloned().unwrap_or(Value::Null);
+    let program = json!({
+        "ride_type": args.ride_type,
+        "start": {
+            "x": start.get("x").and_then(Value::as_i64).unwrap_or(0) / 32,
+            "y": start.get("y").and_then(Value::as_i64).unwrap_or(0) / 32,
+            "dir": start.get("dir").and_then(Value::as_i64).unwrap_or(0),
+        },
+        "pieces": pieces,
+    });
+    write_json(&round_dir.join("program.json"), &program)?;
+    write_json(&round_dir.join("report.json"), &report)?;
+
+    match client.call_image("screenshot", json!({})) {
+        Ok(png) => std::fs::write(round_dir.join("park.png"), png).map_err(|e| e.to_string())?,
+        Err(e) => eprintln!("  screenshot failed: {e}"),
+    }
+    Ok(report)
+}
+
+fn write_json(path: &Path, value: &Value) -> Result<(), String> {
+    let text = serde_json::to_string_pretty(value).map_err(|e| e.to_string())?;
+    std::fs::write(path, text).map_err(|e| format!("{}: {e}", path.display()))
+}
+
+fn best_excitement(report: &Value) -> Option<f64> {
+    let rides = report.get("rides")?.as_array()?;
+    let raw = rides
+        .iter()
+        .filter_map(|r| r.get("excitement").and_then(Value::as_f64))
+        .reduce(f64::max)?;
+    // Same penalty math as driver.py / site.py (SIMILARITY_GRACE = 0.5).
+    let similarity = report
+        .pointer("/similarity/similarity")
+        .and_then(Value::as_f64)
+        .unwrap_or(0.0);
+    let multiplier = if similarity <= 0.5 {
+        1.0
+    } else {
+        ((1.0 - similarity) / 0.5).max(0.0)
+    };
+    Some(raw * multiplier)
+}
+
+fn today() -> String {
+    // No chrono dep for one date string: days since epoch -> civil date.
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let days = (secs / 86400) as i64;
+    let (y, m, d) = civil_from_days(days);
+    format!("{y:04}{m:02}{d:02}")
+}
+
+/// Howard Hinnant's days-from-civil inverse, public domain algorithm.
+fn civil_from_days(z: i64) -> (i64, u32, u32) {
+    let z = z + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
+    (if m <= 2 { y + 1 } else { y }, m, d)
+}
+
+fn main() -> Result<(), String> {
+    let args = Args::parse();
+    let root = repo_root();
+
+    let suffix = args.name.clone().unwrap_or_else(|| "bench".into());
+    let run_dir = root
+        .join("evals/runs")
+        .join(format!("{}-{}", today(), suffix));
+    std::fs::create_dir_all(&run_dir).map_err(|e| e.to_string())?;
+    println!(
+        "run dir: {} (ride_type {})",
+        run_dir.display(),
+        args.ride_type
+    );
+
+    let _server = if args.attach {
+        None
+    } else {
+        Some(GameServer::spawn(&args, &root)?)
+    };
+    let mut client = mcp::McpClient::new("127.0.0.1", args.port);
+    wait_for_server(&mut client, Duration::from_secs(120))?;
+    println!("game server ready on port {}", args.port);
+
+    let contenders: Vec<Contender> = args.models.iter().map(|s| Contender::parse(s)).collect();
+    let harnesses: Value = contenders
+        .iter()
+        .map(|c| (c.display(), json!(c.harness.name())))
+        .collect::<serde_json::Map<_, _>>()
+        .into();
+    let run_harness = if contenders
+        .iter()
+        .all(|c| c.harness == contenders[0].harness)
+    {
+        contenders[0].harness.name().to_string()
+    } else {
+        "mixed".to_string()
+    };
+    write_json(
+        &run_dir.join("run.json"),
+        &json!({
+            "mode": "design",
+            "orchestrator": "coaster-bench",
+            "harness": run_harness,
+            "harnesses": harnesses,
+            "models": contenders.iter().map(Contender::display).collect::<Vec<_>>(),
+            "rounds": args.rounds,
+            "ticks": args.ticks,
+            "ride_type": args.ride_type,
+            "similarity_grace": 0.5,
+        }),
+    )?;
+
+    let mut standings: Vec<Value> = Vec::new();
+    for contender in &contenders {
+        let model = contender.display();
+        let mut best: Option<(u32, f64)> = None;
+        let mut feedback: Option<String> = None;
+        for round in 1..=args.rounds {
+            // A fresh park state for every round.
+            let _ = client.call("demolish", json!({}));
+            let prompt =
+                prompt::round_prompt(args.ride_type, round, args.rounds, feedback.as_deref());
+            println!("[{model}] round {round}: agent session starting");
+            if let Err(e) = run_agent_session(&args, contender, &prompt) {
+                eprintln!("[{model}] round {round}: {e}");
+            }
+            let round_dir = run_dir.join(&model).join(format!("round_{round}"));
+            match collect_round(&mut client, &args, &round_dir) {
+                Ok(report) => {
+                    let score = best_excitement(&report);
+                    println!(
+                        "[{model}] round {round}: excitement {}",
+                        score.map_or("unrated".into(), |s| format!("{s:.2}"))
+                    );
+                    if let Some(s) = score {
+                        if best.is_none_or(|(_, b)| s > b) {
+                            best = Some((round, s));
+                        }
+                    }
+                    feedback = serde_json::to_string(&report).ok();
+                }
+                Err(e) => {
+                    eprintln!("[{model}] round {round}: collect failed: {e}");
+                    feedback = Some(format!(
+                        "{{\"error\": \"round produced no rated ride: {e}\"}}"
+                    ));
+                }
+            }
+        }
+        standings.push(json!({
+            "model": model,
+            "harness": contender.harness.name(),
+            "best_excitement": best.map(|(_, s)| s),
+            "best_round": best.map(|(r, _)| r),
+        }));
+    }
+
+    standings.sort_by(|a, b| {
+        let score = |v: &Value| {
+            v.get("best_excitement")
+                .and_then(Value::as_f64)
+                .unwrap_or(-1.0)
+        };
+        score(b)
+            .partial_cmp(&score(a))
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    write_json(
+        &run_dir.join("standings.json"),
+        &json!({"standings": standings}),
+    )?;
+
+    println!("\n=== FINAL STANDINGS ===");
+    for (place, entry) in standings.iter().enumerate() {
+        let model = entry.get("model").and_then(Value::as_str).unwrap_or("?");
+        match entry.get("best_excitement").and_then(Value::as_f64) {
+            Some(s) => println!("{}. {model}: excitement {s:.2}", place + 1),
+            None => println!("{}. {model}: no successful coaster", place + 1),
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn civil_date_matches_known_epochs() {
+        assert_eq!(civil_from_days(0), (1970, 1, 1));
+        assert_eq!(civil_from_days(20_292), (2025, 7, 23));
+    }
+
+    #[test]
+    fn penalty_math_matches_driver() {
+        let report = json!({"rides": [{"excitement": 8.0}], "similarity": {"similarity": 0.75}});
+        let score = best_excitement(&report).expect("scored");
+        assert!((score - 4.0).abs() < 1e-9);
+        let free = json!({"rides": [{"excitement": 8.0}], "similarity": {"similarity": 0.4}});
+        assert!((best_excitement(&free).expect("scored") - 8.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn unrated_ride_scores_none() {
+        let report = json!({"rides": [{"excitement": null}]});
+        assert!(best_excitement(&report).is_none());
+    }
+}

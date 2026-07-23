@@ -9,5 +9,6 @@
   "ticks": 25000,
   "ride_type": 51,
   "scenario": "Build your own Six Flags Park.SC6",
-  "similarity_grace": 0.5
+  "similarity_grace": 0.5,
+  "harness": "driver-api"
 }
