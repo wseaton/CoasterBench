@@ -101,14 +101,20 @@ pub unsafe extern "C" fn orct2_agent_eval_finish(
     0
 }
 
-/// Renders a giant screenshot of the park to `path`. Returns 0 on success.
+/// Renders a park screenshot to `path`; `fit_track` crops to the track's
+/// bounding box (full map when no track exists). Returns 0 on success.
 ///
 /// # Safety
 /// `path` must be null or a valid NUL-terminated string.
 #[no_mangle]
-pub unsafe extern "C" fn orct2_agent_capture(path: *const c_char, zoom: i32, rotation: u8) -> i32 {
+pub unsafe extern "C" fn orct2_agent_capture(
+    path: *const c_char,
+    zoom: i32,
+    rotation: u8,
+    fit_track: bool,
+) -> i32 {
     match read_c_path(path) {
-        Some(p) if host::capture(&p, zoom, rotation) => 0,
+        Some(p) if host::capture(&p, zoom, rotation, fit_track) => 0,
         _ => 1,
     }
 }

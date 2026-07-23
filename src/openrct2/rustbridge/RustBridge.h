@@ -30,8 +30,9 @@ namespace OpenRCT2::RustBridge
     // Writes the JSON eval report (consumes the outcome; either may be null).
     int32_t EvalFinish(Orct2ProgramOutcome* outcome, const char* outPath);
 
-    // Giant park screenshot to a PNG path. Returns 0 on success.
-    int32_t Capture(const char* path, int32_t zoom, uint8_t rotation);
+    // Park screenshot to a PNG path; fitTrack crops to the track's bounding
+    // box (full map when no track exists). Returns 0 on success.
+    int32_t Capture(const char* path, int32_t zoom, uint8_t rotation, bool fitTrack);
 
     // Runs the MCP server on bind:port (null bind = 127.0.0.1); blocks the
     // game thread until the process exits. Tool calls drive the game directly.

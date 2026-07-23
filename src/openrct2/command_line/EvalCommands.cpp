@@ -141,7 +141,7 @@ namespace OpenRCT2
         }
         if (!_capturePath.empty())
         {
-            if (RustBridge::Capture(_capturePath.c_str(), 0 /*zoom*/, 0 /*rotation*/) != 0)
+            if (RustBridge::Capture(_capturePath.c_str(), 0 /*zoom*/, 0 /*rotation*/, true /*fitTrack*/) != 0)
             {
                 Console::Error::WriteLine("Screenshot capture failed.");
                 exitCode = ExitCode::fail;

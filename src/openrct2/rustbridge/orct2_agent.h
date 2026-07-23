@@ -73,6 +73,19 @@ typedef struct Orct2RideDetail {
   uint8_t num_inversions;
 } Orct2RideDetail;
 
+/**
+ * Tile-space bounding box of all track elements in the park, plus the world-z
+ * range. Filled by `orct2_host_track_bounds`; found=false when no track exists.
+ */
+typedef struct Orct2TrackBounds {
+  int32_t min_tile_x;
+  int32_t min_tile_y;
+  int32_t max_tile_x;
+  int32_t max_tile_y;
+  int32_t min_z;
+  int32_t max_z;
+} Orct2TrackBounds;
+
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
@@ -111,12 +124,13 @@ struct Orct2ProgramOutcome *orct2_agent_run_program(const char *path);
 int32_t orct2_agent_eval_finish(struct Orct2ProgramOutcome *outcome, const char *out_path);
 
 /**
- * Renders a giant screenshot of the park to `path`. Returns 0 on success.
+ * Renders a park screenshot to `path`; `fit_track` crops to the track's
+ * bounding box (full map when no track exists). Returns 0 on success.
  *
  * # Safety
  * `path` must be null or a valid NUL-terminated string.
  */
-int32_t orct2_agent_capture(const char *path, int32_t zoom, uint8_t rotation);
+int32_t orct2_agent_capture(const char *path, int32_t zoom, uint8_t rotation, bool fit_track);
 
 /**
  * Runs the MCP server on bind:port (bind defaults to 127.0.0.1 when null),
@@ -165,7 +179,9 @@ extern bool orct2_host_ride_set_status(uint16_t ride_id,
 
 extern bool orct2_host_ride_detail(uint16_t ride_id, struct Orct2RideDetail *out);
 
-extern bool orct2_host_capture(const char *path, int32_t zoom, uint8_t rotation);
+extern bool orct2_host_capture(const char *path, int32_t zoom, uint8_t rotation, bool fit_track);
+
+extern bool orct2_host_track_bounds(struct Orct2TrackBounds *out);
 
 extern bool orct2_host_entrance_place(uint16_t ride_id,
                                       int32_t tile_x,

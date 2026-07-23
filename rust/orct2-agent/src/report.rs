@@ -10,6 +10,8 @@ use crate::program::ProgramOutcome;
 pub struct EvalReport {
     /// Present when the eval ran a track program.
     pub program: Option<ProgramOutcome>,
+    /// Tile bbox + z range of all track in the park; None when trackless.
+    pub bounds: Option<host::TrackBounds>,
     pub rides: Vec<RideReport>,
 }
 
@@ -91,7 +93,11 @@ pub fn build(program: Option<ProgramOutcome>, only_ride: Option<u16>) -> EvalRep
             num_inversions: detail.num_inversions,
         });
     }
-    EvalReport { program, rides }
+    EvalReport {
+        program,
+        bounds: host::track_bounds(),
+        rides,
+    }
 }
 
 #[cfg(test)]

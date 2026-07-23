@@ -63,6 +63,19 @@ pub struct RideDetail {
     pub num_inversions: u8,
 }
 
+/// Tile-space bounding box of all track elements in the park, plus the world-z
+/// range. Filled by `orct2_host_track_bounds`; found=false when no track exists.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize)]
+pub struct TrackBounds {
+    pub min_tile_x: i32,
+    pub min_tile_y: i32,
+    pub max_tile_x: i32,
+    pub max_tile_y: i32,
+    pub min_z: i32,
+    pub max_z: i32,
+}
+
 #[cfg(not(test))]
 unsafe extern "C" {
     fn orct2_host_ride_count() -> u32;
@@ -92,7 +105,8 @@ unsafe extern "C" {
         err_len: usize,
     ) -> bool;
     fn orct2_host_ride_detail(ride_id: u16, out: *mut RideDetail) -> bool;
-    fn orct2_host_capture(path: *const c_char, zoom: i32, rotation: u8) -> bool;
+    fn orct2_host_capture(path: *const c_char, zoom: i32, rotation: u8, fit_track: bool) -> bool;
+    fn orct2_host_track_bounds(out: *mut TrackBounds) -> bool;
     fn orct2_host_entrance_place(
         ride_id: u16,
         tile_x: i32,
@@ -249,12 +263,20 @@ pub fn entrance_place(
     }
 }
 
-/// Renders a giant screenshot of the whole park to `path` (PNG).
-pub fn capture(path: &str, zoom: i32, rotation: u8) -> bool {
+/// Renders a park screenshot to `path` (PNG). With `fit_track` the view is
+/// cropped to the bounding box of all track in the park (falls back to the
+/// full map when no track exists).
+pub fn capture(path: &str, zoom: i32, rotation: u8, fit_track: bool) -> bool {
     match CString::new(path) {
-        Ok(cpath) => unsafe { orct2_host_capture(cpath.as_ptr(), zoom, rotation) },
+        Ok(cpath) => unsafe { orct2_host_capture(cpath.as_ptr(), zoom, rotation, fit_track) },
         Err(_) => false,
     }
+}
+
+/// Tile bbox + z range of all track elements in the park; None when trackless.
+pub fn track_bounds() -> Option<TrackBounds> {
+    let mut bounds = TrackBounds::default();
+    unsafe { orct2_host_track_bounds(&mut bounds) }.then_some(bounds)
 }
 
 /// Advances the game simulation by `n` ticks (40 ticks = 1 game second).
@@ -362,7 +384,10 @@ mod test_stubs {
     pub unsafe fn orct2_host_ride_detail(_r: u16, _o: *mut RideDetail) -> bool {
         false
     }
-    pub unsafe fn orct2_host_capture(_p: *const c_char, _z: i32, _r: u8) -> bool {
+    pub unsafe fn orct2_host_capture(_p: *const c_char, _z: i32, _r: u8, _f: bool) -> bool {
+        false
+    }
+    pub unsafe fn orct2_host_track_bounds(_o: *mut crate::host::TrackBounds) -> bool {
         false
     }
     pub unsafe fn orct2_host_entrance_place(

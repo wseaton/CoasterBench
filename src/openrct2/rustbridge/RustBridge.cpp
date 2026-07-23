@@ -27,6 +27,7 @@
     #include "../core/Console.hpp"
     #include "../core/String.hpp"
     #include "../interface/Screenshot.h"
+    #include "../interface/Viewport.h"
     #include "../object/ObjectLimits.h"
     #include "../ride/Ride.h"
     #include "../ride/RideData.h"
@@ -85,6 +86,77 @@ namespace
             return false;
         }
         return true;
+    }
+
+    // Scans the whole map for track elements and returns their tile bbox and
+    // world-z range. Engine-authoritative: includes exactly what was placed.
+    bool FindTrackBounds(Orct2TrackBounds& out)
+    {
+        bool found = false;
+        out = { INT32_MAX, INT32_MAX, INT32_MIN, INT32_MIN, INT32_MAX, INT32_MIN };
+        const auto mapSize = getGameState().mapSize;
+        for (int32_t ty = 0; ty < mapSize.y; ty++)
+        {
+            for (int32_t tx = 0; tx < mapSize.x; tx++)
+            {
+                auto* element = MapGetFirstElementAt(TileCoordsXY{ tx, ty });
+                if (element == nullptr)
+                {
+                    continue;
+                }
+                do
+                {
+                    if (element->getType() != TileElementType::track)
+                    {
+                        continue;
+                    }
+                    found = true;
+                    out.min_tile_x = std::min(out.min_tile_x, tx);
+                    out.min_tile_y = std::min(out.min_tile_y, ty);
+                    out.max_tile_x = std::max(out.max_tile_x, tx);
+                    out.max_tile_y = std::max(out.max_tile_y, ty);
+                    out.min_z = std::min(out.min_z, element->getBaseZ());
+                    out.max_z = std::max(out.max_z, element->getClearanceZ());
+                } while (!(element++)->isLastForTile());
+            }
+        }
+        return found;
+    }
+
+    // View that tightly frames the track bbox: project all 8 corners into
+    // screen space, take their extent, and pad. CaptureImage centres the view
+    // on Position at terrain height, so pad further by the offset between that
+    // centre and the projected bbox centre.
+    CaptureView FitViewToTrack(const Orct2TrackBounds& bounds, uint8_t rotation)
+    {
+        constexpr int32_t kMarginPx = 48;
+        const CoordsXY worldMin{ bounds.min_tile_x * kCoordsXYStep, bounds.min_tile_y * kCoordsXYStep };
+        const CoordsXY worldMax{ (bounds.max_tile_x + 1) * kCoordsXYStep, (bounds.max_tile_y + 1) * kCoordsXYStep };
+
+        ScreenCoordsXY projMin{ INT32_MAX, INT32_MAX };
+        ScreenCoordsXY projMax{ INT32_MIN, INT32_MIN };
+        for (auto x : { worldMin.x, worldMax.x })
+        {
+            for (auto y : { worldMin.y, worldMax.y })
+            {
+                for (auto z : { bounds.min_z, bounds.max_z })
+                {
+                    auto proj = Translate3DTo2DWithZ(rotation, CoordsXYZ{ x, y, z });
+                    projMin.x = std::min(projMin.x, proj.x);
+                    projMin.y = std::min(projMin.y, proj.y);
+                    projMax.x = std::max(projMax.x, proj.x);
+                    projMax.y = std::max(projMax.y, proj.y);
+                }
+            }
+        }
+
+        CaptureView view;
+        view.Position = { (worldMin.x + worldMax.x) / 2, (worldMin.y + worldMax.y) / 2 };
+        auto centreZ = TileElementHeight(view.Position);
+        auto centreProj = Translate3DTo2DWithZ(rotation, CoordsXYZ(view.Position, centreZ));
+        view.Width = projMax.x - projMin.x + 2 * (kMarginPx + std::abs(centreProj.x - (projMin.x + projMax.x) / 2));
+        view.Height = projMax.y - projMin.y + 2 * (kMarginPx + std::abs(centreProj.y - (projMin.y + projMax.y) / 2));
+        return view;
     }
 
     // First loaded ride object whose entry supports the requested ride type.
@@ -393,7 +465,16 @@ void orct2_host_update_ratings(uint16_t ride_id)
     }
 }
 
-bool orct2_host_capture(const char* path, int32_t zoom, uint8_t rotation)
+bool orct2_host_track_bounds(Orct2TrackBounds* out)
+{
+    if (out == nullptr)
+    {
+        return false;
+    }
+    return FindTrackBounds(*out);
+}
+
+bool orct2_host_capture(const char* path, int32_t zoom, uint8_t rotation, bool fit_track)
 {
     if (path == nullptr)
     {
@@ -411,6 +492,14 @@ bool orct2_host_capture(const char* path, int32_t zoom, uint8_t rotation)
         options.Filename = fs::u8path("orct2-agent-capture.png");
         options.Zoom = ZoomLevel{ static_cast<int8_t>(zoom) };
         options.Rotation = rotation & 3;
+        if (fit_track)
+        {
+            Orct2TrackBounds bounds;
+            if (FindTrackBounds(bounds))
+            {
+                options.View = FitViewToTrack(bounds, options.Rotation);
+            }
+        }
         CaptureImage(options);
 
         auto rendered = screenshotDir / options.Filename;
@@ -462,9 +551,9 @@ namespace OpenRCT2::RustBridge
         return orct2_agent_eval_finish(outcome, outPath);
     }
 
-    int32_t Capture(const char* path, int32_t zoom, uint8_t rotation)
+    int32_t Capture(const char* path, int32_t zoom, uint8_t rotation, bool fitTrack)
     {
-        return orct2_agent_capture(path, zoom, rotation);
+        return orct2_agent_capture(path, zoom, rotation, fitTrack);
     }
 
     int32_t Serve(const char* bind, uint16_t port)
