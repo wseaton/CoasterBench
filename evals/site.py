@@ -267,6 +267,8 @@ class Round:
     xray_shot: Path | None = None
     # Library tool calls the model made before submitting (library mode).
     lookups: list[dict] = field(default_factory=list)
+    # Token/cost accounting for the round (usage.json), when recorded.
+    usage: dict | None = None
     grace: float = DEFAULT_SIMILARITY_GRACE
 
     @property
@@ -306,6 +308,14 @@ class Round:
         return f"build failed{where} ({placed}/{total} pieces placed): {err}"
 
 
+def fmt_tokens(n: float) -> str:
+    if n >= 1_000_000:
+        return f"{n / 1_000_000:.1f}M"
+    if n >= 1_000:
+        return f"{n / 1_000:.0f}k"
+    return f"{n:.0f}"
+
+
 @dataclass
 class ModelRun:
     model: str
@@ -315,6 +325,27 @@ class ModelRun:
     def best(self) -> Round | None:
         rated = [r for r in self.rounds if r.excitement > 0]
         return max(rated, key=lambda r: r.excitement) if rated else None
+
+    def usage_totals(self) -> tuple[float, float, float | None]:
+        """(input tokens, output tokens, cost USD or None) summed over rounds."""
+        tokens_in = tokens_out = 0.0
+        cost: float | None = None
+        for rnd in self.rounds:
+            u = rnd.usage or {}
+            tokens_in += u.get("input_tokens") or 0
+            tokens_out += u.get("output_tokens") or 0
+            if u.get("cost_usd") is not None:
+                cost = (cost or 0.0) + u["cost_usd"]
+        return tokens_in, tokens_out, cost
+
+    def usage_summary(self) -> str | None:
+        tokens_in, tokens_out, cost = self.usage_totals()
+        parts = []
+        if tokens_in or tokens_out:
+            parts.append(f"{fmt_tokens(tokens_in)} in / {fmt_tokens(tokens_out)} out")
+        if cost is not None:
+            parts.append(f"${cost:.2f}")
+        return " · ".join(parts) if parts else None
 
 
 RIDE_TYPE_NAMES = {51: "steel twister", 52: "wooden"}
@@ -394,6 +425,7 @@ def load_runs(runs_dir: Path) -> list[EvalRun]:
                     p for i in (1, 2, 3) if (p := round_dir / f"park-r{i}.png").is_file()
                 ]
                 xray = round_dir / "park-x.png"
+                usage_path = round_dir / "usage.json"
                 rounds.append(
                     Round(
                         number=int(round_dir.name.split("_")[1]),
@@ -403,6 +435,7 @@ def load_runs(runs_dir: Path) -> list[EvalRun]:
                         rotation_shots=rotation_shots,
                         xray_shot=xray if xray.is_file() else None,
                         lookups=json.loads(lookups_path.read_text()) if lookups_path.is_file() else [],
+                        usage=json.loads(usage_path.read_text()) if usage_path.is_file() else None,
                         grace=grace,
                     )
                 )
@@ -549,12 +582,14 @@ def standings_table(run: EvalRun) -> str:
             )
         else:
             cells = '<td colspan="5" class="fail">no successful coaster</td>'
+        usage = model.usage_summary()
+        usage_cell = f'<td class="dim">{esc(usage)}</td>' if usage else '<td class="dim">&mdash;</td>'
         rows.append(
-            f'<tr{cls}><td class="medal">{medal}</td><td>{esc(model.model)}</td>{cells}</tr>'
+            f'<tr{cls}><td class="medal">{medal}</td><td>{esc(model.model)}</td>{cells}{usage_cell}</tr>'
         )
     return (
         "<table><tr><th></th><th>model</th><th>score</th><th>intensity</th>"
-        "<th>nausea</th><th>similarity</th><th>best</th></tr>" + "".join(rows) + "</table>"
+        "<th>nausea</th><th>similarity</th><th>best</th><th>tokens / cost</th></tr>" + "".join(rows) + "</table>"
         '<p class="dim" style="margin-top:.5rem;font-size:.75rem">score = excitement, scaled down when '
         f"similarity to a stock library design exceeds {run.grace:g} (an exact or mirrored copy scores 0)</p>"
     )
@@ -892,6 +927,20 @@ def run_table(runs: list[EvalRun], out: Path) -> str:
         winner_cell = (
             f"{esc(winner.model)} ({winner.best.excitement:.2f})" if winner and winner.best else '<span class="dim">no finisher</span>'
         )
+        t_in = t_out = 0.0
+        t_cost: float | None = None
+        for m in run.models:
+            a, b, c = m.usage_totals()
+            t_in += a
+            t_out += b
+            if c is not None:
+                t_cost = (t_cost or 0.0) + c
+        usage_bits = []
+        if t_in or t_out:
+            usage_bits.append(f"{fmt_tokens(t_in)}/{fmt_tokens(t_out)}")
+        if t_cost is not None:
+            usage_bits.append(f"${t_cost:.2f}")
+        usage_cell = " · ".join(usage_bits) if usage_bits else "—"
         rows.append(
             f'<tr data-mode="{esc(run.mode)}" data-coaster="{esc(run.ride_name)}" '
             f'data-harness="{esc(run.harness)}" '
@@ -902,11 +951,12 @@ def run_table(runs: list[EvalRun], out: Path) -> str:
             f"<td>{esc(run.ride_name)}</td>"
             f"<td>{esc(run.harness)}</td>"
             f'<td class="scores">{"<br>".join(scores)}</td>'
-            f"<td>{winner_cell}</td></tr>"
+            f"<td>{winner_cell}</td>"
+            f'<td class="dim">{esc(usage_cell)}</td></tr>'
         )
     table = (
         '<table class="run-table"><thead><tr>'
-        "<th></th><th>run</th><th>mode</th><th>coaster</th><th>harness</th><th>standings</th><th>winner</th>"
+        "<th></th><th>run</th><th>mode</th><th>coaster</th><th>harness</th><th>standings</th><th>winner</th><th>tokens / cost</th>"
         f'</tr></thead><tbody>{"".join(rows)}</tbody></table>'
     )
     return filters + table

@@ -521,6 +521,7 @@ def compete(
         program = None
         tool_use = None
         lookups: list[dict] = []
+        round_usage = {"input_tokens": 0, "output_tokens": 0}
         for step in range(MAX_LOOKUPS_PER_ROUND + 1):
             force_submit = step == MAX_LOOKUPS_PER_ROUND
             response = client.messages.create(
@@ -533,6 +534,8 @@ def compete(
                     {"type": "tool", "name": "submit_track_program"} if force_submit else {"type": "any"}
                 ),
             )
+            round_usage["input_tokens"] += response.usage.input_tokens
+            round_usage["output_tokens"] += response.usage.output_tokens
             tool_use = next(b for b in response.content if b.type == "tool_use")
             messages.append({"role": "assistant", "content": response.content})
             if tool_use.name == "submit_track_program":
@@ -568,6 +571,9 @@ def compete(
         contender.attempts.append(attempt)
         if lookups:
             (round_dir / "lookups.json").write_text(json.dumps(lookups, indent=2))
+        (round_dir / "usage.json").write_text(
+            json.dumps({"harness": "driver-api", "model": model, **round_usage}, indent=2)
+        )
         print(f"  [{model}] round {rnd}: {attempt.summary}", flush=True)
 
         messages.append(

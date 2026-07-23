@@ -181,10 +181,54 @@ impl Contender {
     }
 }
 
+/// Token/cost accounting for one agent session; every field best-effort.
+struct SessionResult {
+    usage: Value,
+    error: Option<String>,
+}
+
+/// Current spend (USD) on the OpenRouter key, for cost-by-delta accounting.
+fn openrouter_spend() -> Option<f64> {
+    let key = Command::new("security")
+        .args(["find-generic-password", "-s", "openrouter-api-key", "-w"])
+        .output()
+        .ok()?;
+    let key = String::from_utf8_lossy(&key.stdout).trim().to_string();
+    if key.is_empty() {
+        return None;
+    }
+    let response: Value = ureq::get("https://openrouter.ai/api/v1/key")
+        .set("Authorization", &format!("Bearer {key}"))
+        .timeout(Duration::from_secs(30))
+        .call()
+        .ok()?
+        .into_json()
+        .ok()?;
+    response.pointer("/data/usage").and_then(Value::as_f64)
+}
+
+/// Claude Code's --output-format json result carries session usage.
+fn claude_usage(stdout: &[u8]) -> Value {
+    let Ok(result) = serde_json::from_slice::<Value>(stdout) else {
+        return Value::Null;
+    };
+    json!({
+        "input_tokens": result.pointer("/usage/input_tokens"),
+        "output_tokens": result.pointer("/usage/output_tokens"),
+        "cache_read_tokens": result.pointer("/usage/cache_read_input_tokens"),
+        "cost_usd": result.get("total_cost_usd"),
+        "num_turns": result.get("num_turns"),
+    })
+}
+
 /// One agent session in the harness's sandbox. Success is judged by game
-/// state, not the transcript, so we only surface exit status and tail output.
-fn run_agent_session(args: &Args, contender: &Contender, prompt: &str) -> Result<(), String> {
+/// state, not the transcript; usage is captured best-effort either way.
+fn run_agent_session(args: &Args, contender: &Contender, prompt: &str) -> SessionResult {
     let mut cmd = Command::new("openshell");
+    let spend_before = match contender.harness {
+        Harness::Opencode => openrouter_spend(),
+        Harness::ClaudeCode => None,
+    };
     match contender.harness {
         Harness::ClaudeCode => {
             let mcp_config = json!({
@@ -196,7 +240,8 @@ fn run_agent_session(args: &Args, contender: &Contender, prompt: &str) -> Result
                 .args(["claude", "--model", &contender.model, "-p", prompt])
                 .args(["--mcp-config", &mcp_config.to_string()])
                 .args(["--allowedTools", "mcp__coaster__*"])
-                .args(["--max-turns", &args.max_turns.to_string()]);
+                .args(["--max-turns", &args.max_turns.to_string()])
+                .args(["--output-format", "json"]);
         }
         Harness::Opencode => {
             // MCP server location lives in the sandbox's opencode.json; the
@@ -205,17 +250,36 @@ fn run_agent_session(args: &Args, contender: &Contender, prompt: &str) -> Result
                 .args(["opencode", "run", prompt, "-m", &contender.model]);
         }
     }
-    let output = cmd.output().map_err(|e| format!("openshell exec: {e}"))?;
-    if !output.status.success() {
+    let output = match cmd.output() {
+        Ok(o) => o,
+        Err(e) => {
+            return SessionResult {
+                usage: Value::Null,
+                error: Some(format!("openshell exec: {e}")),
+            }
+        }
+    };
+    let usage = match contender.harness {
+        // Parsed even on failure: max-turns exits nonzero but still reports usage.
+        Harness::ClaudeCode => claude_usage(&output.stdout),
+        Harness::Opencode => {
+            let cost = match (spend_before, openrouter_spend()) {
+                (Some(a), Some(b)) if b >= a => Some(b - a),
+                _ => None,
+            };
+            json!({"cost_usd": cost})
+        }
+    };
+    let error = if output.status.success() {
+        None
+    } else {
         let stderr = String::from_utf8_lossy(&output.stderr);
         let stdout = String::from_utf8_lossy(&output.stdout);
-        return Err(format!(
-            "agent session failed ({}): {}",
-            output.status,
-            [stderr.trim(), stdout.trim()].join(" | ")
-        ));
-    }
-    Ok(())
+        let mut tail = format!("{} | {}", stderr.trim(), stdout.trim());
+        tail.truncate(500);
+        Some(format!("agent session failed ({}): {tail}", output.status))
+    };
+    SessionResult { usage, error }
 }
 
 /// Post-round artifact collection over MCP; agent may or may not have called
@@ -381,10 +445,26 @@ fn main() -> Result<(), String> {
             let prompt =
                 prompt::round_prompt(args.ride_type, round, args.rounds, feedback.as_deref());
             println!("[{model}] round {round}: agent session starting");
-            if let Err(e) = run_agent_session(&args, contender, &prompt) {
+            let session = run_agent_session(&args, contender, &prompt);
+            if let Some(e) = &session.error {
                 eprintln!("[{model}] round {round}: {e}");
             }
             let round_dir = run_dir.join(&model).join(format!("round_{round}"));
+            if !session.usage.is_null() {
+                let usage = json!({
+                    "harness": contender.harness.name(),
+                    "model": contender.model,
+                    "input_tokens": session.usage.get("input_tokens"),
+                    "output_tokens": session.usage.get("output_tokens"),
+                    "cache_read_tokens": session.usage.get("cache_read_tokens"),
+                    "cost_usd": session.usage.get("cost_usd"),
+                    "num_turns": session.usage.get("num_turns"),
+                });
+                let _ = std::fs::create_dir_all(&round_dir);
+                if let Err(e) = write_json(&round_dir.join("usage.json"), &usage) {
+                    eprintln!("[{model}] round {round}: usage write failed: {e}");
+                }
+            }
             match collect_round(&mut client, &args, &round_dir) {
                 Ok(report) => {
                     let score = best_excitement(&report);
