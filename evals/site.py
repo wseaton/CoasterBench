@@ -246,8 +246,8 @@ class Round:
     # Additional view rotations of the same capture (park-r1/2/3.png).
     rotation_shots: list[Path] = field(default_factory=list)
     # See-through verification capture (park-x.png): terrain and supports
-    # hidden so every placed piece is visible (tunnels included, and immune to
-    # the wooden-supports paint glitch that eats track sprites at crossings).
+    # hidden so tunnelled track is visible. The upstream sprite-sort glitch
+    # that hides track near track crossings at some rotations still applies.
     xray_shot: Path | None = None
     # Library tool calls the model made before submitting (library mode).
     lookups: list[dict] = field(default_factory=list)

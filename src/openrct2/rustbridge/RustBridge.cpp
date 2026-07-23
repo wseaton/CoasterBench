@@ -660,10 +660,11 @@ bool orct2_host_capture(const char* path, int32_t zoom, uint8_t rotation, bool f
         options.Rotation = rotation & 3;
         if (xray)
         {
-            // Verification view: hide terrain so tunnelled track is visible, and
-            // hide supports because the wooden-support painter drops track
-            // sprites near track crossings at some rotations (upstream paint
-            // bug; supports-off renders every placed piece).
+            // Verification view: hide terrain so tunnelled track is visible,
+            // and hide supports to declutter. Note the upstream sprite-sort
+            // glitch that hides track near track-over-track crossings at some
+            // rotations is NOT fixed by these flags; it lives in the painter's
+            // draw ordering itself.
             options.ViewFlags = VIEWPORT_FLAG_UNDERGROUND_INSIDE | VIEWPORT_FLAG_HIDE_BASE | VIEWPORT_FLAG_HIDE_VERTICAL
                 | VIEWPORT_FLAG_HIDE_SUPPORTS;
         }
