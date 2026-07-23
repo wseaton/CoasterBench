@@ -146,6 +146,9 @@ namespace OpenRCT2
         DefineSubCommand("sprite",          Sprite::kSpriteCommands   ),
         DefineSubCommand("simulate",        kSimulateCommands         ),
         DefineSubCommand("parkinfo",        kParkInfoCommands         ),
+#ifdef ENABLE_RUST_AGENT
+        DefineSubCommand("eval",            kEvalCommands             ),
+#endif
         kCommandTableEnd
     };
 

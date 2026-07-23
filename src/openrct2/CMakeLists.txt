@@ -31,6 +31,12 @@ endif()
 add_library(libopenrct2 ${LIBOPENRCT2_LINKAGE} ${OPENRCT2_QUICKJS_NG_SOURCES} ${OPENRCT2_CORE_SOURCES} ${OPENRCT2_CORE_MM_SOURCES})
 add_library(OpenRCT2::libopenrct2 ALIAS libopenrct2)
 
+if (ENABLE_RUST_AGENT)
+    # Corrosion normalises the crate name orct2-agent to target orct2_agent.
+    target_link_libraries(libopenrct2 orct2_agent)
+    target_compile_definitions(libopenrct2 PUBLIC ENABLE_RUST_AGENT)
+endif ()
+
 if (CMAKE_COMPILER_IS_GNUCXX AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS "13")
     message(WARNING "Buggy GCC 12 detected! Disabling some warnings")
     set_source_files_properties("${CMAKE_CURRENT_LIST_DIR}/localisation/FormatCodes.cpp" PROPERTIES COMPILE_FLAGS "-Wno-restrict")

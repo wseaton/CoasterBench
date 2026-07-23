@@ -67,6 +67,7 @@
 #include "ride/TrackDesignRepository.h"
 #include "scenario/Scenario.h"
 #include "scenario/ScenarioRepository.h"
+#include "rustbridge/RustBridge.h"
 #include "scenes/SceneManager.h"
 #include "scenes/editor/EditorScene.h"
 #include "scenes/preloader/PreloaderScene.h"
@@ -498,6 +499,10 @@ namespace OpenRCT2
             // quickjs script engine is single-threaded and must be set up on the main thread
             _scriptEngine.Initialise();
             _uiContext->InitialiseScriptExtensions();
+#endif
+
+#ifdef ENABLE_RUST_AGENT
+            RustBridge::Initialise();
 #endif
 
             return true;

@@ -11,6 +11,8 @@ distribution/android/*/external/
 
 # Build artifacts
 artifacts
+rust/orct2-agent/target/
+evals/runs/
 bin.*/
 .cache
 .dependencies

@@ -112,6 +112,9 @@ namespace OpenRCT2
         }
         extern const CommandLineCommand kSimulateCommands[];
         extern const CommandLineCommand kParkInfoCommands[];
+#ifdef ENABLE_RUST_AGENT
+        extern const CommandLineCommand kEvalCommands[];
+#endif
 
         extern const CommandLineExample kRootExamples[];
 

@@ -114,6 +114,7 @@ option(DISABLE_FLAC     "Disable FLAC support.")
 option(DISABLE_VORBIS   "Disable OGG/VORBIS support.")
 option(DISABLE_OPENGL   "Disable OpenGL support.")
 option(ENABLE_SCRIPTING "Enable script / plugin support." ON)
+option(ENABLE_RUST_AGENT "Enable the Rust agent bridge (rust/orct2-agent)." ON)
 option(ENABLE_ASAN "Enable the AddressSanitizer.")
 option(ENABLE_UBSAN "Enable the UndefinedBehaviourSanitizer.")
 option(ENABLE_HEADERS_CHECK "Check if include directives in header files are correct. Only works with clang" OFF)
@@ -388,6 +389,10 @@ endif ()
 
 if (MINGW)
    add_definitions(-fstack-protector-strong)
+endif ()
+
+if (ENABLE_RUST_AGENT)
+    include(cmake/rustagent.cmake)
 endif ()
 
 # Include sub-projects

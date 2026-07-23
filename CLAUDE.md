@@ -1,0 +1,134 @@
+# OpenRCT2 Fork: Rust Agentic Eval Harness
+
+This is a fork of OpenRCT2 (github.com/wseaton/OpenRCT2) with one goal: a Rust
+plugin system that runs an agentic eval harness through the game. The flagship
+eval: an LLM designs the best roller coaster, scored by in-game ratings.
+
+## Fork rules
+
+- We rebase onto upstream `develop` regularly. Almost all new code lives in new
+  directories; edits to existing OpenRCT2 files must stay tiny and mechanical
+  (single call sites, not refactors).
+- New C++ files under `src/openrct2/` need no CMake edits (GLOB_RECURSE picks
+  them up).
+
+## Architecture
+
+- Rust attaches as a **staticlib linked into the binary** (not dlopen, not IPC).
+  Crate lives in `rust/orct2-agent`, bridged via cbindgen C ABI.
+- C++ side of the bridge goes in `src/openrct2/rustbridge/` with a
+  `NativeHookEngine` (the existing `scripting/HookEngine.h` Hook is
+  QuickJS-specific and gated on ENABLE_SCRIPTING; we stay independent of it).
+- Eval entry point: `openrct2-cli eval` command, modeled on
+  `src/openrct2/command_line/SimulateCommands.cpp` (load park, tick N via
+  `gameStateUpdateLogic()`, score).
+- Mutations go through `GameActions::Execute` only, never direct game state
+  pokes (same validation path as JS plugins).
+
+## Key facts (verified in code)
+
+- `gOpenRCT2Headless` and `gOpenRCT2NoGraphics` are separate flags. The eval
+  command needs Headless=true, NoGraphics=false so the software renderer works:
+  `CaptureImage()` (`src/openrct2/interface/Screenshot.cpp`) renders PNGs with
+  no window/GPU, but asserts if sprite data wasn't loaded.
+- Ride ratings hook site: `src/openrct2/ride/RideRatings.cpp` (~line 1076),
+  next to the JS `rideRatingsCalculate` hook.
+- Replay video = per-tick `CaptureImage` chase-cam frames (game logic is 40
+  ticks/sec) + external ffmpeg encode in the harness. No video encoder in-tree,
+  keep it that way.
+- Determinism/repro: `ReplayManager.h`, `GameStateSnapshots.h` exist upstream.
+
+## Rust bridge workflow
+
+- ABI changes in `rust/orct2-agent/src/lib.rs` (any `#[no_mangle] extern "C"`
+  item) require regenerating the checked-in header:
+  `./scripts/generate-rust-header.sh` (needs `cargo install cbindgen`).
+- Corrosion (pinned v0.6.1, FetchContent in `cmake/rustagent.cmake`) builds the
+  crate; `ENABLE_RUST_AGENT` (default ON) gates everything, same pattern as
+  ENABLE_SCRIPTING.
+- Rust checks: `cargo fmt && cargo clippy --all --benches --tests --examples
+  --all-features && cargo test` inside `rust/orct2-agent`.
+
+## Build (macOS)
+
+```bash
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+cmake --build build
+```
+
+CMake auto-downloads prebuilt universal dylibs on macOS (MACOS_USE_DEPENDENCIES).
+Note `LIBOPENRCT2_LINKAGE STATIC` on APPLE in `src/openrct2/CMakeLists.txt` (RTTI
+across dylib boundary is broken on macOS, so libopenrct2 links static there).
+
+## Running the CLI from the build dir
+
+Non-bundled binaries look for `data/` next to the exe. One-time setup:
+`ln -sf $PWD/build/OpenRCT2.app/Contents/Resources build/data`. Bare
+`openrct2-cli` (launch mode) sets NoGraphics and works without RCT2 assets;
+`simulate` (and our `eval`) load g1.dat and need the real game files.
+
+## Eval workflow (phase 3+)
+
+- Track programs: JSON (ride_type, start tile+dir, piece list) executed by
+  `rust/orct2-agent/src/program.rs`; piece vocabulary in `pieces.rs` mirrors
+  `src/openrct2/ride/ted/TrackElemType.h`. Example: `evals/programs/test_oval.json`.
+- Full run: `./build/openrct2-cli eval <scenario> --ticks 25000
+  --rct2-data-path ~/rct2-assets --program p.json --out report.json --capture park.png`
+- Entrance/exit are brute-force auto-placed next to station tiles (game
+  validation is the oracle). Testing status requires them.
+- Direction semantics: dir 0 faces -x, 1 +y, 2 +x, 3 -y. Cursor z step 16.
+- Stalls never get ratings (RatingsCalculationType::Stall); tracked rides need
+  a completed test circuit (RideFlag::tested) before ratings compute.
+- Head-to-head driver: `uv run evals/driver.py` (needs ANTHROPIC_API_KEY, or
+  `--vertex` with GCP ADC; project defaults from $ANTHROPIC_VERTEX_PROJECT_ID);
+  results under `evals/runs/<timestamp>/`.
+
+## MCP server (interactive per-piece building)
+
+- `./build/openrct2-cli eval <scenario> --rct2-data-path ~/rct2-assets
+  --serve 8791` runs an MCP server at `http://127.0.0.1:8791/mcp`
+  (streamable HTTP, JSON response mode).
+- Hand-rolled sync server in `rust/orct2-agent/src/mcp.rs` — runs ON the game
+  thread by design (game API is single-threaded); rmcp/tokio deliberately
+  avoided. Tools: new_ride, place_piece, place_pieces (batch placement, max 200
+  pieces), valid_next_pieces (game-as-oracle query of the whole catalog),
+  get_state, finish_and_test, screenshot (MCP image content), demolish.
+- Cursor state now tracks bank (TrackRoll: 0=none, 2=left, 4=right, 15=upside_down)
+  and slope (TrackPitch: 0=none, 2=up25, 4=up60, 6=down25, 8=down60); circuit
+  closure check compares full cursor (x/y/z/dir/bank/slope) to catch incomplete
+  circuits that re-enter the station still banked or sloped.
+- Register with Claude Code:
+  `claude mcp add --transport http coaster http://127.0.0.1:8791/mcp`
+- Rust unit tests link against `#[cfg(test)]` stubs in host.rs (the C++ host
+  only exists in the game binary); game behavior is tested e2e via the CLI.
+
+## OpenShell sandbox harness (containerized Claude Code + one MCP)
+
+Docs live in ~/git/OpenShell/docs — READ THEM before changing anything here.
+- Gateway: `openshell-gateway --config ~/.config/openshell/gateway.toml`
+  (podman driver). Client mTLS certs live in
+  ~/.config/openshell/gateways/<name>/mtls and must match the server PKI in
+  ~/.local/state/openshell/tls (copy ca.crt + client/tls.* on BadSignature).
+- Sandbox image (scratchpad/coaster-sandbox/Dockerfile): node:22-slim +
+  iproute2 (required for netns isolation) + `useradd sandbox` (required by
+  installed 0.0.88; newer versions accept bare UIDs). Image CMD is replaced by
+  the supervisor — pass start commands via `-- <cmd>` or `sandbox exec`.
+- Game server must bind 0.0.0.0 (`--serve-bind 0.0.0.0`); sandboxes reach the
+  host at host.containers.internal.
+- Policy (scratchpad/coaster-sandbox/policy.yaml): vertex endpoints + game MCP
+  only. Binary attribution uses kernel-resolved paths — Claude Code 2.x is
+  `/usr/local/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe`, not
+  node. Denials log to `openshell logs <sandbox>` with binary + reason.
+- Inference: gateway-managed vertex provider (`--from-gcloud-adc` +
+  VERTEX_AI_PROJECT_ID/REGION/PUBLISHER config). inference.local rejects
+  Claude Code's `context_management` param (Vertex schema), so the working
+  path is Claude Code vertex mode + placeholder substitution:
+  `CLAUDE_CODE_USE_VERTEX=1 CLAUDE_CODE_SKIP_VERTEX_AUTH=1
+  ANTHROPIC_AUTH_TOKEN="$GOOGLE_VERTEX_AI_TOKEN"` — the proxy resolves the
+  placeholder to the gateway-minted token at egress; no real creds in sandbox.
+
+## Runtime assets
+
+RCT2 asset files are required at **runtime** (even headless park loading), not
+compile time. Source: GOG installer + innoextract (preferred on macOS) or RCT
+Classic. Point `general.game_path` in the OpenRCT2 config at them.
