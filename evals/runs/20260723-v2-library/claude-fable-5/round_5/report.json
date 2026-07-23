@@ -1,0 +1,48 @@
+{
+  "program": {
+    "ok": true,
+    "ride_id": 0,
+    "pieces_placed": 210,
+    "pieces_total": 210,
+    "total_cost": 191963,
+    "error": null
+  },
+  "bounds": {
+    "min_tile_x": 25,
+    "min_tile_y": 33,
+    "max_tile_x": 70,
+    "max_tile_y": 79,
+    "min_z": 112,
+    "max_z": 664
+  },
+  "rides": [
+    {
+      "id": 0,
+      "ride_type": 52,
+      "status": "testing",
+      "tested": true,
+      "crashed": false,
+      "excitement": 7.51,
+      "intensity": 9.99,
+      "nausea": 5.25,
+      "max_speed": 2126565,
+      "average_speed": 612522,
+      "ride_length": 85835274,
+      "max_positive_g": 4.34,
+      "max_negative_g": -2.52,
+      "max_lateral_g": 2.63,
+      "total_air_time": 113,
+      "num_drops": 9,
+      "highest_drop": 66,
+      "num_inversions": 0
+    }
+  ],
+  "similarity": {
+    "nearest_design": "Racer-saurus",
+    "nearest_ride_type": 10,
+    "similarity": 0.23809523809523814,
+    "edit_similarity": 0.23809523809523814,
+    "common_substring_share": 0.0380952380952381,
+    "mirrored": false
+  }
+}

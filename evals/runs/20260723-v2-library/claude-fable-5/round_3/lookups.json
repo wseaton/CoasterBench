@@ -1,0 +1,6 @@
+[
+ {"tool": "search", "ride_type": 52, "results": 30},
+ {"tool": "get", "name": "Woodwind", "found": true},
+ {"tool": "get", "name": "Great White Wail", "found": true},
+ {"tool": "get", "name": "Loup-Garou", "found": true}
+]

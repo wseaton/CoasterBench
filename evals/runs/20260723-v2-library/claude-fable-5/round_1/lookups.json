@@ -1,0 +1,6 @@
+[
+ {"tool": "search", "ride_type": 52, "results": 30},
+ {"tool": "get", "name": "Judge Roy Scream", "found": true},
+ {"tool": "get", "name": "Psyclone", "found": true},
+ {"tool": "get", "name": "Woodwind", "found": true}
+]

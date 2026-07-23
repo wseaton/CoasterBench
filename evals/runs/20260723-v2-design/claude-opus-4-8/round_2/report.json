@@ -1,0 +1,48 @@
+{
+  "program": {
+    "ok": true,
+    "ride_id": 0,
+    "pieces_placed": 109,
+    "pieces_total": 109,
+    "total_cost": 69264,
+    "error": null
+  },
+  "bounds": {
+    "min_tile_x": 17,
+    "min_tile_y": 38,
+    "max_tile_x": 74,
+    "max_tile_y": 48,
+    "min_z": 112,
+    "max_z": 360
+  },
+  "rides": [
+    {
+      "id": 0,
+      "ride_type": 52,
+      "status": "testing",
+      "tested": true,
+      "crashed": false,
+      "excitement": 5.73,
+      "intensity": 6.74,
+      "nausea": 4.1,
+      "max_speed": 1256548,
+      "average_speed": 97848,
+      "ride_length": 38585652,
+      "max_positive_g": 2.78,
+      "max_negative_g": -0.63,
+      "max_lateral_g": 1.86,
+      "total_air_time": 101,
+      "num_drops": 8,
+      "highest_drop": 22,
+      "num_inversions": 0
+    }
+  ],
+  "similarity": {
+    "nearest_design": "Creaky Dips",
+    "nearest_ride_type": 53,
+    "similarity": 0.3853211009174312,
+    "edit_similarity": 0.3853211009174312,
+    "common_substring_share": 0.08256880733944955,
+    "mirrored": false
+  }
+}

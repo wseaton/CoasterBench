@@ -1,0 +1,48 @@
+{
+  "program": {
+    "ok": true,
+    "ride_id": 0,
+    "pieces_placed": 66,
+    "pieces_total": 66,
+    "total_cost": 45398,
+    "error": null
+  },
+  "bounds": {
+    "min_tile_x": 33,
+    "min_tile_y": 41,
+    "max_tile_x": 57,
+    "max_tile_y": 60,
+    "min_z": 112,
+    "max_z": 280
+  },
+  "rides": [
+    {
+      "id": 0,
+      "ride_type": 52,
+      "status": "testing",
+      "tested": true,
+      "crashed": false,
+      "excitement": 5.21,
+      "intensity": 6.53,
+      "nausea": 3.66,
+      "max_speed": 1055902,
+      "average_speed": 351732,
+      "ride_length": 26471382,
+      "max_positive_g": 3.31,
+      "max_negative_g": -0.39,
+      "max_lateral_g": 1.57,
+      "total_air_time": 35,
+      "num_drops": 3,
+      "highest_drop": 16,
+      "num_inversions": 0
+    }
+  ],
+  "similarity": {
+    "nearest_design": "Mutant Mouse",
+    "nearest_ride_type": 94,
+    "similarity": 0.34090909090909094,
+    "edit_similarity": 0.34090909090909094,
+    "common_substring_share": 0.09090909090909091,
+    "mirrored": false
+  }
+}

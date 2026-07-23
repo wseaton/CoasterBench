@@ -1,0 +1,34 @@
+{
+  "ride_type": 52,
+  "start": {"x": 30, "y": 30, "dir": 2},
+  "pieces": [
+    "begin_station", "middle_station", "end_station",
+    {"t": "flat_to_up_25", "chain": true},
+    {"t": "up_25", "chain": true},
+    {"t": "up_25", "chain": true},
+    {"t": "up_25", "chain": true},
+    {"t": "up_25", "chain": true},
+    {"t": "up_25_to_flat", "chain": true},
+
+    "left_turn_5",
+
+    "flat_to_down_25", "down_25", "down_25", "down_25", "down_25", "down_25_to_flat",
+
+    "flat_to_up_25", "up_25_to_up_60", "up_60", "up_60_to_up_25", "up_25_to_flat",
+    "flat_to_down_25", "down_25_to_down_60", "down_60", "down_60_to_down_25", "down_25_to_flat",
+
+    "flat",
+
+    "left_turn_5",
+
+    "flat_to_left_bank", "left_bank", "left_bank", "left_bank_to_flat",
+    "flat", "flat", "flat", "flat", "flat",
+
+    "left_turn_5",
+
+    "flat", "flat", "flat", "flat", "flat", "flat", "flat", "flat", "flat",
+    "flat", "flat", "flat", "flat", "flat", "flat", "flat", "flat",
+
+    "left_turn_5"
+  ]
+}

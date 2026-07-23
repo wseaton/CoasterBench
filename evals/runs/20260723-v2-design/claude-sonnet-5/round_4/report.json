@@ -1,0 +1,48 @@
+{
+  "program": {
+    "ok": true,
+    "ride_id": 0,
+    "pieces_placed": 76,
+    "pieces_total": 76,
+    "total_cost": 43142,
+    "error": null
+  },
+  "bounds": {
+    "min_tile_x": 27,
+    "min_tile_y": 30,
+    "max_tile_x": 46,
+    "max_tile_y": 57,
+    "min_z": 112,
+    "max_z": 280
+  },
+  "rides": [
+    {
+      "id": 0,
+      "ride_type": 52,
+      "status": "closed",
+      "tested": false,
+      "crashed": true,
+      "excitement": null,
+      "intensity": null,
+      "nausea": null,
+      "max_speed": 1138477,
+      "average_speed": 310012859,
+      "ride_length": 407566446,
+      "max_positive_g": 2.86,
+      "max_negative_g": -0.61,
+      "max_lateral_g": 0.13,
+      "total_air_time": 42,
+      "num_drops": 197,
+      "highest_drop": 18,
+      "num_inversions": 0
+    }
+  ],
+  "similarity": {
+    "nearest_design": "King Rapids",
+    "nearest_ride_type": 24,
+    "similarity": 0.4078947368421053,
+    "edit_similarity": 0.4078947368421053,
+    "common_substring_share": 0.07894736842105263,
+    "mirrored": false
+  }
+}

@@ -1,0 +1,6 @@
+[
+ {"tool": "search", "ride_type": 52, "results": 30},
+ {"tool": "get", "name": "Texas Giant", "found": true},
+ {"tool": "get", "name": "Colossus (Track 2)", "found": true},
+ {"tool": "get", "name": "Rolling Thunder (Track 1)", "found": true}
+]

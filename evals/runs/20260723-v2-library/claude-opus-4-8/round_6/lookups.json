@@ -1,0 +1,9 @@
+[
+ {"tool": "search", "ride_type": 52, "results": 30},
+ {"tool": "get", "name": "Colossus (Track 1)", "found": true},
+ {"tool": "get", "name": "Texas Giant", "found": true},
+ {"tool": "get", "name": "Ugly Twisters", "found": true},
+ {"tool": "get", "name": "Roughrider", "found": true},
+ {"tool": "get", "name": "Whiteout", "found": true},
+ {"tool": "get", "name": "Splinter", "found": true}
+]

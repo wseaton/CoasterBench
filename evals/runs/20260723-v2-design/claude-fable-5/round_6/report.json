@@ -1,0 +1,48 @@
+{
+  "program": {
+    "ok": true,
+    "ride_id": 0,
+    "pieces_placed": 180,
+    "pieces_total": 180,
+    "total_cost": 97327,
+    "error": null
+  },
+  "bounds": {
+    "min_tile_x": 24,
+    "min_tile_y": 49,
+    "max_tile_x": 61,
+    "max_tile_y": 74,
+    "min_z": 112,
+    "max_z": 344
+  },
+  "rides": [
+    {
+      "id": 0,
+      "ride_type": 52,
+      "status": "testing",
+      "tested": true,
+      "crashed": false,
+      "excitement": 6.73,
+      "intensity": 8.33,
+      "nausea": 4.66,
+      "max_speed": 1374394,
+      "average_speed": 438052,
+      "ride_length": 63248430,
+      "max_positive_g": 3.21,
+      "max_negative_g": -2.46,
+      "max_lateral_g": 1.84,
+      "total_air_time": 110,
+      "num_drops": 9,
+      "highest_drop": 26,
+      "num_inversions": 0
+    }
+  ],
+  "similarity": {
+    "nearest_design": "Flashback",
+    "nearest_ride_type": 51,
+    "similarity": 0.3388888888888889,
+    "edit_similarity": 0.3388888888888889,
+    "common_substring_share": 0.07222222222222222,
+    "mirrored": true
+  }
+}

@@ -1,0 +1,48 @@
+{
+  "program": {
+    "ok": true,
+    "ride_id": 0,
+    "pieces_placed": 80,
+    "pieces_total": 80,
+    "total_cost": 105328,
+    "error": null
+  },
+  "bounds": {
+    "min_tile_x": 26,
+    "min_tile_y": 25,
+    "max_tile_x": 68,
+    "max_tile_y": 35,
+    "min_z": 112,
+    "max_z": 408
+  },
+  "rides": [
+    {
+      "id": 0,
+      "ride_type": 52,
+      "status": "testing",
+      "tested": true,
+      "crashed": false,
+      "excitement": 6.0,
+      "intensity": 7.23,
+      "nausea": 4.18,
+      "max_speed": 1539920,
+      "average_speed": 124910,
+      "ride_length": 37123842,
+      "max_positive_g": 3.2,
+      "max_negative_g": -1.29,
+      "max_lateral_g": 2.3,
+      "total_air_time": 36,
+      "num_drops": 4,
+      "highest_drop": 34,
+      "num_inversions": 0
+    }
+  ],
+  "similarity": {
+    "nearest_design": "Danglefeet",
+    "nearest_ride_type": 3,
+    "similarity": 0.30000000000000004,
+    "edit_similarity": 0.30000000000000004,
+    "common_substring_share": 0.1875,
+    "mirrored": false
+  }
+}

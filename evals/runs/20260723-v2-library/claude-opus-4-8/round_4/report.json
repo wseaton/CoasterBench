@@ -1,0 +1,48 @@
+{
+  "program": {
+    "ok": true,
+    "ride_id": 0,
+    "pieces_placed": 1035,
+    "pieces_total": 1035,
+    "total_cost": 711771,
+    "error": null
+  },
+  "bounds": {
+    "min_tile_x": 20,
+    "min_tile_y": 21,
+    "max_tile_x": 100,
+    "max_tile_y": 89,
+    "min_z": 112,
+    "max_z": 712
+  },
+  "rides": [
+    {
+      "id": 0,
+      "ride_type": 52,
+      "status": "testing",
+      "tested": true,
+      "crashed": false,
+      "excitement": 8.24,
+      "intensity": 9.9,
+      "nausea": 6.07,
+      "max_speed": 2207603,
+      "average_speed": 576594,
+      "ride_length": 338645160,
+      "max_positive_g": 4.1,
+      "max_negative_g": -1.57,
+      "max_lateral_g": 1.66,
+      "total_air_time": 59,
+      "num_drops": 17,
+      "highest_drop": 72,
+      "num_inversions": 0
+    }
+  ],
+  "similarity": {
+    "nearest_design": "Colossus (Track 1)",
+    "nearest_ride_type": 52,
+    "similarity": 0.11980676328502415,
+    "edit_similarity": 0.11980676328502415,
+    "common_substring_share": 0.017391304347826087,
+    "mirrored": false
+  }
+}

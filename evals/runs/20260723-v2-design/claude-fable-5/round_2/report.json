@@ -1,0 +1,48 @@
+{
+  "program": {
+    "ok": true,
+    "ride_id": 0,
+    "pieces_placed": 128,
+    "pieces_total": 128,
+    "total_cost": 75998,
+    "error": null
+  },
+  "bounds": {
+    "min_tile_x": 23,
+    "min_tile_y": 45,
+    "max_tile_x": 58,
+    "max_tile_y": 72,
+    "min_z": 112,
+    "max_z": 344
+  },
+  "rides": [
+    {
+      "id": 0,
+      "ride_type": 52,
+      "status": "testing",
+      "tested": true,
+      "crashed": false,
+      "excitement": 6.63,
+      "intensity": 8.85,
+      "nausea": 4.91,
+      "max_speed": 1371539,
+      "average_speed": 349303,
+      "ride_length": 48280428,
+      "max_positive_g": 4.34,
+      "max_negative_g": -2.68,
+      "max_lateral_g": 1.93,
+      "total_air_time": 95,
+      "num_drops": 9,
+      "highest_drop": 26,
+      "num_inversions": 0
+    }
+  ],
+  "similarity": {
+    "nearest_design": "Pegasus",
+    "nearest_ride_type": 11,
+    "similarity": 0.359375,
+    "edit_similarity": 0.359375,
+    "common_substring_share": 0.0625,
+    "mirrored": false
+  }
+}

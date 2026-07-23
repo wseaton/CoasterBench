@@ -1,0 +1,48 @@
+{
+  "program": {
+    "ok": true,
+    "ride_id": 0,
+    "pieces_placed": 90,
+    "pieces_total": 90,
+    "total_cost": 105149,
+    "error": null
+  },
+  "bounds": {
+    "min_tile_x": 26,
+    "min_tile_y": 25,
+    "max_tile_x": 74,
+    "max_tile_y": 35,
+    "min_z": 112,
+    "max_z": 472
+  },
+  "rides": [
+    {
+      "id": 0,
+      "ride_type": 52,
+      "status": "testing",
+      "tested": true,
+      "crashed": false,
+      "excitement": 6.22,
+      "intensity": 7.88,
+      "nausea": 4.45,
+      "max_speed": 1721494,
+      "average_speed": 142061,
+      "ride_length": 38840718,
+      "max_positive_g": 3.49,
+      "max_negative_g": -1.53,
+      "max_lateral_g": 2.53,
+      "total_air_time": 42,
+      "num_drops": 5,
+      "highest_drop": 42,
+      "num_inversions": 0
+    }
+  ],
+  "similarity": {
+    "nearest_design": "Judge Roy Scream",
+    "nearest_ride_type": 52,
+    "similarity": 0.3308823529411765,
+    "edit_similarity": 0.3308823529411765,
+    "common_substring_share": 0.2,
+    "mirrored": false
+  }
+}

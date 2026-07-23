@@ -51,6 +51,7 @@
     #include <cctype>
     #include <cstdlib>
     #include <cstring>
+    #include <unistd.h>
 
 using namespace OpenRCT2;
 
@@ -651,7 +652,10 @@ bool orct2_host_capture(const char* path, int32_t zoom, uint8_t rotation, bool f
         fs::create_directories(screenshotDir);
 
         CaptureOptions options;
-        options.Filename = fs::u8path("orct2-agent-capture.png");
+        // Per-process temp name: parallel replay harnesses run several
+        // game instances at once, and a shared temp file gets clobbered
+        // mid-copy (truncated PNGs).
+        options.Filename = fs::u8path("orct2-agent-capture-" + std::to_string(getpid()) + ".png");
         options.Zoom = ZoomLevel{ static_cast<int8_t>(zoom) };
         options.Rotation = rotation & 3;
         if (fit_track)

@@ -1,0 +1,8 @@
+[
+ {"tool": "search", "ride_type": 52, "results": 30},
+ {"tool": "get", "name": "Texas Giant", "found": true},
+ {"tool": "get", "name": "Psyclone", "found": true},
+ {"tool": "get", "name": "Woodwind", "found": true},
+ {"tool": "get", "name": "Great White Wail", "found": true},
+ {"tool": "get", "name": "Judge Roy Scream", "found": true}
+]

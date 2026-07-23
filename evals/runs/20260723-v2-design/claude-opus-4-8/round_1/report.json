@@ -1,0 +1,48 @@
+{
+  "program": {
+    "ok": true,
+    "ride_id": 0,
+    "pieces_placed": 84,
+    "pieces_total": 84,
+    "total_cost": 58023,
+    "error": null
+  },
+  "bounds": {
+    "min_tile_x": 17,
+    "min_tile_y": 50,
+    "max_tile_x": 67,
+    "max_tile_y": 60,
+    "min_z": 112,
+    "max_z": 328
+  },
+  "rides": [
+    {
+      "id": 0,
+      "ride_type": 52,
+      "status": "testing",
+      "tested": true,
+      "crashed": false,
+      "excitement": 5.54,
+      "intensity": 7.12,
+      "nausea": 3.91,
+      "max_speed": 1140158,
+      "average_speed": 525433,
+      "ride_length": 33693828,
+      "max_positive_g": 2.69,
+      "max_negative_g": -0.55,
+      "max_lateral_g": 1.7,
+      "total_air_time": 86,
+      "num_drops": 7,
+      "highest_drop": 18,
+      "num_inversions": 0
+    }
+  ],
+  "similarity": {
+    "nearest_design": "Time Twister",
+    "nearest_ride_type": 51,
+    "similarity": 0.40625,
+    "edit_similarity": 0.40625,
+    "common_substring_share": 0.14285714285714285,
+    "mirrored": true
+  }
+}

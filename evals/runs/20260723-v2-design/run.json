@@ -1,0 +1,1 @@
+{"mode": "design", "models": ["claude-fable-5", "claude-opus-4-8", "claude-sonnet-5"], "rounds": 6, "ticks": 25000, "scenario": "Build your own Six Flags Park.SC6", "note": "rerun on continuity-fixed harness"}

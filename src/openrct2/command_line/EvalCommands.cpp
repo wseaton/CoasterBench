@@ -37,6 +37,7 @@ namespace OpenRCT2
     static u8string _serveBind{};
     static u8string _dumpLibraryPath{};
     static u8string _renderLibraryDir{};
+    static bool _captureAllRotations = false;
 
     // clang-format off
     static constexpr CommandLineOptionDefinition kEvalOptions[]
@@ -51,6 +52,7 @@ namespace OpenRCT2
         { CMDLINE_TYPE_STRING,  &_serveBind,            kNAC, "serve-bind",         "MCP server bind address (default 127.0.0.1; use 0.0.0.0 for containers)" },
         { CMDLINE_TYPE_STRING,  &_dumpLibraryPath,      kNAC, "dump-library",       "write the stock track design library as JSON to this path and exit"      },
         { CMDLINE_TYPE_STRING,  &_renderLibraryDir,     kNAC, "render-library",     "render a preview PNG of every stock track design into this directory and exit" },
+        { CMDLINE_TYPE_SWITCH,  &_captureAllRotations,  kNAC, "capture-all-rotations", "with --capture, also write the other three view rotations as <name>-r1/-r2/-r3.png" },
         kOptionTableEnd
     };
 
@@ -163,6 +165,21 @@ namespace OpenRCT2
             {
                 Console::Error::WriteLine("Screenshot capture failed.");
                 exitCode = ExitCode::fail;
+            }
+            if (_captureAllRotations)
+            {
+                auto dot = _capturePath.find_last_of('.');
+                auto stem = dot == u8string::npos ? _capturePath : _capturePath.substr(0, dot);
+                auto ext = dot == u8string::npos ? u8string{} : _capturePath.substr(dot);
+                for (uint8_t rotation = 1; rotation < 4; rotation++)
+                {
+                    auto path = stem + "-r" + std::to_string(rotation) + ext;
+                    if (RustBridge::Capture(path.c_str(), 0, rotation, true) != 0)
+                    {
+                        Console::Error::WriteLine("Screenshot capture failed (rotation %d).", rotation);
+                        exitCode = ExitCode::fail;
+                    }
+                }
             }
         }
 

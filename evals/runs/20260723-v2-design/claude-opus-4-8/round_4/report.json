@@ -1,0 +1,48 @@
+{
+  "program": {
+    "ok": true,
+    "ride_id": 0,
+    "pieces_placed": 92,
+    "pieces_total": 92,
+    "total_cost": 77065,
+    "error": null
+  },
+  "bounds": {
+    "min_tile_x": 16,
+    "min_tile_y": 36,
+    "max_tile_x": 75,
+    "max_tile_y": 49,
+    "min_z": 112,
+    "max_z": 344
+  },
+  "rides": [
+    {
+      "id": 0,
+      "ride_type": 52,
+      "status": "testing",
+      "tested": true,
+      "crashed": false,
+      "excitement": 6.05,
+      "intensity": 7.74,
+      "nausea": 4.4,
+      "max_speed": 1261084,
+      "average_speed": 200657,
+      "ride_length": 43914948,
+      "max_positive_g": 3.1,
+      "max_negative_g": -2.17,
+      "max_lateral_g": 1.89,
+      "total_air_time": 87,
+      "num_drops": 8,
+      "highest_drop": 22,
+      "num_inversions": 0
+    }
+  ],
+  "similarity": {
+    "nearest_design": "Triple Corkscrew",
+    "nearest_ride_type": 19,
+    "similarity": 0.32608695652173914,
+    "edit_similarity": 0.32608695652173914,
+    "common_substring_share": 0.11956521739130435,
+    "mirrored": false
+  }
+}

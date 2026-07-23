@@ -1,0 +1,48 @@
+{
+  "program": {
+    "ok": true,
+    "ride_id": 0,
+    "pieces_placed": 200,
+    "pieces_total": 200,
+    "total_cost": 133749,
+    "error": null
+  },
+  "bounds": {
+    "min_tile_x": 26,
+    "min_tile_y": 40,
+    "max_tile_x": 66,
+    "max_tile_y": 80,
+    "min_z": 112,
+    "max_z": 424
+  },
+  "rides": [
+    {
+      "id": 0,
+      "ride_type": 52,
+      "status": "testing",
+      "tested": true,
+      "crashed": false,
+      "excitement": 6.83,
+      "intensity": 8.78,
+      "nausea": 4.76,
+      "max_speed": 1599017,
+      "average_speed": 606697,
+      "ride_length": 78033984,
+      "max_positive_g": 3.44,
+      "max_negative_g": -1.08,
+      "max_lateral_g": 2.76,
+      "total_air_time": 106,
+      "num_drops": 9,
+      "highest_drop": 36,
+      "num_inversions": 0
+    }
+  ],
+  "similarity": {
+    "nearest_design": "Batty Bikers",
+    "nearest_ride_type": 10,
+    "similarity": 0.245,
+    "edit_similarity": 0.245,
+    "common_substring_share": 0.03,
+    "mirrored": false
+  }
+}

@@ -1,0 +1,48 @@
+{
+  "program": {
+    "ok": true,
+    "ride_id": 0,
+    "pieces_placed": 148,
+    "pieces_total": 148,
+    "total_cost": 84751,
+    "error": null
+  },
+  "bounds": {
+    "min_tile_x": 23,
+    "min_tile_y": 47,
+    "max_tile_x": 58,
+    "max_tile_y": 74,
+    "min_z": 112,
+    "max_z": 344
+  },
+  "rides": [
+    {
+      "id": 0,
+      "ride_type": 52,
+      "status": "testing",
+      "tested": true,
+      "crashed": false,
+      "excitement": 6.63,
+      "intensity": 8.31,
+      "nausea": 4.68,
+      "max_speed": 1371539,
+      "average_speed": 369648,
+      "ride_length": 54226704,
+      "max_positive_g": 3.24,
+      "max_negative_g": -2.5,
+      "max_lateral_g": 1.93,
+      "total_air_time": 104,
+      "num_drops": 9,
+      "highest_drop": 26,
+      "num_inversions": 0
+    }
+  ],
+  "similarity": {
+    "nearest_design": "Dizzymouse",
+    "nearest_ride_type": 94,
+    "similarity": 0.32432432432432434,
+    "edit_similarity": 0.32432432432432434,
+    "common_substring_share": 0.0472972972972973,
+    "mirrored": false
+  }
+}

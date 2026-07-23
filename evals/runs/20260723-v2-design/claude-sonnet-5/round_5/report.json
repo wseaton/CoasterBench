@@ -1,0 +1,48 @@
+{
+  "program": {
+    "ok": true,
+    "ride_id": 0,
+    "pieces_placed": 80,
+    "pieces_total": 80,
+    "total_cost": 42628,
+    "error": null
+  },
+  "bounds": {
+    "min_tile_x": 27,
+    "min_tile_y": 30,
+    "max_tile_x": 46,
+    "max_tile_y": 59,
+    "min_z": 112,
+    "max_z": 280
+  },
+  "rides": [
+    {
+      "id": 0,
+      "ride_type": 52,
+      "status": "testing",
+      "tested": true,
+      "crashed": false,
+      "excitement": 5.31,
+      "intensity": 6.57,
+      "nausea": 3.63,
+      "max_speed": 1138477,
+      "average_speed": 441102,
+      "ride_length": 26706036,
+      "max_positive_g": 2.62,
+      "max_negative_g": -0.62,
+      "max_lateral_g": 1.61,
+      "total_air_time": 35,
+      "num_drops": 4,
+      "highest_drop": 18,
+      "num_inversions": 0
+    }
+  ],
+  "similarity": {
+    "nearest_design": "Hover Bother",
+    "nearest_ride_type": 11,
+    "similarity": 0.4,
+    "edit_similarity": 0.4,
+    "common_substring_share": 0.075,
+    "mirrored": false
+  }
+}

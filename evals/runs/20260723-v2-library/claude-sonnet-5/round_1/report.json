@@ -1,0 +1,48 @@
+{
+  "program": {
+    "ok": true,
+    "ride_id": 0,
+    "pieces_placed": 64,
+    "pieces_total": 64,
+    "total_cost": 65610,
+    "error": null
+  },
+  "bounds": {
+    "min_tile_x": 26,
+    "min_tile_y": 25,
+    "max_tile_x": 61,
+    "max_tile_y": 40,
+    "min_z": 112,
+    "max_z": 312
+  },
+  "rides": [
+    {
+      "id": 0,
+      "ride_type": 52,
+      "status": "testing",
+      "tested": true,
+      "crashed": false,
+      "excitement": 5.62,
+      "intensity": 6.14,
+      "nausea": 3.66,
+      "max_speed": 1195299,
+      "average_speed": 121855,
+      "ride_length": 32078424,
+      "max_positive_g": 2.55,
+      "max_negative_g": -0.63,
+      "max_lateral_g": 1.82,
+      "total_air_time": 28,
+      "num_drops": 3,
+      "highest_drop": 18,
+      "num_inversions": 0
+    }
+  ],
+  "similarity": {
+    "nearest_design": "Flight of the Phoenix",
+    "nearest_ride_type": 2,
+    "similarity": 0.2804878048780488,
+    "edit_similarity": 0.2804878048780488,
+    "common_substring_share": 0.140625,
+    "mirrored": false
+  }
+}
