@@ -1,0 +1,145 @@
+{
+  "pieces": [
+    {
+      "t": "begin_station"
+    },
+    {
+      "t": "middle_station"
+    },
+    {
+      "t": "end_station"
+    },
+    {
+      "t": "flat_to_up_25"
+    },
+    {
+      "t": "up_25",
+      "chain": true
+    },
+    {
+      "t": "up_25",
+      "chain": true
+    },
+    {
+      "t": "up_25",
+      "chain": true
+    },
+    {
+      "t": "up_25",
+      "chain": true
+    },
+    {
+      "t": "up_25",
+      "chain": true
+    },
+    {
+      "t": "up_25",
+      "chain": true
+    },
+    {
+      "t": "up_25_to_up_60",
+      "chain": true
+    },
+    {
+      "t": "up_60",
+      "chain": true
+    },
+    {
+      "t": "up_60",
+      "chain": true
+    },
+    {
+      "t": "up_60_to_flat"
+    },
+    {
+      "t": "left_turn_3"
+    },
+    {
+      "t": "down_25"
+    },
+    {
+      "t": "down_25"
+    },
+    {
+      "t": "down_25_to_down_60"
+    },
+    {
+      "t": "down_60"
+    },
+    {
+      "t": "down_60_to_flat"
+    },
+    {
+      "t": "left_turn_3"
+    },
+    {
+      "t": "flat_to_up_25"
+    },
+    {
+      "t": "up_25"
+    },
+    {
+      "t": "up_25_to_left_bank"
+    },
+    {
+      "t": "left_bank"
+    },
+    {
+      "t": "left_bank"
+    },
+    {
+      "t": "left_bank_to_up_25"
+    },
+    {
+      "t": "up_25_to_flat"
+    },
+    {
+      "t": "left_turn_5"
+    },
+    {
+      "t": "flat_to_down_25"
+    },
+    {
+      "t": "down_25"
+    },
+    {
+      "t": "down_25_to_flat"
+    },
+    {
+      "t": "left_turn_3"
+    },
+    {
+      "t": "flat_to_left_bank"
+    },
+    {
+      "t": "banked_left_turn_5"
+    },
+    {
+      "t": "left_bank_to_flat"
+    },
+    {
+      "t": "s_bend_left"
+    },
+    {
+      "t": "left_turn_3"
+    },
+    {
+      "t": "flat"
+    },
+    {
+      "t": "flat"
+    },
+    {
+      "t": "brakes"
+    },
+    {
+      "t": "flat"
+    }
+  ],
+  "start": {
+    "x": 60,
+    "y": 60,
+    "dir": 0
+  },
+  "ride_type": 52
+}

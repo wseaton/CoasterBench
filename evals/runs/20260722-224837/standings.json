@@ -1,0 +1,22 @@
+[
+  {
+    "model": "claude-opus-4-6",
+    "best_excitement": null,
+    "attempts": [
+      {
+        "round": 1,
+        "summary": "BUILD FAILED (57/57 placed): set_status(testing): Track is not a complete circuit"
+      }
+    ]
+  },
+  {
+    "model": "claude-sonnet-5",
+    "best_excitement": null,
+    "attempts": [
+      {
+        "round": 1,
+        "summary": "BUILD FAILED at piece 10 (10/42 placed): rejected at cursor (x=50, y=60, z=216, dir=0): Too steep for lift hill"
+      }
+    ]
+  }
+]

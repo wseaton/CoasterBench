@@ -1,0 +1,32 @@
+{
+  "program": {
+    "ok": true,
+    "ride_id": 0,
+    "pieces_placed": 77,
+    "pieces_total": 77,
+    "total_cost": 40363,
+    "error": null
+  },
+  "rides": [
+    {
+      "id": 0,
+      "ride_type": 52,
+      "status": "testing",
+      "tested": true,
+      "crashed": false,
+      "excitement": 5.29,
+      "intensity": 6.58,
+      "nausea": 3.57,
+      "max_speed": 1126046,
+      "average_speed": 494194,
+      "ride_length": 27286056,
+      "max_positive_g": 2.61,
+      "max_negative_g": -0.6,
+      "max_lateral_g": 1.67,
+      "total_air_time": 26,
+      "num_drops": 3,
+      "highest_drop": 18,
+      "num_inversions": 0
+    }
+  ]
+}

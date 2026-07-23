@@ -1,0 +1,48 @@
+{
+  "program": {
+    "ok": true,
+    "ride_id": 0,
+    "pieces_placed": 178,
+    "pieces_total": 178,
+    "total_cost": 106110,
+    "error": null
+  },
+  "bounds": {
+    "min_tile_x": 24,
+    "min_tile_y": 26,
+    "max_tile_x": 52,
+    "max_tile_y": 77,
+    "min_z": 112,
+    "max_z": 408
+  },
+  "rides": [
+    {
+      "id": 0,
+      "ride_type": 52,
+      "status": "testing",
+      "tested": true,
+      "crashed": false,
+      "excitement": 6.7,
+      "intensity": 8.19,
+      "nausea": 4.77,
+      "max_speed": 1540048,
+      "average_speed": 185863,
+      "ride_length": 66872106,
+      "max_positive_g": 3.28,
+      "max_negative_g": -2.48,
+      "max_lateral_g": 2.07,
+      "total_air_time": 124,
+      "num_drops": 9,
+      "highest_drop": 34,
+      "num_inversions": 0
+    }
+  ],
+  "similarity": {
+    "nearest_design": "Loup-Garou",
+    "nearest_ride_type": 52,
+    "similarity": 0.3651685393258427,
+    "edit_similarity": 0.3651685393258427,
+    "common_substring_share": 0.08426966292134831,
+    "mirrored": false
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "program": {
+    "ok": false,
+    "ride_id": 0,
+    "pieces_placed": 51,
+    "pieces_total": 96,
+    "total_cost": 87306,
+    "error": {
+      "piece_index": 51,
+      "piece": "right_helix_down_large",
+      "message": "rejected at cursor (x=30, y=42, z=224, dir=0): Wooden Roller Coaster 1 in the way"
+    }
+  },
+  "rides": [
+    {
+      "id": 0,
+      "ride_type": 52,
+      "status": "closed",
+      "tested": false,
+      "crashed": false,
+      "excitement": null,
+      "intensity": null,
+      "nausea": null,
+      "max_speed": 0,
+      "average_speed": 0,
+      "ride_length": 0,
+      "max_positive_g": 0.0,
+      "max_negative_g": 0.0,
+      "max_lateral_g": 0.0,
+      "total_air_time": 0,
+      "num_drops": 0,
+      "highest_drop": 0,
+      "num_inversions": 0
+    }
+  ]
+}

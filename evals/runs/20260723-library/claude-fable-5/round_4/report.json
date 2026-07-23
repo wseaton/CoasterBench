@@ -1,0 +1,48 @@
+{
+  "program": {
+    "ok": true,
+    "ride_id": 0,
+    "pieces_placed": 224,
+    "pieces_total": 224,
+    "total_cost": 223192,
+    "error": null
+  },
+  "bounds": {
+    "min_tile_x": 20,
+    "min_tile_y": 21,
+    "max_tile_x": 66,
+    "max_tile_y": 56,
+    "min_z": 112,
+    "max_z": 664
+  },
+  "rides": [
+    {
+      "id": 0,
+      "ride_type": 52,
+      "status": "testing",
+      "tested": true,
+      "crashed": false,
+      "excitement": 7.41,
+      "intensity": 9.28,
+      "nausea": 6.66,
+      "max_speed": 1868070,
+      "average_speed": 283028,
+      "ride_length": 106190070,
+      "max_positive_g": 4.02,
+      "max_negative_g": -2.27,
+      "max_lateral_g": 2.78,
+      "total_air_time": 183,
+      "num_drops": 9,
+      "highest_drop": 42,
+      "num_inversions": 0
+    }
+  ],
+  "similarity": {
+    "nearest_design": "Seal Sliding",
+    "nearest_ride_type": 19,
+    "similarity": 0.3348214285714286,
+    "edit_similarity": 0.3348214285714286,
+    "common_substring_share": 0.0625,
+    "mirrored": true
+  }
+}

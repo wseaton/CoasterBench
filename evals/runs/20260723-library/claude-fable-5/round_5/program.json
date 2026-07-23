@@ -1,0 +1,320 @@
+{
+ "ride_type": 52,
+ "start": {
+  "x": 24,
+  "y": 56,
+  "dir": 2
+ },
+ "pieces": [
+  "begin_station",
+  "middle_station",
+  "middle_station",
+  "end_station",
+  "flat",
+  {
+   "t": "flat_to_up_25",
+   "chain": true
+  },
+  {
+   "t": "left_turn_3_up_25",
+   "chain": true
+  },
+  {
+   "t": "up_25",
+   "chain": true
+  },
+  {
+   "t": "right_turn_3_up_25",
+   "chain": true
+  },
+  {
+   "t": "up_25",
+   "chain": true
+  },
+  {
+   "t": "right_turn_3_up_25",
+   "chain": true
+  },
+  {
+   "t": "up_25",
+   "chain": true
+  },
+  {
+   "t": "left_turn_3_up_25",
+   "chain": true
+  },
+  {
+   "t": "up_25",
+   "chain": true
+  },
+  {
+   "t": "right_turn_3_up_25",
+   "chain": true
+  },
+  {
+   "t": "up_25",
+   "chain": true
+  },
+  {
+   "t": "left_turn_3_up_25",
+   "chain": true
+  },
+  {
+   "t": "up_25",
+   "chain": true
+  },
+  {
+   "t": "left_turn_3_up_25",
+   "chain": true
+  },
+  {
+   "t": "up_25",
+   "chain": true
+  },
+  {
+   "t": "right_turn_3_up_25",
+   "chain": true
+  },
+  {
+   "t": "up_25",
+   "chain": true
+  },
+  {
+   "t": "up_25",
+   "chain": true
+  },
+  {
+   "t": "up_25",
+   "chain": true
+  },
+  {
+   "t": "up_25",
+   "chain": true
+  },
+  {
+   "t": "up_25",
+   "chain": true
+  },
+  {
+   "t": "up_25",
+   "chain": true
+  },
+  {
+   "t": "up_25",
+   "chain": true
+  },
+  {
+   "t": "up_25",
+   "chain": true
+  },
+  {
+   "t": "up_25",
+   "chain": true
+  },
+  {
+   "t": "up_25",
+   "chain": true
+  },
+  {
+   "t": "up_25",
+   "chain": true
+  },
+  {
+   "t": "up_25_to_flat",
+   "chain": true
+  },
+  "flat",
+  "right_turn_5",
+  "right_turn_5",
+  "flat_to_down_25",
+  "down_25_to_down_60",
+  "down_60",
+  "down_60",
+  "down_60",
+  "down_60",
+  "down_60_to_down_25",
+  "down_25_to_flat",
+  "flat_to_left_bank",
+  "left_helix_down_small",
+  "left_helix_down_small",
+  "left_helix_down_small",
+  "left_helix_down_small",
+  "left_helix_down_small",
+  "left_helix_down_small",
+  "left_helix_down_small",
+  "left_helix_down_small",
+  "left_helix_down_small",
+  "left_helix_down_small",
+  "left_helix_down_small",
+  "left_helix_down_small",
+  "left_helix_down_small",
+  "left_helix_down_small",
+  "left_bank_to_flat",
+  "flat",
+  "flat",
+  "flat",
+  "flat",
+  "flat_to_up_25",
+  "up_25_to_up_60",
+  "up_60_to_up_25",
+  "up_25_to_flat",
+  "flat_to_down_25",
+  "down_25_to_down_60",
+  "down_60_to_down_25",
+  "down_25_to_flat",
+  "flat",
+  "flat",
+  "flat_to_left_bank",
+  "banked_left_turn_5",
+  "banked_left_turn_5",
+  "left_bank_to_flat",
+  "flat",
+  "flat",
+  "flat",
+  "flat",
+  "flat_to_up_25",
+  "up_25_to_up_60",
+  "up_60_to_up_25",
+  "up_25_to_flat",
+  "flat_to_down_25",
+  "down_25_to_down_60",
+  "down_60_to_down_25",
+  "down_25_to_flat",
+  "flat",
+  "flat",
+  "flat",
+  "flat",
+  "flat",
+  "flat",
+  "flat",
+  "flat",
+  "flat",
+  "flat",
+  "flat",
+  "flat",
+  "flat_to_right_bank",
+  "banked_right_turn_5",
+  "banked_right_turn_5",
+  "right_bank_to_flat",
+  "flat",
+  "flat",
+  "flat",
+  "flat",
+  "flat_to_up_25",
+  "up_25_to_up_60",
+  "up_60_to_up_25",
+  "up_25_to_flat",
+  "flat_to_down_25",
+  "down_25_to_down_60",
+  "down_60_to_down_25",
+  "down_25_to_flat",
+  "flat",
+  "flat",
+  "flat_to_up_25",
+  "left_turn_5_up_25",
+  "left_turn_5_up_25",
+  "up_25_to_flat",
+  "flat_to_right_bank",
+  "right_helix_down_small",
+  "right_helix_down_small",
+  "right_helix_down_small",
+  "right_helix_down_small",
+  "right_helix_down_small",
+  "right_helix_down_small",
+  "right_helix_down_small",
+  "right_helix_down_small",
+  "right_bank_to_flat",
+  "flat_to_down_25",
+  "down_25_to_flat",
+  "flat",
+  "flat",
+  "right_turn_5",
+  "right_turn_5",
+  "flat",
+  "flat",
+  "flat",
+  "flat",
+  "flat_to_up_25",
+  "up_25_to_up_60",
+  "up_60_to_up_25",
+  "up_25_to_flat",
+  "flat_to_down_25",
+  "down_25_to_down_60",
+  "down_60_to_down_25",
+  "down_25_to_flat",
+  "flat",
+  "flat",
+  "flat_to_left_bank",
+  "banked_left_turn_5",
+  "banked_left_turn_5",
+  "left_bank_to_flat",
+  "flat",
+  "flat",
+  "flat",
+  "flat",
+  "flat_to_up_25",
+  "up_25_to_up_60",
+  "up_60_to_up_25",
+  "up_25_to_flat",
+  "flat_to_down_25",
+  "down_25_to_down_60",
+  "down_60_to_down_25",
+  "down_25_to_flat",
+  "flat",
+  "flat",
+  "right_turn_5",
+  "right_turn_5",
+  "flat",
+  "flat",
+  "flat",
+  "flat",
+  "flat_to_up_25",
+  "up_25",
+  "up_25_to_flat",
+  "flat_to_down_25",
+  "down_25",
+  "down_25_to_flat",
+  "flat_to_up_25",
+  "up_25",
+  "up_25",
+  "up_25_to_flat",
+  "flat",
+  "flat",
+  "flat",
+  "flat",
+  "flat",
+  "flat",
+  "right_turn_5",
+  "flat_to_down_25",
+  "down_25",
+  "down_25",
+  "down_25_to_flat",
+  "flat",
+  "flat",
+  "flat",
+  "flat",
+  "flat_to_left_bank",
+  "banked_left_turn_5",
+  "left_bank_to_flat",
+  "flat_to_right_bank",
+  "banked_right_turn_5",
+  "right_bank_to_flat",
+  "flat",
+  "flat",
+  "brakes",
+  "brakes",
+  "brakes",
+  "flat",
+  "flat",
+  "flat",
+  "flat",
+  "flat",
+  "flat",
+  "flat",
+  "flat",
+  "flat",
+  "flat",
+  "right_turn_5",
+  "flat"
+ ]
+}

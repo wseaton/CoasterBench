@@ -1,0 +1,48 @@
+{
+  "program": {
+    "ok": true,
+    "ride_id": 0,
+    "pieces_placed": 152,
+    "pieces_total": 152,
+    "total_cost": 111290,
+    "error": null
+  },
+  "bounds": {
+    "min_tile_x": 26,
+    "min_tile_y": 21,
+    "max_tile_x": 56,
+    "max_tile_y": 56,
+    "min_z": 112,
+    "max_z": 408
+  },
+  "rides": [
+    {
+      "id": 0,
+      "ride_type": 52,
+      "status": "testing",
+      "tested": true,
+      "crashed": false,
+      "excitement": 6.72,
+      "intensity": 9.17,
+      "nausea": 5.17,
+      "max_speed": 1578724,
+      "average_speed": 202747,
+      "ride_length": 62087298,
+      "max_positive_g": 4.78,
+      "max_negative_g": -3.23,
+      "max_lateral_g": 1.9,
+      "total_air_time": 89,
+      "num_drops": 9,
+      "highest_drop": 34,
+      "num_inversions": 0
+    }
+  ],
+  "similarity": {
+    "nearest_design": "To The Death",
+    "nearest_ride_type": 10,
+    "similarity": 0.3486842105263158,
+    "edit_similarity": 0.3486842105263158,
+    "common_substring_share": 0.06578947368421052,
+    "mirrored": false
+  }
+}

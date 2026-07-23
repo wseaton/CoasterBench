@@ -1,0 +1,48 @@
+{
+  "program": {
+    "ok": true,
+    "ride_id": 0,
+    "pieces_placed": 226,
+    "pieces_total": 226,
+    "total_cost": 252631,
+    "error": null
+  },
+  "bounds": {
+    "min_tile_x": 20,
+    "min_tile_y": 21,
+    "max_tile_x": 61,
+    "max_tile_y": 60,
+    "min_z": 112,
+    "max_z": 696
+  },
+  "rides": [
+    {
+      "id": 0,
+      "ride_type": 52,
+      "status": "testing",
+      "tested": true,
+      "crashed": false,
+      "excitement": 7.51,
+      "intensity": 9.32,
+      "nausea": 6.68,
+      "max_speed": 1884631,
+      "average_speed": 288725,
+      "ride_length": 112278432,
+      "max_positive_g": 4.05,
+      "max_negative_g": -2.31,
+      "max_lateral_g": 2.8,
+      "total_air_time": 181,
+      "num_drops": 9,
+      "highest_drop": 42,
+      "num_inversions": 0
+    }
+  ],
+  "similarity": {
+    "nearest_design": "Touchwood",
+    "nearest_ride_type": 52,
+    "similarity": 0.32300884955752207,
+    "edit_similarity": 0.32300884955752207,
+    "common_substring_share": 0.048672566371681415,
+    "mirrored": false
+  }
+}

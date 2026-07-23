@@ -1,0 +1,36 @@
+{
+  "program": {
+    "ok": false,
+    "ride_id": 0,
+    "pieces_placed": 57,
+    "pieces_total": 57,
+    "total_cost": 41480,
+    "error": {
+      "piece_index": null,
+      "piece": null,
+      "message": "set_status(testing): Track is not a complete circuit"
+    }
+  },
+  "rides": [
+    {
+      "id": 0,
+      "ride_type": 52,
+      "status": "closed",
+      "tested": false,
+      "crashed": false,
+      "excitement": null,
+      "intensity": null,
+      "nausea": null,
+      "max_speed": 0,
+      "average_speed": 0,
+      "ride_length": 0,
+      "max_positive_g": 0.0,
+      "max_negative_g": 0.0,
+      "max_lateral_g": 0.0,
+      "total_air_time": 0,
+      "num_drops": 0,
+      "highest_drop": 0,
+      "num_inversions": 0
+    }
+  ]
+}

@@ -1,0 +1,48 @@
+{
+  "program": {
+    "ok": true,
+    "ride_id": 0,
+    "pieces_placed": 418,
+    "pieces_total": 418,
+    "total_cost": 274742,
+    "error": null
+  },
+  "bounds": {
+    "min_tile_x": 24,
+    "min_tile_y": 24,
+    "max_tile_x": 61,
+    "max_tile_y": 78,
+    "min_z": 112,
+    "max_z": 776
+  },
+  "rides": [
+    {
+      "id": 0,
+      "ride_type": 52,
+      "status": "testing",
+      "tested": true,
+      "crashed": false,
+      "excitement": 7.6,
+      "intensity": 9.81,
+      "nausea": 5.4,
+      "max_speed": 2373650,
+      "average_speed": 369162,
+      "ride_length": 137902968,
+      "max_positive_g": 4.52,
+      "max_negative_g": -2.9,
+      "max_lateral_g": 1.91,
+      "total_air_time": 107,
+      "num_drops": 11,
+      "highest_drop": 80,
+      "num_inversions": 0
+    }
+  ],
+  "similarity": {
+    "nearest_design": "Titan",
+    "nearest_ride_type": 92,
+    "similarity": 0.2607655502392344,
+    "edit_similarity": 0.2607655502392344,
+    "common_substring_share": 0.09808612440191387,
+    "mirrored": false
+  }
+}
