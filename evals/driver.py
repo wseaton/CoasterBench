@@ -284,8 +284,13 @@ def run_eval(program: dict, scenario: Path, workdir: Path, ticks: int) -> tuple[
     shot = None
     if capture_path.exists():
         small = workdir / "park_small.png"
-        subprocess.run(["sips", "-Z", "1500", str(capture_path), "--out", str(small)], capture_output=True)
-        shot = small if small.exists() else None
+        # The API rejects images over 5 MB of base64 (~3.7 MB raw); tall parks
+        # can exceed that even downscaled, so keep shrinking until it fits.
+        for px in (1500, 1100, 800, 600):
+            subprocess.run(["sips", "-Z", str(px), str(capture_path), "--out", str(small)], capture_output=True)
+            if small.exists() and small.stat().st_size * 4 / 3 < 4_900_000:
+                shot = small
+                break
     return report, shot
 
 
