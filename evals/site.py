@@ -20,6 +20,7 @@ import html
 import json
 import re
 import shutil
+import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -192,6 +193,21 @@ tr.winner td { background: rgba(217,165,32,.25); }
 .chart svg { display: block; width: 100%; height: auto; }
 .chart-legend { display: flex; gap: 1.2rem; font-size: .75rem; margin-bottom: .2rem; }
 .chart-legend .chip { display: inline-block; width: 10px; height: 10px; margin-right: .35rem; }
+.run-table { width: 100%; border-collapse: collapse; margin-top: .6rem; }
+.run-table th { text-align: left; font-size: .7rem; text-transform: uppercase; letter-spacing: .06em;
+  padding: .3rem .5rem; border-bottom: 2px solid #2a2015; }
+.run-table td { padding: .45rem .5rem; border-bottom: 1px solid #cbbd93; vertical-align: middle; font-size: .85rem; }
+.run-table .run-thumb { width: 140px; display: block; image-rendering: pixelated;
+  border: 2px solid #2a2015; background: #10202e; }
+.run-table .scores { font-size: .78rem; line-height: 1.5; }
+.facets { display: flex; flex-wrap: wrap; gap: .8rem; margin-top: .6rem; }
+.facet-group { display: inline-flex; align-items: center; gap: .25rem; flex-wrap: wrap; }
+.facet-label { font-size: .7rem; text-transform: uppercase; letter-spacing: .06em; margin-right: .15rem; }
+.facet-btn { font: inherit; font-size: .75rem; padding: .15rem .5rem; cursor: pointer;
+  background: #c2b280; border: 2px solid #2a2015;
+  box-shadow: inset -1px -1px 0 rgba(0,0,0,.35), inset 1px 1px 0 rgba(255,255,255,.5); }
+.facet-btn.active { background: #5c3a24; color: #f0e6c8;
+  box-shadow: inset -1px -1px 0 rgba(255,255,255,.35), inset 1px 1px 0 rgba(0,0,0,.5); }
 .rotator { position: relative; }
 .rotator .rot-btn {
   position: absolute; bottom: 10px; width: 30px; height: 26px;
@@ -301,12 +317,25 @@ class ModelRun:
         return max(rated, key=lambda r: r.excitement) if rated else None
 
 
+RIDE_TYPE_NAMES = {51: "steel twister", 52: "wooden"}
+
+
 @dataclass
 class EvalRun:
     name: str
     mode: str
     grace: float
     models: list[ModelRun]
+    ride_type: int = 52
+
+    @property
+    def ride_name(self) -> str:
+        return RIDE_TYPE_NAMES.get(self.ride_type, f"type {self.ride_type}")
+
+    @property
+    def date(self) -> str:
+        m = re.match(r"(\d{4})(\d{2})(\d{2})", self.name)
+        return f"{m.group(1)}-{m.group(2)}-{m.group(3)}" if m else ""
 
     @property
     def ranked(self) -> list[ModelRun]:
@@ -379,7 +408,15 @@ def load_runs(runs_dir: Path) -> list[EvalRun]:
             if rounds:
                 models.append(ModelRun(model=model_dir.name, rounds=rounds))
         if models:
-            runs.append(EvalRun(name=run_dir.name, mode=mode, grace=grace, models=models))
+            runs.append(
+                EvalRun(
+                    name=run_dir.name,
+                    mode=mode,
+                    grace=grace,
+                    models=models,
+                    ride_type=meta.get("ride_type", 52),
+                )
+            )
     return runs
 
 
@@ -428,6 +465,24 @@ def page(title: str, titlebar: str, body: str, path: str, base_url: str | None, 
 {body}
 <script>
 document.addEventListener('click', function (e) {{
+  var fb = e.target.closest('.facet-btn');
+  if (fb) {{
+    document.querySelectorAll('.facet-btn[data-facet="' + fb.dataset.facet + '"]')
+      .forEach(function (b) {{ b.classList.remove('active'); }});
+    fb.classList.add('active');
+    var active = {{}};
+    document.querySelectorAll('.facet-btn.active').forEach(function (b) {{
+      if (b.dataset.value) active[b.dataset.facet] = b.dataset.value;
+    }});
+    document.querySelectorAll('.run-table tbody tr').forEach(function (row) {{
+      var show = true;
+      if (active.mode && row.dataset.mode !== active.mode) show = false;
+      if (active.coaster && row.dataset.coaster !== active.coaster) show = false;
+      if (active.model && row.dataset.models.split(' ').indexOf(active.model) < 0) show = false;
+      row.style.display = show ? '' : 'none';
+    }});
+    return;
+  }}
   var btn = e.target.closest('.rot-btn');
   if (!btn) return;
   var rot = btn.closest('.rotator');
@@ -770,6 +825,86 @@ def write_favicon(out: Path) -> None:
     img.save(out / "favicon.ico", sizes=[(16, 16), (32, 32), (48, 48)])
 
 
+def run_thumbnail(run: EvalRun, out: Path) -> str | None:
+    """Small PNG of the run's winning (or any) screenshot for the index table."""
+    shot = None
+    for model in run.ranked:
+        if model.best is not None and model.best.screenshot is not None:
+            shot = model.best.screenshot
+            break
+    if shot is None:
+        for model in run.models:
+            for rnd in model.rounds:
+                if rnd.screenshot is not None:
+                    shot = rnd.screenshot
+                    break
+            if shot:
+                break
+    if shot is None:
+        return None
+    rel = Path("assets") / "thumbs" / f"{run.name}.png"
+    dest = out / rel
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["sips", "-Z", "280", str(shot), "--out", str(dest)], capture_output=True)
+    return rel.as_posix() if dest.is_file() else None
+
+
+def facet_buttons(facet: str, values: list[str]) -> str:
+    buttons = [f'<button class="facet-btn active" data-facet="{facet}" data-value="">all</button>']
+    buttons += [
+        f'<button class="facet-btn" data-facet="{facet}" data-value="{esc(v)}">{esc(v)}</button>' for v in values
+    ]
+    return f'<span class="facet-group"><span class="facet-label">{esc(facet)}:</span>{"".join(buttons)}</span>'
+
+
+def run_table(runs: list[EvalRun], out: Path) -> str:
+    modes = sorted({r.mode for r in runs})
+    rides = sorted({r.ride_name for r in runs})
+    models = sorted({m.model for r in runs for m in r.models})
+    filters = (
+        '<div class="facets">'
+        + facet_buttons("mode", modes)
+        + facet_buttons("coaster", rides)
+        + facet_buttons("model", models)
+        + "</div>"
+    )
+    rows = []
+    for run in runs:
+        thumb = run_thumbnail(run, out)
+        href = f"run-{esc(run.name)}.html"
+        thumb_cell = (
+            f'<a href="{href}"><img class="run-thumb" src="{esc(thumb)}" alt="best coaster of {esc(run.name)}" loading="lazy"></a>'
+            if thumb
+            else '<div class="no-preview">no shot</div>'
+        )
+        scores = []
+        for model in run.ranked:
+            best = model.best
+            scores.append(
+                f"{esc(model.model)} <b>{best.excitement:.2f}</b>" if best else f'{esc(model.model)} <span class="dim">—</span>'
+            )
+        winner = run.ranked[0] if run.models else None
+        winner_cell = (
+            f"{esc(winner.model)} ({winner.best.excitement:.2f})" if winner and winner.best else '<span class="dim">no finisher</span>'
+        )
+        rows.append(
+            f'<tr data-mode="{esc(run.mode)}" data-coaster="{esc(run.ride_name)}" '
+            f'data-models="{esc(" ".join(m.model for m in run.models))}">'
+            f"<td>{thumb_cell}</td>"
+            f'<td><a href="{href}">{esc(run.name)}</a><br><span class="dim">{esc(run.date)}</span></td>'
+            f"<td>{esc(run.mode)}</td>"
+            f"<td>{esc(run.ride_name)}</td>"
+            f'<td class="scores">{"<br>".join(scores)}</td>'
+            f"<td>{winner_cell}</td></tr>"
+        )
+    table = (
+        '<table class="run-table"><thead><tr>'
+        "<th></th><th>run</th><th>mode</th><th>coaster</th><th>standings</th><th>winner</th>"
+        f'</tr></thead><tbody>{"".join(rows)}</tbody></table>'
+    )
+    return filters + table
+
+
 def build_site(runs: list[EvalRun], out: Path, runs_dir: Path, base_url: str | None) -> None:
     out.mkdir(parents=True, exist_ok=True)
     # Clear previously generated output so renamed/deleted runs don't linger.
@@ -780,20 +915,12 @@ def build_site(runs: list[EvalRun], out: Path, runs_dir: Path, base_url: str | N
     have_previews = PREVIEWS_DIR.is_dir() and any(PREVIEWS_DIR.glob("*.png"))
 
     index_body = [how_it_works()]
-    for mode in ("design", "library"):
-        mode_runs = [r for r in runs if r.mode == mode]
-        if not mode_runs:
-            continue
-        mode_intro = f"<p>{esc(MODE_TAGLINES[mode])}</p>"
-        if mode == "library" and have_previews:
-            mode_intro += '<p style="margin-top:.4rem"><a href="library.html">browse the full track design library &rarr;</a></p>'
-        index_body.append(window(f"{mode.capitalize()} mode", mode_intro))
-        for run in mode_runs:
-            inner = standings_table(run) + (
-                f'<p style="margin-top:.8rem"><a href="run-{esc(run.name)}.html">full rounds, programs &amp; screenshots &rarr;</a></p>'
-            )
-            index_body.append(window(f"Run {run.name}", inner))
-    if not runs:
+    intro = "<p>" + " · ".join(f"<b>{esc(m)}</b>: {esc(t)}" for m, t in MODE_TAGLINES.items()) + "</p>"
+    if have_previews:
+        intro += '<p style="margin-top:.4rem"><a href="library.html">browse the full track design library &rarr;</a></p>'
+    if runs:
+        index_body.append(window("All runs", intro + run_table(runs, out)))
+    else:
         index_body.append(window("No runs yet", "<p>Run <code>uv run evals/driver.py</code> to generate one.</p>"))
     (out / "index.html").write_text(
         page("Coaster Evals", "COASTER EVALS", "".join(index_body), "index.html", base_url)
@@ -892,45 +1019,17 @@ def main() -> int:
         help="public URL the site deploys to; required for Slack unfurl images, "
         "which must be absolute URLs (default %(default)s)",
     )
-    parser.add_argument(
-        "--all",
-        action="store_true",
-        help="render every run; by default only the newest run per mode is shown",
-    )
     args = parser.parse_args()
 
-    all_runs = load_runs(args.runs)
-    runs = all_runs
-    if not args.all:
-        # load_runs returns newest-first; keep only the latest run per mode.
-        newest: dict[str, str] = {}
-        runs = [r for r in all_runs if newest.setdefault(r.mode, r.name) == r.name]
+    runs = load_runs(args.runs)
     build_site(runs, args.out, args.runs, args.base_url)
-    # Superseded run pages have been shared as links; keep their URLs alive
-    # with a redirect to the current board for the same mode.
-    kept = {r.name for r in runs}
-    latest_by_mode = {r.mode: r.name for r in runs}
-    stubs = 0
-    for run in all_runs:
-        if run.name in kept:
-            continue
-        target = f"run-{latest_by_mode[run.mode]}.html" if run.mode in latest_by_mode else "index.html"
-        (args.out / f"run-{esc(run.name)}.html").write_text(
-            "<!doctype html><html><head><meta charset=\"utf-8\">"
-            f"<meta http-equiv=\"refresh\" content=\"0; url={target}\">"
-            f"<link rel=\"canonical\" href=\"{target}\">"
-            f"<title>Run {esc(run.name)} (superseded)</title></head>"
-            f"<body><p>Run {esc(run.name)} has been superseded. "
-            f"<a href=\"{target}\">Latest {esc(run.mode)} board &rarr;</a></p></body></html>"
-        )
-        stubs += 1
     if not args.base_url:
         print(
             "note: no --base-url given, og:image/og:url omitted (Slack unfurls will be text-only)",
             file=sys.stderr,
         )
     pages = 1 + len(runs)
-    print(f"wrote {pages} page(s) for {len(runs)} run(s) (+{stubs} redirect stub(s)) to {args.out}")
+    print(f"wrote {pages} page(s) for {len(runs)} run(s) to {args.out}")
     return 0
 
 
