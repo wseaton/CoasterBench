@@ -1,0 +1,52 @@
+{
+  "program": {
+    "ok": false,
+    "ride_id": 0,
+    "pieces_placed": 37,
+    "pieces_total": 37,
+    "total_cost": 55418,
+    "error": {
+      "piece_index": null,
+      "piece": null,
+      "message": "set_status(testing): Track is not a complete circuit [track starts at tile (60, 60, z=112, dir=0, bank=0, slope=0) and ends at tile (51, 74, z=176, dir=0, bank=0, slope=0); a closed circuit requires these to be identical]"
+    }
+  },
+  "bounds": {
+    "min_tile_x": 48,
+    "min_tile_y": 57,
+    "max_tile_x": 63,
+    "max_tile_y": 74,
+    "min_z": 112,
+    "max_z": 312
+  },
+  "rides": [
+    {
+      "id": 0,
+      "ride_type": 51,
+      "status": "closed",
+      "tested": false,
+      "crashed": false,
+      "excitement": null,
+      "intensity": null,
+      "nausea": null,
+      "max_speed": 0,
+      "average_speed": 0,
+      "ride_length": 0,
+      "max_positive_g": 0.0,
+      "max_negative_g": 0.0,
+      "max_lateral_g": 0.0,
+      "total_air_time": 0,
+      "num_drops": 0,
+      "highest_drop": 0,
+      "num_inversions": 0
+    }
+  ],
+  "similarity": {
+    "nearest_design": "Doubledrop",
+    "nearest_ride_type": 60,
+    "similarity": 0.32432432432432434,
+    "edit_similarity": 0.32432432432432434,
+    "common_substring_share": 0.10810810810810811,
+    "mirrored": false
+  }
+}

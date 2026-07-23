@@ -1,0 +1,119 @@
+{
+  "mode": "design",
+  "standings": [
+    {
+      "model": "claude-opus-4-6",
+      "best_excitement": 0.24000000000000005,
+      "best_raw_excitement": 0.28,
+      "best_similarity": 0.5714285714285714,
+      "attempts": [
+        {
+          "round": 1,
+          "summary": "excitement=0.28 intensity=0.07 nausea=0.03 tested=True crashed=False length=7376964 drops=0 airtime=0 similarity=0.57 (nearest: River Of The Damned) -> penalized excitement 0.24",
+          "lookups": []
+        },
+        {
+          "round": 2,
+          "summary": "BUILD FAILED (45/45 placed): set_status(testing): Track is not a complete circuit [track starts at tile (30, 50, z=112, dir=2, bank=0, slope=0) and ends at tile (42, 53, z=112, dir=2, bank=0, slope=0); a closed circuit requires these to be identical]",
+          "lookups": []
+        },
+        {
+          "round": 3,
+          "summary": "BUILD FAILED at piece 56 (56/66 placed): rejected at cursor (x=62, y=56, z=112, dir=0): Twister Roller Coaster 1 in the way",
+          "lookups": []
+        },
+        {
+          "round": 4,
+          "summary": "BUILD FAILED (44/44 placed): set_status(testing): Track is not a complete circuit [track starts at tile (30, 50, z=112, dir=2, bank=0, slope=0) and ends at tile (22, 58, z=112, dir=3, bank=0, slope=0); a closed circuit requires these to be identical]",
+          "lookups": []
+        },
+        {
+          "round": 5,
+          "summary": "BUILD FAILED (62/62 placed): set_status(testing): Track is not a complete circuit [track starts at tile (30, 50, z=112, dir=2, bank=0, slope=0) and ends at tile (54, 62, z=112, dir=3, bank=0, slope=0); a closed circuit requires these to be identical]",
+          "lookups": []
+        },
+        {
+          "round": 6,
+          "summary": "BUILD FAILED at piece 71 (71/75 placed): rejected at cursor (x=33, y=48, z=112, dir=1): Twister Roller Coaster 1 in the way",
+          "lookups": []
+        }
+      ]
+    },
+    {
+      "model": "claude-sonnet-5",
+      "best_excitement": null,
+      "best_raw_excitement": null,
+      "best_similarity": null,
+      "attempts": [
+        {
+          "round": 1,
+          "summary": "BUILD FAILED (40/40 placed): set_status(testing): Track is not a complete circuit [track starts at tile (60, 60, z=112, dir=0, bank=0, slope=0) and ends at tile (50, 76, z=176, dir=0, bank=0, slope=0); a closed circuit requires these to be identical]",
+          "lookups": []
+        },
+        {
+          "round": 2,
+          "summary": "BUILD FAILED (37/37 placed): set_status(testing): Track is not a complete circuit [track starts at tile (60, 60, z=112, dir=0, bank=0, slope=0) and ends at tile (51, 76, z=176, dir=0, bank=0, slope=0); a closed circuit requires these to be identical]",
+          "lookups": []
+        },
+        {
+          "round": 3,
+          "summary": "BUILD FAILED at piece 38 (38/41 placed): rejected at cursor (x=53, y=71, z=160, dir=3): Twister Roller Coaster 1 in the way",
+          "lookups": []
+        },
+        {
+          "round": 4,
+          "summary": "BUILD FAILED at piece 37 (37/38 placed): rejected at cursor (x=50, y=69, z=176, dir=2): Twister Roller Coaster 1 in the way",
+          "lookups": []
+        },
+        {
+          "round": 5,
+          "summary": "BUILD FAILED (37/37 placed): set_status(testing): Track is not a complete circuit [track starts at tile (60, 60, z=112, dir=0, bank=0, slope=0) and ends at tile (51, 74, z=176, dir=0, bank=0, slope=0); a closed circuit requires these to be identical]",
+          "lookups": []
+        },
+        {
+          "round": 6,
+          "summary": "BUILD FAILED (38/38 placed): set_status(testing): Track is not a complete circuit [track starts at tile (60, 60, z=112, dir=0, bank=0, slope=0) and ends at tile (50, 70, z=176, dir=2, bank=0, slope=0); a closed circuit requires these to be identical]",
+          "lookups": []
+        }
+      ]
+    },
+    {
+      "model": "claude-haiku-4-5",
+      "best_excitement": null,
+      "best_raw_excitement": null,
+      "best_similarity": null,
+      "attempts": [
+        {
+          "round": 1,
+          "summary": "BUILD FAILED at piece 30 (30/47 placed): rejected at cursor (x=54, y=60, z=168, dir=0): Twister Roller Coaster 1 in the way",
+          "lookups": []
+        },
+        {
+          "round": 2,
+          "summary": "BUILD FAILED (49/49 placed): set_status(testing): Track is not a complete circuit [track starts at tile (60, 60, z=112, dir=0, bank=0, slope=0) and ends at tile (61, 60, z=176, dir=0, bank=0, slope=0); a closed circuit requires these to be identical]",
+          "lookups": []
+        },
+        {
+          "round": 3,
+          "summary": "BUILD FAILED at piece 26 (26/49 placed): rejected at cursor (x=59, y=61, z=120, dir=0): Raise or lower land first",
+          "lookups": []
+        },
+        {
+          "round": 4,
+          "summary": "BUILD FAILED at piece 24 (24/50 placed): rejected at cursor (x=54, y=60, z=128, dir=3): Twister Roller Coaster 1 in the way",
+          "lookups": []
+        },
+        {
+          "round": 5,
+          "summary": "BUILD FAILED at piece 31 (31/53 placed): rejected at cursor (x=54, y=61, z=160, dir=3): Twister Roller Coaster 1 in the way",
+          "lookups": []
+        },
+        {
+          "round": 6,
+          "summary": "BUILD FAILED at piece 37 (37/51 placed): rejected at cursor (x=46, y=59, z=128, dir=0): Twister Roller Coaster 1 in the way",
+          "lookups": []
+        }
+      ]
+    }
+  ]
+}

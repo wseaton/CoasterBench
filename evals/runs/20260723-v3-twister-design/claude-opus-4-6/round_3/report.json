@@ -1,0 +1,52 @@
+{
+  "program": {
+    "ok": false,
+    "ride_id": 0,
+    "pieces_placed": 56,
+    "pieces_total": 66,
+    "total_cost": 61762,
+    "error": {
+      "piece_index": 56,
+      "piece": "flat",
+      "message": "rejected at cursor (x=62, y=56, z=112, dir=0): Twister Roller Coaster 1 in the way"
+    }
+  },
+  "bounds": {
+    "min_tile_x": 30,
+    "min_tile_y": 50,
+    "max_tile_x": 71,
+    "max_tile_y": 65,
+    "min_z": 112,
+    "max_z": 280
+  },
+  "rides": [
+    {
+      "id": 0,
+      "ride_type": 51,
+      "status": "closed",
+      "tested": false,
+      "crashed": false,
+      "excitement": null,
+      "intensity": null,
+      "nausea": null,
+      "max_speed": 0,
+      "average_speed": 0,
+      "ride_length": 0,
+      "max_positive_g": 0.0,
+      "max_negative_g": 0.0,
+      "max_lateral_g": 0.0,
+      "total_air_time": 0,
+      "num_drops": 0,
+      "highest_drop": 0,
+      "num_inversions": 0
+    }
+  ],
+  "similarity": {
+    "nearest_design": "Dizzymouse",
+    "nearest_ride_type": 94,
+    "similarity": 0.35106382978723405,
+    "edit_similarity": 0.35106382978723405,
+    "common_substring_share": 0.125,
+    "mirrored": false
+  }
+}

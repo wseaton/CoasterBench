@@ -1,0 +1,52 @@
+{
+  "program": {
+    "ok": false,
+    "ride_id": 0,
+    "pieces_placed": 31,
+    "pieces_total": 53,
+    "total_cost": 34103,
+    "error": {
+      "piece_index": 31,
+      "piece": "right_turn_5",
+      "message": "rejected at cursor (x=54, y=61, z=160, dir=3): Twister Roller Coaster 1 in the way"
+    }
+  },
+  "bounds": {
+    "min_tile_x": 44,
+    "min_tile_y": 59,
+    "max_tile_x": 60,
+    "max_tile_y": 69,
+    "min_z": 112,
+    "max_z": 328
+  },
+  "rides": [
+    {
+      "id": 0,
+      "ride_type": 51,
+      "status": "closed",
+      "tested": false,
+      "crashed": false,
+      "excitement": null,
+      "intensity": null,
+      "nausea": null,
+      "max_speed": 0,
+      "average_speed": 0,
+      "ride_length": 0,
+      "max_positive_g": 0.0,
+      "max_negative_g": 0.0,
+      "max_lateral_g": 0.0,
+      "total_air_time": 0,
+      "num_drops": 0,
+      "highest_drop": 0,
+      "num_inversions": 0
+    }
+  ],
+  "similarity": {
+    "nearest_design": "Jungle Racers",
+    "nearest_ride_type": 11,
+    "similarity": 0.32499999999999996,
+    "edit_similarity": 0.32499999999999996,
+    "common_substring_share": 0.16129032258064516,
+    "mirrored": false
+  }
+}

@@ -1,0 +1,48 @@
+{
+  "program": {
+    "ok": true,
+    "ride_id": 0,
+    "pieces_placed": 14,
+    "pieces_total": 14,
+    "total_cost": 16624,
+    "error": null
+  },
+  "bounds": {
+    "min_tile_x": 37,
+    "min_tile_y": 44,
+    "max_tile_x": 46,
+    "max_tile_y": 50,
+    "min_z": 112,
+    "max_z": 136
+  },
+  "rides": [
+    {
+      "id": 0,
+      "ride_type": 51,
+      "status": "testing",
+      "tested": true,
+      "crashed": false,
+      "excitement": 0.28,
+      "intensity": 0.07,
+      "nausea": 0.03,
+      "max_speed": 135224,
+      "average_speed": 118555,
+      "ride_length": 7376964,
+      "max_positive_g": 1.0,
+      "max_negative_g": 0.49,
+      "max_lateral_g": 0.2,
+      "total_air_time": 0,
+      "num_drops": 0,
+      "highest_drop": 0,
+      "num_inversions": 0
+    }
+  ],
+  "similarity": {
+    "nearest_design": "River Of The Damned",
+    "nearest_ride_type": 79,
+    "similarity": 0.5714285714285714,
+    "edit_similarity": 0.2941176470588235,
+    "common_substring_share": 0.5714285714285714,
+    "mirrored": true
+  }
+}
