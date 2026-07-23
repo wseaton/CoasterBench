@@ -167,6 +167,69 @@ namespace
         return view;
     }
 
+    const char* RollName(TrackMetadata::TrackRoll roll)
+    {
+        switch (roll)
+        {
+            case TrackMetadata::TrackRoll::none:
+                return "unbanked";
+            case TrackMetadata::TrackRoll::left:
+                return "left-banked";
+            case TrackMetadata::TrackRoll::right:
+                return "right-banked";
+            default:
+                return "inverted";
+        }
+    }
+
+    const char* PitchName(TrackMetadata::TrackPitch pitch)
+    {
+        switch (pitch)
+        {
+            case TrackMetadata::TrackPitch::none:
+                return "flat";
+            case TrackMetadata::TrackPitch::up25:
+                return "25-up";
+            case TrackMetadata::TrackPitch::up60:
+                return "60-up";
+            case TrackMetadata::TrackPitch::down25:
+                return "25-down";
+            case TrackMetadata::TrackPitch::down60:
+                return "60-down";
+            default:
+                return "vertical";
+        }
+    }
+
+    // TrackPlaceAction validates placement legality but NOT continuity with
+    // the previous piece; the game's circuit walk (findTrackGap) additionally
+    // requires each piece's entry roll/pitch to match the previous exit. A
+    // mismatched piece places fine but leaves an invisible gap, so enforce the
+    // continuity rule here and fail with an actionable message instead.
+    bool CheckEntryContinuity(TrackElemType trackType, const Orct2TrackCursor& cursor, char* err, size_t errLen)
+    {
+        const auto& def = TrackMetadata::GetTrackElementDescriptor(trackType).definition;
+        auto cursorRoll = static_cast<TrackMetadata::TrackRoll>(cursor.bank);
+        auto cursorPitch = static_cast<TrackMetadata::TrackPitch>(cursor.slope);
+        if (def.rollStart != cursorRoll)
+        {
+            CopyError(
+                err, errLen,
+                std::string("piece enters ") + RollName(def.rollStart) + " but the track here is "
+                    + RollName(cursorRoll) + "; add a banking transition piece first");
+            return false;
+        }
+        if (def.pitchStart != cursorPitch)
+        {
+            CopyError(
+                err, errLen,
+                std::string("piece enters at ") + PitchName(def.pitchStart) + " slope but the track here is "
+                    + PitchName(cursorPitch) + "; add a slope transition piece first");
+            return false;
+        }
+        return true;
+    }
+
     // First loaded ride object whose entry supports the requested ride type.
     ObjectEntryIndex FindSubtypeForRideType(ride_type_t rideType)
     {
@@ -289,6 +352,11 @@ bool orct2_host_track_place(
     auto trackType = static_cast<TrackElemType>(track_type);
     const auto& ted = TrackMetadata::GetTrackElementDescriptor(trackType);
     const auto& coords = ted.coordinates;
+
+    if (!CheckEntryContinuity(trackType, *cursor, err, err_len))
+    {
+        return false;
+    }
 
     SelectedLiftAndInverted liftFlags{};
     if (chain_lift)
@@ -450,6 +518,10 @@ bool orct2_host_track_query(uint16_t ride_id, uint16_t track_type, const Orct2Tr
     }
     auto trackType = static_cast<TrackElemType>(track_type);
     const auto& coords = TrackMetadata::GetTrackElementDescriptor(trackType).coordinates;
+    if (!CheckEntryContinuity(trackType, *cursor, err, err_len))
+    {
+        return false;
+    }
     CoordsXYZD origin{ cursor->x, cursor->y, cursor->z - coords.zBegin, static_cast<Direction>(cursor->direction & 3) };
     auto action = GameActions::TrackPlaceAction(
         rideId, trackType, ride->type, origin, 0, 0, 4, SelectedLiftAndInverted{}, false);
