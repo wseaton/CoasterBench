@@ -32,7 +32,7 @@ namespace OpenRCT2::RustBridge
 
     // Park screenshot to a PNG path; fitTrack crops to the track's bounding
     // box (full map when no track exists). Returns 0 on success.
-    int32_t Capture(const char* path, int32_t zoom, uint8_t rotation, bool fitTrack);
+    int32_t Capture(const char* path, int32_t zoom, uint8_t rotation, bool fitTrack, bool xray);
 
     // Runs the MCP server on bind:port (null bind = 127.0.0.1); blocks the
     // game thread until the process exits. Tool calls drive the game directly.

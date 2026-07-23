@@ -105,7 +105,13 @@ unsafe extern "C" {
         err_len: usize,
     ) -> bool;
     fn orct2_host_ride_detail(ride_id: u16, out: *mut RideDetail) -> bool;
-    fn orct2_host_capture(path: *const c_char, zoom: i32, rotation: u8, fit_track: bool) -> bool;
+    fn orct2_host_capture(
+        path: *const c_char,
+        zoom: i32,
+        rotation: u8,
+        fit_track: bool,
+        xray: bool,
+    ) -> bool;
     fn orct2_host_track_bounds(out: *mut TrackBounds) -> bool;
     fn orct2_host_entrance_place(
         ride_id: u16,
@@ -268,10 +274,11 @@ pub fn entrance_place(
 
 /// Renders a park screenshot to `path` (PNG). With `fit_track` the view is
 /// cropped to the bounding box of all track in the park (falls back to the
-/// full map when no track exists).
-pub fn capture(path: &str, zoom: i32, rotation: u8, fit_track: bool) -> bool {
+/// full map when no track exists). With `xray` terrain and supports are
+/// hidden so every placed piece is visible, including tunnelled track.
+pub fn capture(path: &str, zoom: i32, rotation: u8, fit_track: bool, xray: bool) -> bool {
     match CString::new(path) {
-        Ok(cpath) => unsafe { orct2_host_capture(cpath.as_ptr(), zoom, rotation, fit_track) },
+        Ok(cpath) => unsafe { orct2_host_capture(cpath.as_ptr(), zoom, rotation, fit_track, xray) },
         Err(_) => false,
     }
 }
@@ -407,7 +414,13 @@ mod test_stubs {
     pub unsafe fn orct2_host_ride_detail(_r: u16, _o: *mut RideDetail) -> bool {
         false
     }
-    pub unsafe fn orct2_host_capture(_p: *const c_char, _z: i32, _r: u8, _f: bool) -> bool {
+    pub unsafe fn orct2_host_capture(
+        _p: *const c_char,
+        _z: i32,
+        _r: u8,
+        _f: bool,
+        _u: bool,
+    ) -> bool {
         false
     }
     pub unsafe fn orct2_host_track_bounds(_o: *mut crate::host::TrackBounds) -> bool {

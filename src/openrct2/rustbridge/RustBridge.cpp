@@ -637,7 +637,7 @@ uint16_t orct2_host_track_mirror(uint16_t track_type)
     return mirror == TrackElemType::none ? track_type : static_cast<uint16_t>(mirror);
 }
 
-bool orct2_host_capture(const char* path, int32_t zoom, uint8_t rotation, bool fit_track)
+bool orct2_host_capture(const char* path, int32_t zoom, uint8_t rotation, bool fit_track, bool xray)
 {
     if (path == nullptr)
     {
@@ -658,6 +658,15 @@ bool orct2_host_capture(const char* path, int32_t zoom, uint8_t rotation, bool f
         options.Filename = fs::u8path("orct2-agent-capture-" + std::to_string(getpid()) + ".png");
         options.Zoom = ZoomLevel{ static_cast<int8_t>(zoom) };
         options.Rotation = rotation & 3;
+        if (xray)
+        {
+            // Verification view: hide terrain so tunnelled track is visible, and
+            // hide supports because the wooden-support painter drops track
+            // sprites near track crossings at some rotations (upstream paint
+            // bug; supports-off renders every placed piece).
+            options.ViewFlags = VIEWPORT_FLAG_UNDERGROUND_INSIDE | VIEWPORT_FLAG_HIDE_BASE | VIEWPORT_FLAG_HIDE_VERTICAL
+                | VIEWPORT_FLAG_HIDE_SUPPORTS;
+        }
         if (fit_track)
         {
             Orct2TrackBounds bounds;
@@ -717,9 +726,9 @@ namespace OpenRCT2::RustBridge
         return orct2_agent_eval_finish(outcome, outPath);
     }
 
-    int32_t Capture(const char* path, int32_t zoom, uint8_t rotation, bool fitTrack)
+    int32_t Capture(const char* path, int32_t zoom, uint8_t rotation, bool fitTrack, bool xray)
     {
-        return orct2_agent_capture(path, zoom, rotation, fitTrack);
+        return orct2_agent_capture(path, zoom, rotation, fitTrack, xray);
     }
 
     int32_t Serve(const char* bind, uint16_t port)

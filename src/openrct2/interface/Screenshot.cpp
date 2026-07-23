@@ -654,6 +654,7 @@ void CaptureImage(const CaptureOptions& options)
     {
         viewport.flags |= VIEWPORT_FLAG_TRANSPARENT_BACKGROUND;
     }
+    viewport.flags |= options.ViewFlags;
 
     auto outputPath = ResolveFilenameForCapture(options.Filename);
     auto rt = CreateRT(viewport);

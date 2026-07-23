@@ -125,12 +125,18 @@ int32_t orct2_agent_eval_finish(struct Orct2ProgramOutcome *outcome, const char 
 
 /**
  * Renders a park screenshot to `path`; `fit_track` crops to the track's
- * bounding box (full map when no track exists). Returns 0 on success.
+ * bounding box (full map when no track exists). `xray` renders the
+ * see-through verification view: terrain and supports hidden so every placed
+ * piece is visible (tunnels included). Returns 0 on success.
  *
  * # Safety
  * `path` must be null or a valid NUL-terminated string.
  */
-int32_t orct2_agent_capture(const char *path, int32_t zoom, uint8_t rotation, bool fit_track);
+int32_t orct2_agent_capture(const char *path,
+                            int32_t zoom,
+                            uint8_t rotation,
+                            bool fit_track,
+                            bool xray);
 
 /**
  * Runs the MCP server on bind:port (bind defaults to 127.0.0.1 when null),
@@ -189,7 +195,11 @@ extern bool orct2_host_ride_set_status(uint16_t ride_id,
 
 extern bool orct2_host_ride_detail(uint16_t ride_id, struct Orct2RideDetail *out);
 
-extern bool orct2_host_capture(const char *path, int32_t zoom, uint8_t rotation, bool fit_track);
+extern bool orct2_host_capture(const char *path,
+                               int32_t zoom,
+                               uint8_t rotation,
+                               bool fit_track,
+                               bool xray);
 
 extern bool orct2_host_track_bounds(struct Orct2TrackBounds *out);
 

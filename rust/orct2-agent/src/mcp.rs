@@ -473,7 +473,7 @@ fn call_tool(name: &str, args: &Value, session: &mut Session) -> Result<Vec<Valu
             let path = std::env::temp_dir().join("orct2_mcp_capture.png");
             let path_str = path.to_string_lossy();
             // Full map on purpose: the agent needs whole-park spatial context.
-            if !host::capture(&path_str, 0, 0, false) {
+            if !host::capture(&path_str, 0, 0, false, false) {
                 return Err("capture failed".into());
             }
             let bytes = std::fs::read(&path).map_err(|e| format!("read capture: {e}"))?;

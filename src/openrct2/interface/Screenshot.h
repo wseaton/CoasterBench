@@ -49,6 +49,7 @@ struct CaptureOptions
     ZoomLevel Zoom;
     uint8_t Rotation{};
     bool Transparent{};
+    uint32_t ViewFlags{};
 };
 
 namespace OpenRCT2::Drawing

@@ -251,6 +251,7 @@ def run_eval(program: dict, scenario: Path, workdir: Path, ticks: int) -> tuple[
         "--program", str(program_path),
         "--out", str(report_path),
         "--capture", str(capture_path),
+        "--capture-xray",
     ]
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
     if not report_path.exists():

@@ -104,7 +104,9 @@ pub unsafe extern "C" fn orct2_agent_eval_finish(
 }
 
 /// Renders a park screenshot to `path`; `fit_track` crops to the track's
-/// bounding box (full map when no track exists). Returns 0 on success.
+/// bounding box (full map when no track exists). `xray` renders the
+/// see-through verification view: terrain and supports hidden so every placed
+/// piece is visible (tunnels included). Returns 0 on success.
 ///
 /// # Safety
 /// `path` must be null or a valid NUL-terminated string.
@@ -114,9 +116,10 @@ pub unsafe extern "C" fn orct2_agent_capture(
     zoom: i32,
     rotation: u8,
     fit_track: bool,
+    xray: bool,
 ) -> i32 {
     match read_c_path(path) {
-        Some(p) if host::capture(&p, zoom, rotation, fit_track) => 0,
+        Some(p) if host::capture(&p, zoom, rotation, fit_track, xray) => 0,
         _ => 1,
     }
 }

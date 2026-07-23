@@ -38,6 +38,7 @@ namespace OpenRCT2
     static u8string _dumpLibraryPath{};
     static u8string _renderLibraryDir{};
     static bool _captureAllRotations = false;
+    static bool _captureXray = false;
 
     // clang-format off
     static constexpr CommandLineOptionDefinition kEvalOptions[]
@@ -53,6 +54,7 @@ namespace OpenRCT2
         { CMDLINE_TYPE_STRING,  &_dumpLibraryPath,      kNAC, "dump-library",       "write the stock track design library as JSON to this path and exit"      },
         { CMDLINE_TYPE_STRING,  &_renderLibraryDir,     kNAC, "render-library",     "render a preview PNG of every stock track design into this directory and exit" },
         { CMDLINE_TYPE_SWITCH,  &_captureAllRotations,  kNAC, "capture-all-rotations", "with --capture, also write the other three view rotations as <name>-r1/-r2/-r3.png" },
+        { CMDLINE_TYPE_SWITCH,  &_captureXray,          kNAC, "capture-xray",       "with --capture, also write a see-through verification view (terrain and supports hidden, every placed piece visible) as <name>-x.png" },
         kOptionTableEnd
     };
 
@@ -161,24 +163,33 @@ namespace OpenRCT2
         }
         if (!_capturePath.empty())
         {
-            if (RustBridge::Capture(_capturePath.c_str(), 0 /*zoom*/, 0 /*rotation*/, true /*fitTrack*/) != 0)
+            if (RustBridge::Capture(_capturePath.c_str(), 0 /*zoom*/, 0 /*rotation*/, true /*fitTrack*/, false) != 0)
             {
                 Console::Error::WriteLine("Screenshot capture failed.");
                 exitCode = ExitCode::fail;
             }
+            auto dot = _capturePath.find_last_of('.');
+            auto stem = dot == u8string::npos ? _capturePath : _capturePath.substr(0, dot);
+            auto ext = dot == u8string::npos ? u8string{} : _capturePath.substr(dot);
             if (_captureAllRotations)
             {
-                auto dot = _capturePath.find_last_of('.');
-                auto stem = dot == u8string::npos ? _capturePath : _capturePath.substr(0, dot);
-                auto ext = dot == u8string::npos ? u8string{} : _capturePath.substr(dot);
                 for (uint8_t rotation = 1; rotation < 4; rotation++)
                 {
                     auto path = stem + "-r" + std::to_string(rotation) + ext;
-                    if (RustBridge::Capture(path.c_str(), 0, rotation, true) != 0)
+                    if (RustBridge::Capture(path.c_str(), 0, rotation, true, false) != 0)
                     {
                         Console::Error::WriteLine("Screenshot capture failed (rotation %d).", rotation);
                         exitCode = ExitCode::fail;
                     }
+                }
+            }
+            if (_captureXray)
+            {
+                auto path = stem + "-x" + ext;
+                if (RustBridge::Capture(path.c_str(), 0, 0, true, true /*xray*/) != 0)
+                {
+                    Console::Error::WriteLine("Screenshot capture failed (xray view).");
+                    exitCode = ExitCode::fail;
                 }
             }
         }
