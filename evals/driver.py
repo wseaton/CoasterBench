@@ -520,6 +520,11 @@ def main() -> int:
         default=os.environ.get("CLOUD_ML_REGION", "global"),
         help="Vertex region (default: $CLOUD_ML_REGION or global)",
     )
+    parser.add_argument(
+        "--name",
+        help="run dir suffix: evals/runs/<yyyymmdd>-<name> instead of a bare timestamp "
+        "(names must sort lexically-chronologically; the site keys on it)",
+    )
     args = parser.parse_args()
 
     if not CLI.exists():
@@ -529,7 +534,8 @@ def main() -> int:
         print(f"error: scenario not found: {args.scenario}", file=sys.stderr)
         return 1
 
-    run_dir = REPO / "evals" / "runs" / time.strftime("%Y%m%d-%H%M%S")
+    suffix = args.name if args.name else time.strftime("%H%M%S")
+    run_dir = REPO / "evals" / "runs" / f"{time.strftime('%Y%m%d')}-{suffix}"
     run_dir.mkdir(parents=True)
     print(f"run dir: {run_dir} (mode: {args.mode})")
 
