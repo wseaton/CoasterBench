@@ -56,10 +56,12 @@ def upload(key: str, path: Path) -> str:
             str(path),
             "--content-type",
             CONTENT_TYPES[path.suffix],
-            # Artifacts are write-once per round, so let browsers and the
-            # Cloudflare edge cache them forever.
+            # A day of caching, deliberately NOT immutable: artifacts are
+            # usually write-once, but a re-publish (screenshot regen, backfill)
+            # must actually propagate. immutable + a year meant an overwritten
+            # object served the stale copy from the edge until 2027.
             "--cache-control",
-            "public, max-age=31536000, immutable",
+            "public, max-age=86400",
             "--remote",
         ],
         capture_output=True,
