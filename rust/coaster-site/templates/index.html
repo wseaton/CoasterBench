@@ -21,8 +21,10 @@ flowchart LR
 
 <div class="window">
   <div class="titlebar"><span>{% if rows.is_empty() %}No runs yet{% else %}All runs{% endif %}</span>
-  {%- if have_previews %}<a class="titlebar-link" href="library.html">track design library &rarr;</a>
-  {%- else %}<span class="btn"></span>{% endif %}</div>
+    <span class="titlebar-links">
+    {%- if rows.len() >= 2 %}<a class="titlebar-link" href="compare.html">head to head &rarr;</a>{% endif %}
+    {%- if have_previews %}<a class="titlebar-link" href="library.html">track design library &rarr;</a>{% endif %}
+    </span></div>
   <div class="body">
   {%- if rows.is_empty() %}
     <p>Run <code>uv run evals/driver.py</code> to generate one.</p>

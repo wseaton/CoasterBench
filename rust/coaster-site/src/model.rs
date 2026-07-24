@@ -346,6 +346,26 @@ impl EvalRun {
         }
     }
 
+    /// Rounds each model was expected to run: run.json's promise, or the run's
+    /// own longest model when it predates that field.
+    pub fn expected_round_count(&self) -> u32 {
+        self.expected_rounds.unwrap_or_else(|| {
+            self.models
+                .iter()
+                .map(|m| m.rounds.len() as u32)
+                .max()
+                .unwrap_or(0)
+        })
+    }
+
+    /// True when this model ran its full expected round count. Unlike
+    /// `incomplete_reason`, this is per-model: a finished model inside an
+    /// otherwise-abandoned run (a solo model whose promised rivals never ran)
+    /// still counts, which is what the head-to-head compares.
+    pub fn model_completed(&self, model: &ModelRun) -> bool {
+        model.rounds.len() as u32 >= self.expected_round_count() && self.expected_round_count() > 0
+    }
+
     /// Models best-first, so index one is the winner.
     pub fn ranked(&self) -> Vec<&ModelRun> {
         let mut models: Vec<&ModelRun> = self.models.iter().collect();
@@ -600,6 +620,7 @@ mod tests {
             xray_shot: None,
             lookups: Vec::new(),
             usage: None,
+            trace: Vec::new(),
             grace: DEFAULT_SIMILARITY_GRACE,
         }
     }

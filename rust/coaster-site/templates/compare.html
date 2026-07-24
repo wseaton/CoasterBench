@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="window">
+  <div class="titlebar"><span>Head to head</span><a class="titlebar-link" href="index.html">all runs &rarr;</a></div>
+  <div class="body">
+    <p class="dim">Pick two finished model runs and put them side by side. Same coaster is the fair
+    fight; a cross-scenario pick still works but gets flagged. {{ count }} contenders.</p>
+    <div id="compare" data-default-a="{{ default_a }}" data-default-b="{{ default_b }}">
+      <div class="vs-pickers">
+        <select class="vs-pick" data-side="a" aria-label="left contender"></select>
+        <span class="vs-word">vs</span>
+        <select class="vs-pick" data-side="b" aria-label="right contender"></select>
+        <button id="vs-swap" type="button" title="swap sides" aria-label="swap sides">&#8646;</button>
+      </div>
+      <div id="vs-result"></div>
+    </div>
+    <script type="application/json" id="contenders">{{ contenders_json|safe }}</script>
+  </div>
+</div>
+{% endblock %}

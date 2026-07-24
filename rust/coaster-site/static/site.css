@@ -69,6 +69,7 @@ body {
   border: 1px solid var(--ink);
   box-shadow: inset 1px 1px 0 rgba(255,255,255,.5), inset -1px -1px 0 rgba(0,0,0,.35);
 }
+.titlebar-links { display: inline-flex; gap: .8rem; }
 .titlebar-link { color: var(--titlebar-text); font-size: .7rem; text-decoration: none;
   border-bottom: 1px solid rgba(245,230,200,.5); }
 .body { padding: .7rem .8rem .8rem; }
@@ -330,3 +331,63 @@ summary { cursor: pointer; font-family: "JetBrains Mono", monospace;
 .trace-thinking .trace-text { opacity: .7; font-style: italic; }
 .trace-failed { background: rgba(138,43,43,.09); }
 .trace-step { opacity: .55; font-size: .7rem; }
+
+/* Head-to-head compare page */
+.vs-pickers { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin: .3rem 0 1rem; }
+.vs-pick { flex: 1 1 260px; min-width: 0; font: inherit; font-size: .8rem; padding: .25rem .4rem;
+  background: var(--panel); color: var(--ink); border: 2px solid var(--ink);
+  box-shadow: inset -1px -1px 0 rgba(0,0,0,.35), inset 1px 1px 0 rgba(255,255,255,.5); }
+.vs-word { font-family: "JetBrains Mono", monospace; font-weight: 800; font-size: .8rem;
+  color: var(--ink-soft); }
+#vs-swap { font: inherit; font-size: 1rem; line-height: 1; padding: .2rem .5rem; cursor: pointer;
+  background: var(--panel); border: 2px solid var(--ink);
+  box-shadow: inset 1px 1px 0 rgba(255,255,255,.5), inset -1px -1px 0 rgba(0,0,0,.35); }
+#vs-swap:active { box-shadow: inset -1px -1px 0 rgba(255,255,255,.5), inset 1px 1px 0 rgba(0,0,0,.35); }
+
+.vs-cards { display: grid; grid-template-columns: 1fr auto 1fr; gap: .6rem; align-items: center;
+  margin-bottom: .8rem; }
+.vs-card { display: flex; flex-direction: column; gap: .3rem; }
+.vs-card.vs-b { text-align: right; }
+.vs-card img { display: block; width: 100%; max-height: 220px; object-fit: cover;
+  image-rendering: pixelated; border: 2px solid var(--ink); box-shadow: 3px 3px 0 rgba(0,0,0,.3); }
+.vs-card .no-preview { aspect-ratio: 16 / 9; display: flex; align-items: center; justify-content: center;
+  color: var(--ink-soft); border: 2px dashed var(--panel-deep); }
+.vs-meta { display: flex; flex-direction: column; font-size: .72rem; }
+.vs-model { font-family: "JetBrains Mono", monospace; font-weight: 700; font-size: .95rem; }
+.vs-mid { font-family: "JetBrains Mono", monospace; font-weight: 800; color: var(--ink-soft);
+  align-self: center; }
+
+.vs-warn { font-size: .75rem; color: var(--intensity); margin: 0 0 .6rem; }
+.vs-verdict { font-family: "JetBrains Mono", monospace; font-weight: 700; font-size: .95rem;
+  text-align: center; margin: .2rem 0 1rem; }
+
+.vs-metrics { display: flex; flex-direction: column; gap: .5rem; }
+.vs-metric { display: grid; grid-template-columns: 1fr auto 1fr; grid-template-rows: auto auto;
+  gap: .1rem .5rem; align-items: center; }
+.vs-metric.vs-headline { padding-bottom: .5rem; border-bottom: 1px solid var(--panel-deep); }
+.vs-headline .vs-val { font-size: 1.15rem; }
+.vs-label { grid-column: 2; font-size: .62rem; text-transform: uppercase; letter-spacing: .05em;
+  color: var(--ink-soft); white-space: nowrap; }
+.vs-val { font-family: "JetBrains Mono", monospace; font-weight: 700; font-size: .9rem; }
+.vs-val-a { grid-column: 1; text-align: right; color: var(--ink-soft); }
+.vs-val-b { grid-column: 3; text-align: left; color: var(--ink-soft); }
+.vs-val.vs-win { color: var(--ink); }
+/* The two-sided bar meets in the middle; the winning half is saturated. */
+.vs-track { grid-column: 1 / 4; grid-row: 2; display: flex; height: 8px; border: 1px solid var(--ink);
+  background: var(--sky); }
+.vs-fill-a { background: var(--panel-deep); }
+.vs-fill-b { background: var(--panel-dark); }
+.vs-fill-a.vs-win { background: var(--excitement-mark); }
+.vs-fill-b.vs-win { background: var(--intensity-mark); }
+
+.vs-spark-wrap { margin-top: 1rem; font-size: .62rem; text-transform: uppercase; letter-spacing: .05em; }
+.vs-spark { display: block; width: 100%; max-width: 360px; height: auto; margin-top: .2rem; }
+.vs-spark polyline { fill: none; stroke-width: 2; }
+.vs-spark-a { stroke: var(--excitement-mark); }
+.vs-spark-b { stroke: var(--intensity-mark); }
+
+@media (max-width: 560px) {
+  .vs-cards { grid-template-columns: 1fr; }
+  .vs-mid { display: none; }
+  .vs-card.vs-b { text-align: left; }
+}

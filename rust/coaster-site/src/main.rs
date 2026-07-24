@@ -597,6 +597,113 @@ fn index_rows(runs: &[EvalRun], store: &ArtStore, out: &Path) -> Result<Vec<Inde
     Ok(rows)
 }
 
+/// Every finished model run, as head-to-head contenders. Draws from all runs,
+/// not just the ones shown on the leaderboard: a model that ran its full round
+/// count inside an otherwise-abandoned run is a valid opponent (that is the
+/// only way "kimi vs fable" works, since fable's twister run was hidden by its
+/// missing rivals). Generates each contender's thumbnail as a side effect.
+fn contenders(runs: &[EvalRun], store: &ArtStore, out: &Path) -> Result<Vec<view::Contender>> {
+    let mut contenders = Vec::new();
+    for run in runs {
+        for model in &run.models {
+            if !run.model_completed(model) {
+                continue;
+            }
+            let best = model.best();
+            let ride = best.and_then(|r| r.ride.as_ref());
+            let shot = best
+                .and_then(|r| r.screenshot.as_ref())
+                .or_else(|| model.rounds.iter().find_map(|r| r.screenshot.as_ref()));
+            let thumb = match shot {
+                Some(shot) => thumbnail(shot, store, out, run, &model.model)?,
+                None => None,
+            };
+            let totals = model.usage_totals();
+            let href = model_href(run, &model.model);
+            contenders.push(view::Contender {
+                id: href.trim_end_matches(".html").to_string(),
+                href,
+                run: run.name.clone(),
+                date: run.date(),
+                model: model.model.clone(),
+                coaster: run.ride_name(),
+                mode: run.mode.clone(),
+                harness: run.harness.clone(),
+                thumb,
+                score: best.map(|r| r.excitement()),
+                intensity: ride.and_then(|r| r.intensity),
+                nausea: ride.and_then(|r| r.nausea),
+                similarity: best
+                    .and_then(|r| r.similarity.as_ref())
+                    .map(|s| s.similarity),
+                ride_length: ride.map(|r| r.ride_length),
+                airtime: ride.map(|r| r.total_air_time),
+                drops: ride.map(|r| r.num_drops),
+                best_round: best.map(|r| r.number),
+                rounds: model.rounds.len(),
+                rated_rounds: model.rounds.iter().filter(|r| r.excitement() > 0.0).count(),
+                tokens: totals.tokens_in + totals.tokens_out,
+                cost: totals.cost_usd,
+                round_scores: model.rounds.iter().map(|r| r.excitement()).collect(),
+            });
+        }
+    }
+    // Group by scenario then best-first, so the dropdown reads top-down within
+    // each coaster and the default pairing is the tightest fight available.
+    contenders.sort_by(|a, b| {
+        a.coaster.cmp(&b.coaster).then(
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal),
+        )
+    });
+    Ok(contenders)
+}
+
+/// Default matchup: the top two contenders of the most-contested coaster, so
+/// the page opens on a real fight rather than an empty picker.
+fn default_pair(contenders: &[view::Contender]) -> (String, String) {
+    let mut by_coaster: std::collections::HashMap<&str, Vec<&view::Contender>> =
+        std::collections::HashMap::new();
+    for c in contenders {
+        by_coaster.entry(&c.coaster).or_default().push(c);
+    }
+    let best = by_coaster
+        .values()
+        .filter(|group| group.len() >= 2)
+        .max_by_key(|group| group.len());
+    match best {
+        // Groups are already score-sorted within a coaster by contenders().
+        Some(group) => (group[0].id.clone(), group[1].id.clone()),
+        None => {
+            let id = |i: usize| contenders.get(i).map(|c| c.id.clone()).unwrap_or_default();
+            (id(0), id(1))
+        }
+    }
+}
+
+fn build_compare_page(
+    contenders: &[view::Contender],
+    base_url: Option<&str>,
+    out: &Path,
+) -> Result<()> {
+    let (default_a, default_b) = default_pair(contenders);
+    let page = view::ComparePage {
+        chrome: Chrome::new(
+            "Coaster Evals — Head to Head",
+            "HEAD TO HEAD",
+            "compare.html",
+            base_url,
+        )
+        .width(view::Width::Mid),
+        contenders_json: serde_json::to_string(contenders)?,
+        default_a,
+        default_b,
+        count: contenders.len(),
+    };
+    write_page(&out.join("compare.html"), &page.render()?)
+}
+
 fn facets(runs: &[EvalRun]) -> Vec<Facet> {
     let collect = |name: &str, mut values: Vec<String>| {
         values.sort();
@@ -691,11 +798,20 @@ fn main() -> Result<()> {
 
     let store = ArtStore::new(&args.artifact_base, &args.previews, &args.previews_manifest)?;
 
+    let all_runs = model::load_runs(&args.runs, &store)?;
+    let out = &args.out;
+    clean_output(out)?;
+
+    // The head-to-head draws from every finished model run, including complete
+    // solo models inside runs the leaderboard hides, so build it before the
+    // partial-run filter.
+    let contenders = contenders(&all_runs, &store, out)?;
+
     // A run that died (or is still going) half way through would show up as a
-    // model losing badly; leave it out and say so on the page.
+    // model losing badly; leave it out of the leaderboard and say so.
     let mut skipped = Vec::new();
     let mut runs = Vec::new();
-    for run in model::load_runs(&args.runs, &store)? {
+    for run in all_runs {
         match run.incomplete_reason() {
             Some(reason) if !args.include_partial => {
                 eprintln!("skipping partial run {} ({reason})", run.name);
@@ -704,9 +820,6 @@ fn main() -> Result<()> {
             _ => runs.push(run),
         }
     }
-
-    let out = &args.out;
-    clean_output(out)?;
 
     let index = IndexPage {
         chrome: Chrome::new("Coaster Evals", "COASTER EVALS", "index.html", base_url)
@@ -725,6 +838,9 @@ fn main() -> Result<()> {
 
     for run in &runs {
         build_run_page(run, &store, out, base_url)?;
+    }
+    if contenders.len() >= 2 {
+        build_compare_page(&contenders, base_url, out)?;
     }
     if store.have_previews() {
         build_library_page(&args.runs, &store, out, base_url)?;

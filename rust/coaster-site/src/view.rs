@@ -4,6 +4,7 @@
 //! formatting, ranking and asset resolution all happen here.
 
 use askama::Template;
+use serde::Serialize;
 
 pub const TAGLINE: &str = "A benchmark in which language models design roller coasters that RollerCoaster Tycoon 2 builds, tests, and rates.";
 
@@ -299,6 +300,50 @@ pub struct TraceSummary {
     pub label: String,
     pub value: String,
     pub class: String,
+}
+
+/// One finished model run entered in the head-to-head. Everything the compare
+/// page needs is here so the client can render any pairing without a round
+/// trip; serialised to a JSON blob embedded in the page.
+#[derive(Serialize)]
+pub struct Contender {
+    /// Stable URL-safe id (the model page path without ".html"), used in the
+    /// `?a=&b=` deep link.
+    pub id: String,
+    /// The model's detail page.
+    pub href: String,
+    pub run: String,
+    pub date: String,
+    pub model: String,
+    pub coaster: String,
+    pub mode: String,
+    pub harness: String,
+    pub thumb: Option<String>,
+    pub score: Option<f64>,
+    pub intensity: Option<f64>,
+    pub nausea: Option<f64>,
+    pub similarity: Option<f64>,
+    pub ride_length: Option<i64>,
+    pub airtime: Option<i64>,
+    pub drops: Option<i64>,
+    pub best_round: Option<u32>,
+    pub rounds: usize,
+    pub rated_rounds: usize,
+    pub tokens: f64,
+    pub cost: Option<f64>,
+    /// Per-round excitement (0 for unrated), oldest first, for the sparkline.
+    pub round_scores: Vec<f64>,
+}
+
+#[derive(Template)]
+#[template(path = "compare.html")]
+pub struct ComparePage {
+    pub chrome: Chrome,
+    /// JSON array of `Contender`, embedded and read by the client.
+    pub contenders_json: String,
+    pub default_a: String,
+    pub default_b: String,
+    pub count: usize,
 }
 
 #[derive(Template)]
