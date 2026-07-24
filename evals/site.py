@@ -611,7 +611,7 @@ def window(title: str, inner: str) -> str:
 
 def how_it_works() -> str:
     diagram = """\
- model (tool_use)          openrct2-cli eval               feedback
+ model (tool_use)          coasterbench-cli eval               feedback
 +------------------+     +----------------------+     +------------------+
 | JSON track       | --> | build piece by piece | --> | ratings report   |
 | program          |     | test with real train | --> | park screenshot  |

@@ -302,6 +302,7 @@ details { margin-top: .7rem; font-size: .8rem; }
 summary { cursor: pointer; font-family: "JetBrains Mono", monospace;
   font-weight: 700; font-size: .7rem; }
 .footer { color: #6c8394; font-size: .75rem; text-align: center; margin-top: 3rem; }
+.footer p { margin: .35rem auto; max-width: 46rem; }
 .footer a { color: #9db4c4; }
 .backlink a { color: #9db4c4; font-family: "JetBrains Mono", monospace;
   font-weight: 700; font-size: .8rem; }

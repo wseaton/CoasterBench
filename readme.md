@@ -17,7 +17,7 @@ Published results: https://wseaton.github.io/CoasterBench
 flowchart LR
     subgraph host["host machine"]
         bench["coaster-bench<br/>(orchestrator)"]
-        game["openrct2-cli eval --serve<br/>game + Rust agent"]
+        game["coasterbench-cli eval --serve<br/>game + Rust agent"]
         runs[("evals/runs/&lt;run&gt;/")]
     end
     subgraph sandbox["OpenShell sandbox: no host files, filtered network"]
@@ -36,7 +36,7 @@ set the game exposes over the Model Context Protocol (MCP), an open standard for
 connecting models to external tools. All state changes pass through
 `GameActions::Execute`, the validation path used by the game's own plugins, so
 the harness accepts the placements the game accepts, minus one class the game
-accepts but cannot draw (see [War stories](#war-stories)).
+accepts but cannot draw (see [Implementation notes](#implementation-notes)).
 
 ## Repository layout
 
@@ -58,6 +58,10 @@ The original RollerCoaster Tycoon 2 data files are required at runtime, not at
 compile time. Extract them from the GOG installer with `innoextract`, or copy
 them from an RCT Classic installation.
 
+To reproduce a run end to end, follow
+[docs/running-the-eval.md](docs/running-the-eval.md), which covers the same
+material in dependency order, from buying the game to reading the report.
+
 ## Building
 
 ```bash
@@ -67,6 +71,13 @@ cmake --build build
 # macOS only: non-bundled binaries look for data/ next to the executable
 ln -sf $PWD/build/OpenRCT2.app/Contents/Resources build/data
 ```
+
+The command line tool is a modified `openrct2-cli` and builds as
+`coasterbench-cli`; the cmake target keeps its upstream name. Prebuilt archives
+are attached to [releases](https://github.com/wseaton/CoasterBench/releases),
+tagged `v<harness>+openrct2-<upstream>` and carrying the binary, the OpenRCT2
+runtime data and its libraries, but no RollerCoaster Tycoon 2 data.
+`./scripts/package-release.sh` builds the same archive locally.
 
 Corrosion compiles the agent crate as a static library and links it into the
 binary. The `ENABLE_RUST_AGENT` option controls this and defaults to on.
@@ -148,7 +159,7 @@ uv run evals/driver.py --models claude-sonnet-5 --rounds 4 --mode library
 ## MCP server
 
 ```bash
-./build/openrct2-cli eval <scenario.SC6> --rct2-data-path ~/rct2-assets --serve 8791
+./build/coasterbench-cli eval <scenario.SC6> --rct2-data-path ~/rct2-assets --serve 8791
 claude mcp add --transport http coaster http://127.0.0.1:8791/mcp
 ```
 
@@ -234,50 +245,56 @@ fork. The fork rebases onto upstream `develop` regularly, so modifications to
 existing OpenRCT2 files are kept minimal and mechanical, with new code in
 separate directories.
 
-## War stories
+## Implementation notes
 
-### Track that builds, tests, rates, and renders as nothing
+### Pieces that place, test, and rate, but do not render
 
-Some runs produced park screenshots with long stretches of the coaster simply
-absent: no track, no supports, grass where a ride had just been rated. The ride
-was continuous by every measure the game reports, and the gaps moved when the
-view was rotated, which pointed at the painter.
+**Symptom.** Park screenshots showed long stretches of coaster missing: no
+track, no supports, terrain where a ride had just been rated. The ride was
+continuous by every measure the game reports, and the gaps changed with view
+rotation.
 
-It was not the painter. Instrumenting the paint path showed every track tile
-visited and painted, every created paint struct drawn (1166 of 1166, nothing
-lost in quadrant sorting), and no change when creation-time culling was
-disabled outright. What did show up: 32 tiles whose paint function was called
-and emitted nothing. Sixteen were legitimate — the empty filler sequences of
-banked five-tile turns and large helices have no sprites by design. The other
-sixteen were exactly the program's sixteen one-tile flat↔60° transitions on a
-wooden coaster.
+**Investigation.** Instrumenting the paint path ruled out the renderer: every
+track tile was visited and painted, every created paint struct was drawn (1166
+of 1166, none lost in quadrant sorting), and disabling creation-time culling
+changed nothing. 32 tiles had their paint function called and emitted nothing.
+Sixteen were expected, being the empty filler sequences of banked five-tile
+turns and large helices. The remaining sixteen matched the program's sixteen
+one-tile flat↔60° transitions on a wooden coaster.
 
-RCT2 only ever drew the three-tile long-base steep transitions for wooden
-coasters, so the wooden paint dispatch has no case for the one-tile versions
-and returns `TrackPaintFunctionDummy`, which draws nothing. The ride type's
-descriptor agrees: `flatToSteepSlope` is not among its track groups, so the
-in-game construction window will never offer those pieces. But that gate feeds
-only the window. `TrackPlaceAction` never consults it, so programmatic
-placement is accepted, and the physics rates the result happily because ratings
-read the track element descriptor rather than the artwork. The same hole is
-reachable without this harness: the ride-type-change cheat rewrites every
-piece's ride type with no drawability check, and plugins call the same
-unchecked action.
+**Cause.** RCT2 only ever drew the three-tile long-base steep transitions for
+wooden coasters, so the wooden paint dispatch has no case for the one-tile
+versions and returns `TrackPaintFunctionDummy`, which draws nothing. The ride
+type descriptor agrees: `flatToSteepSlope` is not among its track groups, so the
+construction window never offers those pieces. That gate feeds only the window.
+`TrackPlaceAction` does not consult it, so programmatic placement succeeds, and
+ratings compute normally because they read the track element descriptor rather
+than the artwork. The same path is reachable without this harness: the
+ride-type-change cheat rewrites every piece's ride type with no drawability
+check, and plugins call the same unchecked action.
 
-The harness now asks the renderer's own dispatch whether a piece can be drawn
-before placing or offering it, so a model that reaches for an undrawable piece
-gets a clear rejection instead of an invisible ride. Details in
+**Fix.** The harness queries the renderer's own dispatch for drawability before
+placing or offering a piece, so a request for an undrawable piece is rejected
+with a reason instead of producing an invisible ride. Details in
 [issue #1](https://github.com/wseaton/CoasterBench/issues/1).
 
-The lesson generalises past this fork: "the game accepted it" is a weaker
-oracle than it sounds. Validation, simulation, and rendering are three separate
-authorities in RCT2, and they disagree.
+Validation, simulation, and rendering are three separate authorities in RCT2 and
+they do not agree, so "the game accepted it" is not on its own sufficient
+evidence that a track is well formed.
 
 ## Licence
 
 OpenRCT2, and therefore this fork, is licensed under the GNU General Public
 License version 3 or later. See [`licence.txt`](licence.txt). A legitimate copy
 of the original RollerCoaster Tycoon 2 data files is required.
+
+The run records under `evals/runs/` and the text of this repository are
+© 2026 Will Eaton, licensed [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/),
+so results can be cited and replotted with attribution.
+
+Park screenshots depict RollerCoaster Tycoon 2, © Chris Sawyer and Atari, and
+are published to document benchmark results. This project is not affiliated
+with, endorsed by, or a release of either Atari or OpenRCT2.
 
 ## Citation
 

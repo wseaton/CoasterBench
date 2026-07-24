@@ -19,7 +19,7 @@ eval: an LLM designs the best roller coaster, scored by in-game ratings.
 - C++ side of the bridge goes in `src/openrct2/rustbridge/` with a
   `NativeHookEngine` (the existing `scripting/HookEngine.h` Hook is
   QuickJS-specific and gated on ENABLE_SCRIPTING; we stay independent of it).
-- Eval entry point: `openrct2-cli eval` command, modeled on
+- Eval entry point: `coasterbench-cli eval` command, modeled on
   `src/openrct2/command_line/SimulateCommands.cpp` (load park, tick N via
   `gameStateUpdateLogic()`, score).
 - Mutations go through `GameActions::Execute` only, never direct game state
@@ -64,7 +64,7 @@ across dylib boundary is broken on macOS, so libopenrct2 links static there).
 
 Non-bundled binaries look for `data/` next to the exe. One-time setup:
 `ln -sf $PWD/build/OpenRCT2.app/Contents/Resources build/data`. Bare
-`openrct2-cli` (launch mode) sets NoGraphics and works without RCT2 assets;
+`coasterbench-cli` (launch mode) sets NoGraphics and works without RCT2 assets;
 `simulate` (and our `eval`) load g1.dat and need the real game files.
 
 ## Eval workflow (phase 3+)
@@ -72,7 +72,7 @@ Non-bundled binaries look for `data/` next to the exe. One-time setup:
 - Track programs: JSON (ride_type, start tile+dir, piece list) executed by
   `rust/orct2-agent/src/program.rs`; piece vocabulary in `pieces.rs` mirrors
   `src/openrct2/ride/ted/TrackElemType.h`. Example: `evals/programs/test_oval.json`.
-- Full run: `./build/openrct2-cli eval <scenario> --ticks 25000
+- Full run: `./build/coasterbench-cli eval <scenario> --ticks 25000
   --rct2-data-path ~/rct2-assets --program p.json --out report.json --capture park.png`
 - Entrance/exit are brute-force auto-placed next to station tiles (game
   validation is the oracle). Testing status requires them.
@@ -83,7 +83,7 @@ Non-bundled binaries look for `data/` next to the exe. One-time setup:
   render as nothing (wooden RC + 1-tile flat<->60 transitions is the classic
   case). `CheckPieceDrawable` in RustBridge.cpp gates place and query against
   the renderer's own dispatch (GetTrackPaintFunction vs TrackPaintFunctionDummy).
-  See issue #1 and the readme war story.
+  See issue #1 and the readme implementation notes.
 - Stalls never get ratings (RatingsCalculationType::Stall); tracked rides need
   a completed test circuit (RideFlag::tested) before ratings compute.
 - Head-to-head driver: `uv run evals/driver.py` (needs ANTHROPIC_API_KEY, or
@@ -114,7 +114,7 @@ Non-bundled binaries look for `data/` next to the exe. One-time setup:
   substring, mirrored variants included; rust similarity.rs), and scores scale
   linearly to zero above the grace threshold (driver's SIMILARITY_GRACE,
   recorded per run in run.json; site reads it from there). Library JSON dump:
-  `openrct2-cli eval <scenario> --rct2-data-path ... --dump-library lib.json`;
+  `coasterbench-cli eval <scenario> --rct2-data-path ... --dump-library lib.json`;
   preview PNGs (game's own TrackDesignDrawPreview, 370x217, needs a park
   loaded): `... --render-library <dir>`, cached at evals/library-previews/
   (gitignored, auto-rendered by the driver in library mode).
@@ -150,7 +150,7 @@ Non-bundled binaries look for `data/` next to the exe. One-time setup:
 
 ## MCP server (interactive per-piece building)
 
-- `./build/openrct2-cli eval <scenario> --rct2-data-path ~/rct2-assets
+- `./build/coasterbench-cli eval <scenario> --rct2-data-path ~/rct2-assets
   --serve 8791` runs an MCP server at `http://127.0.0.1:8791/mcp`
   (streamable HTTP, JSON response mode).
 - Hand-rolled sync server in `rust/orct2-agent/src/mcp.rs` — runs ON the game
