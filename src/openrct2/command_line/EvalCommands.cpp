@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Fork-only file (wseaton/OpenRCT2): `openrct2-cli eval` command.
+ * Fork-only file (wseaton/OpenRCT2): `coasterbench-cli eval` command.
  *
  * Loads a park headless, runs the game loop for a fixed number of ticks with
  * the Rust agent bridge hooked in, then asks the agent for its summary.

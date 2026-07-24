@@ -160,7 +160,7 @@ int32_t orct2_agent_serve(const char *bind, uint16_t port);
 int32_t orct2_agent_dump_library(const char *out_path);
 
 /**
- * Called by `openrct2-cli eval` after the tick loop: logs a per-ride summary
+ * Called by `coasterbench-cli eval` after the tick loop: logs a per-ride summary
  * through the host so results land in the game's console output.
  */
 void orct2_agent_eval_summary(void);
