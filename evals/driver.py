@@ -673,6 +673,14 @@ class OpenAICompat:
                 content.append(ToolUseBlock(id=call.id, name=call.function.name, input=args))
             if any(b.type == "tool_use" for b in content):
                 return _Response(content=content, usage=_Usage(input_tokens, output_tokens))
+            if resp.choices[0].finish_reason == "length":
+                # Deterministic, so retrying just burns tokens: the model (a
+                # reasoning model, usually) hit the token ceiling while still
+                # thinking and never got to the call.
+                raise RuntimeError(
+                    f"{model} exhausted max_tokens={max_tokens} before emitting a tool call "
+                    "(reasoning models spend the budget thinking first; raise --max-tokens)"
+                )
             print(f"  [{model}] no tool call (attempt {attempt + 1}/3), retrying", flush=True)
         raise RuntimeError(f"{model} returned no tool call in 3 attempts despite tool_choice={oa_choice!r}")
 
@@ -686,6 +694,7 @@ def compete(
     ticks: int,
     ride_type: int,
     library: list[dict] | None = None,
+    max_tokens: int = 8000,
 ) -> Contender:
     contender = Contender(model=model)
     ride_name, _ = ride_type_info(ride_type)
@@ -708,7 +717,7 @@ def compete(
             force_submit = step == MAX_LOOKUPS_PER_ROUND
             response = client.messages.create(
                 model=model,
-                max_tokens=8000,
+                max_tokens=max_tokens,
                 system=system_prompt,
                 messages=messages,
                 tools=tools,
@@ -787,6 +796,13 @@ def main() -> int:
         help="required coaster ride type for the competition (52 wooden, 51 steel twister)",
     )
     parser.add_argument("--ticks", type=int, default=25000)
+    parser.add_argument(
+        "--max-tokens",
+        type=int,
+        default=8000,
+        help="completion token budget per request; reasoning models think before "
+        "they call tools, so give them room (e.g. 24000 for Laguna)",
+    )
     parser.add_argument("--scenario", type=Path, default=DEFAULT_SCENARIO)
     parser.add_argument("--vertex", action="store_true", help="use Google Vertex AI instead of the first-party API")
     parser.add_argument(
@@ -879,7 +895,7 @@ def main() -> int:
     else:
         client = anthropic.Anthropic()
     contenders = [
-        compete(client, model, args.rounds, args.scenario, run_dir, args.ticks, args.ride_type, library)
+        compete(client, model, args.rounds, args.scenario, run_dir, args.ticks, args.ride_type, library, args.max_tokens)
         for model in args.models
     ]
 
