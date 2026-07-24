@@ -12,6 +12,7 @@
 
 mod mcp;
 mod prompt;
+mod trace;
 
 use std::fs::File;
 use std::path::{Path, PathBuf};
@@ -317,20 +318,6 @@ fn openrouter_spend() -> Option<f64> {
     response.pointer("/data/usage").and_then(Value::as_f64)
 }
 
-/// Claude Code's --output-format json result carries session usage.
-fn claude_usage(stdout: &[u8]) -> Value {
-    let Ok(result) = serde_json::from_slice::<Value>(stdout) else {
-        return Value::Null;
-    };
-    json!({
-        "input_tokens": result.pointer("/usage/input_tokens"),
-        "output_tokens": result.pointer("/usage/output_tokens"),
-        "cache_read_tokens": result.pointer("/usage/cache_read_input_tokens"),
-        "cost_usd": result.get("total_cost_usd"),
-        "num_turns": result.get("num_turns"),
-    })
-}
-
 /// Point the opencode sandbox at this contender's MCP endpoint. Written fresh
 /// per session so a mixed vision/text-only lineup can share one sandbox.
 fn write_opencode_config(args: &Args, contender: &Contender) -> Result<(), String> {
@@ -412,7 +399,8 @@ fn run_agent_session(
                 .args(["--mcp-config", &mcp_config.to_string()])
                 .args(["--allowedTools", "mcp__coaster__*"])
                 .args(["--max-turns", &args.max_turns.to_string()])
-                .args(["--output-format", "json"]);
+                // Event stream, not a summary: the round's trace is built from it.
+                .args(["--output-format", "stream-json", "--verbose"]);
         }
         Harness::Opencode => {
             // opencode reads its MCP server list from a config file inside the
@@ -426,7 +414,8 @@ fn run_agent_session(
                 };
             }
             cmd.args(["sandbox", "exec", "-n", &args.opencode_sandbox, "--"])
-                .args(["opencode", "run", prompt, "-m", &contender.model]);
+                .args(["opencode", "run", prompt, "-m", &contender.model])
+                .args(["--format", "json"]);
         }
     }
     let log_path = round_dir.join("session.log");
@@ -478,18 +467,30 @@ fn run_agent_session(
         }
     };
 
-    let stdout = std::fs::read(&log_path).unwrap_or_default();
-    let usage = match contender.harness {
-        // Parsed even on failure: max-turns exits nonzero but still reports usage.
-        Harness::ClaudeCode => claude_usage(&stdout),
-        Harness::Opencode => {
-            let cost = match (spend_before, openrouter_spend()) {
-                (Some(a), Some(b)) if b >= a => Some(b - a),
-                _ => None,
-            };
-            json!({"cost_usd": cost})
+    // Built even when the session failed or was killed: a partial event stream
+    // still explains what the model was doing when it stopped.
+    let stdout = std::fs::read_to_string(&log_path).unwrap_or_default();
+    let trace = trace::parse(contender.harness, &stdout);
+    if let Err(e) = std::fs::write(round_dir.join("trace.jsonl"), trace.to_jsonl()) {
+        eprintln!("trace write failed: {e}");
+    }
+    let mut usage = trace.usage.clone();
+    // opencode reports per-step cost, but only when the provider sends it back.
+    // Fall back to the key's spend delta, which is right for a run of one.
+    if contender.harness == Harness::Opencode
+        && usage.get("cost_usd").and_then(Value::as_f64).unwrap_or(0.0) == 0.0
+    {
+        if let (Some(before), Some(after)) = (spend_before, openrouter_spend()) {
+            if after >= before {
+                usage["cost_usd"] = json!(after - before);
+            }
         }
-    };
+    }
+    println!(
+        "  {} trace events, {} tool calls",
+        trace.events.len(),
+        trace.tool_calls()
+    );
     let error = if timed_out {
         Some(format!(
             "agent session hit the {}s timeout and was killed; scoring whatever it built",
@@ -499,7 +500,7 @@ fn run_agent_session(
         None
     } else {
         let stderr = std::fs::read_to_string(&err_path).unwrap_or_default();
-        let stdout = String::from_utf8_lossy(&stdout);
+        let stdout = stdout.as_str();
         let mut tail = format!("{} | {}", stderr.trim(), stdout.trim());
         tail.truncate(500);
         let code = status
