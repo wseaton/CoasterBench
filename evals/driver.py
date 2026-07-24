@@ -633,6 +633,17 @@ class TextBlock:
 
 
 @dataclass
+class ReasoningBlock:
+    """A reasoning model's thinking, preserved so it can be passed back on the
+    next turn (vLLM renders `reasoning` on assistant messages into the chat
+    template — verified: prompt_tokens grows by the trace length). Without
+    passback the model re-derives everything from scratch every call."""
+
+    text: str
+    type: str = "reasoning"
+
+
+@dataclass
 class _Usage:
     input_tokens: int
     output_tokens: int
@@ -655,12 +666,15 @@ def _to_openai(message: dict) -> list[dict]:
     content = message["content"]
     if role == "assistant":
         text = "".join(b.text for b in content if b.type == "text")
+        reasoning = "".join(b.text for b in content if b.type == "reasoning")
         calls = [
             {"id": b.id, "type": "function", "function": {"name": b.name, "arguments": json.dumps(b.input)}}
             for b in content
             if b.type == "tool_use"
         ]
         msg: dict = {"role": "assistant", "content": text or None}
+        if reasoning:
+            msg["reasoning"] = reasoning
         if calls:
             msg["tool_calls"] = calls
         return [msg]
@@ -748,6 +762,12 @@ class OpenAICompat:
                 output_tokens += resp.usage.completion_tokens
             choice = resp.choices[0].message
             content: list = []
+            # The SDK model keeps unknown fields; reasoning arrives as an
+            # extra ("reasoning" on vLLM, "reasoning_content" on some stacks).
+            extra = choice.model_dump() if hasattr(choice, "model_dump") else {}
+            reasoning = extra.get("reasoning") or extra.get("reasoning_content")
+            if reasoning:
+                content.append(ReasoningBlock(text=reasoning))
             if choice.content:
                 content.append(TextBlock(text=choice.content))
             for call in choice.tool_calls or []:
