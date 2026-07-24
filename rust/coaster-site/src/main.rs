@@ -460,6 +460,7 @@ fn build_model_page(
     view: &ModelView,
     place: usize,
     base_url: Option<&str>,
+    store: &ArtStore,
     out: &Path,
 ) -> Result<()> {
     let model = run
@@ -468,14 +469,24 @@ fn build_model_page(
         .find(|m| m.model == view.model)
         .context("model view without a model")?;
     let path = model_href(run, &view.model);
+    let card = write_page_card(
+        model_best_shot(model),
+        store,
+        out,
+        &format!("og-{}", path.replace(".html", ".png")),
+    )?;
+    let mut chrome = Chrome::new(
+        &format!("Coaster Evals — {} · {}", run.name, view.model),
+        &format!("{} · {}", view.model.to_uppercase(), run.name),
+        &path,
+        base_url,
+    )
+    .width(view::Width::Wide);
+    if let Some(card) = &card {
+        chrome = chrome.og_card(card);
+    }
     let page = ModelPage {
-        chrome: Chrome::new(
-            &format!("Coaster Evals — {} · {}", run.name, view.model),
-            &format!("{} · {}", view.model.to_uppercase(), run.name),
-            &path,
-            base_url,
-        )
-        .width(view::Width::Wide),
+        chrome,
         run_name: run.name.clone(),
         run_href: format!("run-{}.html", run.name),
         place: place_label(place),
@@ -504,7 +515,7 @@ fn build_run_page(
         models.push(build_model_view(run, model, store, out)?);
     }
     for (i, view) in models.iter().enumerate() {
-        build_model_page(run, view, i + 1, base_url, out)?;
+        build_model_page(run, view, i + 1, base_url, store, out)?;
     }
     for model in &run.models {
         for round in model.rounds.iter().filter(|r| !r.trace.is_empty()) {
@@ -513,14 +524,24 @@ fn build_run_page(
     }
 
     let path = format!("run-{}.html", run.name);
+    let card = write_page_card(
+        run_best_shot(run).and_then(model_best_shot),
+        store,
+        out,
+        &format!("og-run-{}.png", run.name),
+    )?;
+    let mut chrome = Chrome::new(
+        &format!("Coaster Evals — {}", run.name),
+        &format!("RUN {} ({})", run.name, run.mode),
+        &path,
+        base_url,
+    )
+    .width(view::Width::Wide);
+    if let Some(card) = &card {
+        chrome = chrome.og_card(card);
+    }
     let page = RunPage {
-        chrome: Chrome::new(
-            &format!("Coaster Evals — {}", run.name),
-            &format!("RUN {} ({})", run.name, run.mode),
-            &path,
-            base_url,
-        )
-        .width(view::Width::Wide),
+        chrome,
         mode_tagline: view::mode_tagline(&run.mode),
         grace: format!("{}", run.grace),
         standings: standings(run),
@@ -692,14 +713,50 @@ fn build_compare_page(
     out: &Path,
 ) -> Result<()> {
     let (default_a, default_b) = default_pair(contenders);
+    // Draw the default matchup's two coasters into one head-to-head card. The
+    // thumbnails were already written by contenders(), so reuse them as the
+    // panel art (crisp enough upscaled for a half-width panel).
+    let by_id = |id: &str| contenders.iter().find(|c| c.id == id);
+    let card = match (by_id(&default_a), by_id(&default_b)) {
+        (Some(a), Some(b)) => match (a.thumb.as_ref(), b.thumb.as_ref()) {
+            (Some(la), Some(rp)) => {
+                // Highlight whichever coaster actually scored higher.
+                let a_wins = a.score.unwrap_or(0.0) >= b.score.unwrap_or(0.0);
+                images::write_compare_card(
+                    &a.coaster,
+                    &a.mode,
+                    &images::CardSide {
+                        shot: &out.join(la),
+                        model: &a.model,
+                        score: a.score,
+                        winner: a_wins,
+                    },
+                    &images::CardSide {
+                        shot: &out.join(rp),
+                        model: &b.model,
+                        score: b.score,
+                        winner: !a_wins,
+                    },
+                    &out.join("og-compare.png"),
+                )?;
+                Some("og-compare.png")
+            }
+            _ => None,
+        },
+        _ => None,
+    };
+    let mut chrome = Chrome::new(
+        "Coaster Evals — Head to Head",
+        "HEAD TO HEAD",
+        "compare.html",
+        base_url,
+    )
+    .width(view::Width::Mid);
+    if let Some(card) = card {
+        chrome = chrome.og_card(card);
+    }
     let page = view::ComparePage {
-        chrome: Chrome::new(
-            "Coaster Evals — Head to Head",
-            "HEAD TO HEAD",
-            "compare.html",
-            base_url,
-        )
-        .width(view::Width::Mid),
+        chrome,
         contenders_json: serde_json::to_string(contenders)?,
         default_a,
         default_b,
@@ -730,15 +787,50 @@ fn facets(runs: &[EvalRun]) -> Vec<Facet> {
     ]
 }
 
-/// The best-rated screenshot across every run, for the unfurl card.
+/// The best-rated screenshot across every run, for the shared unfurl card.
 fn og_shot(runs: &[EvalRun]) -> Option<&Art> {
     runs.iter()
-        .flat_map(|run| run.models.iter())
-        .flat_map(|model| model.rounds.iter())
-        .filter(|round| round.excitement() > 0.0)
-        .filter_map(|round| Some((round.excitement(), round.screenshot.as_ref()?)))
-        .max_by(|a, b| a.0.total_cmp(&b.0))
-        .map(|(_, art)| art)
+        .filter_map(run_best_shot)
+        .max_by(|a, b| shot_score(a).total_cmp(&shot_score(b)))
+        .and_then(model_best_shot)
+}
+
+/// A model's best-rated screenshot, falling back to any it produced so an
+/// all-unrated run still gets a preview.
+fn model_best_shot(model: &model::ModelRun) -> Option<&Art> {
+    model
+        .best()
+        .and_then(|r| r.screenshot.as_ref())
+        .or_else(|| model.rounds.iter().find_map(|r| r.screenshot.as_ref()))
+}
+
+/// The excitement behind a model's best shot, for ranking runs against each
+/// other; 0 when nothing rated.
+fn shot_score(model: &model::ModelRun) -> f64 {
+    model.best().map_or(0.0, |r| r.excitement())
+}
+
+/// A run's headline coaster: the highest-rated screenshot across its models.
+fn run_best_shot(run: &EvalRun) -> Option<&model::ModelRun> {
+    run.models
+        .iter()
+        .filter(|m| model_best_shot(m).is_some())
+        .max_by(|a, b| shot_score(a).total_cmp(&shot_score(b)))
+}
+
+/// Renders `shot` into a per-page unfurl card and returns its site-relative
+/// filename, or None when there is nothing to draw.
+fn write_page_card(
+    art: Option<&Art>,
+    store: &ArtStore,
+    out: &Path,
+    name: &str,
+) -> Result<Option<String>> {
+    let Some(shot) = art.and_then(|a| store.pixels(a)) else {
+        return Ok(None);
+    };
+    images::write_og_card(&shot, &out.join(name))?;
+    Ok(Some(name.to_string()))
 }
 
 fn build_library_page(
@@ -816,9 +908,13 @@ fn main() -> Result<()> {
     let mut skipped = Vec::new();
     let mut runs = Vec::new();
     for run in all_runs {
+        // Build every run's pages, so a head-to-head link into a run the
+        // leaderboard hides still resolves instead of 404ing. The partial
+        // filter only decides what the index lists, not what exists.
+        build_run_page(&run, &store, out, base_url)?;
         match run.incomplete_reason() {
             Some(reason) if !args.include_partial => {
-                eprintln!("skipping partial run {} ({reason})", run.name);
+                eprintln!("partial run {} hidden from index ({reason})", run.name);
                 skipped.push(run.name.clone());
             }
             _ => runs.push(run),
@@ -840,9 +936,6 @@ fn main() -> Result<()> {
     };
     write_page(&out.join("index.html"), &index.render()?)?;
 
-    for run in &runs {
-        build_run_page(run, &store, out, base_url)?;
-    }
     if contenders.len() >= 2 {
         build_compare_page(&contenders, base_url, out)?;
     }
@@ -852,7 +945,7 @@ fn main() -> Result<()> {
 
     images::write_favicon(out)?;
     if let Some(shot) = og_shot(&runs).and_then(|art| store.pixels(art)) {
-        images::write_og_card(&shot, out)?;
+        images::write_og_card(&shot, &out.join("og-card.png"))?;
         println!("wrote og-card.png to {}", out.display());
     }
     if base_url.is_none() {

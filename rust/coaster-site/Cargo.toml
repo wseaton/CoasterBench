@@ -5,6 +5,7 @@ edition = "2024"
 description = "Static site generator for CoasterBench eval runs"
 
 [dependencies]
+ab_glyph = "0.2"
 anyhow = "1"
 askama = "0.16"
 clap = { version = "4", features = ["derive"] }

@@ -53,6 +53,10 @@ pub struct Chrome {
     pub width: Width,
     /// Pull in mermaid (from jsDelivr) only on the page that draws a diagram.
     pub needs_mermaid: bool,
+    /// The unfurl image filename for this page, relative to the site root.
+    /// Defaults to the shared `og-card.png`; run/model/compare pages set their
+    /// own so the preview shows the coaster the page is actually about.
+    pub og_card: String,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -71,11 +75,18 @@ impl Chrome {
             base_url: base_url.map(|b| b.trim_end_matches('/').to_string()),
             width: Width::Prose,
             needs_mermaid: false,
+            og_card: "og-card.png".to_string(),
         }
     }
 
     pub fn width(mut self, width: Width) -> Self {
         self.width = width;
+        self
+    }
+
+    /// Point this page's unfurl at its own card (see `og_card`).
+    pub fn og_card(mut self, card: &str) -> Self {
+        self.og_card = card.to_string();
         self
     }
 
@@ -117,7 +128,7 @@ impl Chrome {
     pub fn og_image(&self) -> Option<String> {
         self.base_url
             .as_ref()
-            .map(|base| format!("{base}/og-card.png"))
+            .map(|base| format!("{base}/{}", self.og_card))
     }
 }
 

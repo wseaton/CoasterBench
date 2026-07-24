@@ -1,9 +1,11 @@
-//! The raster bits of the site: index thumbnails, the Open Graph card, and
-//! the favicon. Everything is drawn from run screenshots plus a few filled
-//! rectangles, so `image` alone covers it (no drawing crate needed).
+//! The raster bits of the site: index thumbnails, the Open Graph cards, and
+//! the favicon. Screenshots plus filled rectangles for the RCT window chrome,
+//! and ab_glyph for the text overlaid on the head-to-head card (embedded IBM
+//! Plex Mono, the same face the site uses).
 
 use std::path::Path;
 
+use ab_glyph::{Font, FontRef, PxScale, ScaleFont};
 use anyhow::{Context, Result};
 use image::imageops::FilterType;
 use image::{DynamicImage, Rgb, RgbImage};
@@ -15,6 +17,113 @@ const TITLEBAR: Rgb<u8> = Rgb([0x5c, 0x3a, 0x24]);
 const TITLEBAR_HI: Rgb<u8> = Rgb([0x8a, 0x5f, 0x3d]);
 const INK: Rgb<u8> = Rgb([0x2a, 0x20, 0x15]);
 const SKY: Rgb<u8> = Rgb([0x10, 0x20, 0x2e]);
+/// Warm cream for text on the brown titlebar; gold for the winner's numbers.
+const CREAM: Rgb<u8> = Rgb([0xf0, 0xe6, 0xc8]);
+const GOLD: Rgb<u8> = Rgb([0xf2, 0xc9, 0x4c]);
+
+const FONT_REGULAR: &[u8] = include_bytes!("../fonts/IBMPlexMono-Regular.ttf");
+const FONT_BOLD: &[u8] = include_bytes!("../fonts/IBMPlexMono-Bold.ttf");
+
+/// The two faces, parsed once per card render.
+struct Fonts {
+    regular: FontRef<'static>,
+    bold: FontRef<'static>,
+}
+
+impl Fonts {
+    fn load() -> Result<Self> {
+        Ok(Self {
+            regular: FontRef::try_from_slice(FONT_REGULAR).context("parsing Plex Mono Regular")?,
+            bold: FontRef::try_from_slice(FONT_BOLD).context("parsing Plex Mono Bold")?,
+        })
+    }
+}
+
+/// Horizontal placement of a text run relative to the given x.
+#[derive(Clone, Copy)]
+enum Align {
+    Left,
+    Center,
+    Right,
+}
+
+/// Total advance width of `text` at `size`, for alignment and plate sizing.
+fn text_width(font: &FontRef<'static>, size: f32, text: &str) -> f32 {
+    let scaled = font.as_scaled(PxScale::from(size));
+    text.chars()
+        .map(|c| scaled.h_advance(scaled.glyph_id(c)))
+        .sum()
+}
+
+/// Alpha-blends `colour` over one pixel at coverage `a` (0..=1), clipped.
+fn blend_px(img: &mut RgbImage, x: i64, y: i64, colour: Rgb<u8>, a: f32) {
+    if a <= 0.0 || x < 0 || y < 0 || x >= img.width() as i64 || y >= img.height() as i64 {
+        return;
+    }
+    let a = a.min(1.0);
+    let bg = img.get_pixel(x as u32, y as u32).0;
+    let mix = |s: u8, d: u8| (s as f32 * (1.0 - a) + d as f32 * a).round() as u8;
+    img.put_pixel(
+        x as u32,
+        y as u32,
+        Rgb([
+            mix(bg[0], colour.0[0]),
+            mix(bg[1], colour.0[1]),
+            mix(bg[2], colour.0[2]),
+        ]),
+    );
+}
+
+/// A translucent rectangle: a dark scrim behind text so it reads over the
+/// coaster, or any tinted plate.
+fn blend_rect(img: &mut RgbImage, x0: i64, y0: i64, x1: i64, y1: i64, colour: Rgb<u8>, a: f32) {
+    for y in y0..=y1 {
+        for x in x0..=x1 {
+            blend_px(img, x, y, colour, a);
+        }
+    }
+}
+
+/// Draws `text` with its baseline at `y`, anchored at `x` per `align`. A 1px
+/// ink shadow keeps light text legible on light patches. Returns the run width.
+fn draw_text(
+    img: &mut RgbImage,
+    font: &FontRef<'static>,
+    size: f32,
+    at: (i64, i64),
+    colour: Rgb<u8>,
+    align: Align,
+    text: &str,
+) -> f32 {
+    let (x, y) = at;
+    let width = text_width(font, size, text);
+    let start = match align {
+        Align::Left => x as f32,
+        Align::Center => x as f32 - width / 2.0,
+        Align::Right => x as f32 - width,
+    };
+    let scaled = font.as_scaled(PxScale::from(size));
+    let mut pen = start;
+    for ch in text.chars() {
+        let glyph = scaled.scaled_glyph(ch);
+        let advance = scaled.h_advance(glyph.id);
+        if let Some(outline) = font.outline_glyph(ab_glyph::Glyph {
+            position: ab_glyph::point(pen, y as f32),
+            ..glyph
+        }) {
+            let bounds = outline.px_bounds();
+            outline.draw(|gx, gy, cov| {
+                let px = bounds.min.x as i64 + gx as i64;
+                let py = bounds.min.y as i64 + gy as i64;
+                // Drop shadow first, then the glyph, so edges stay crisp.
+                blend_px(img, px + 1, py + 1, INK, cov * 0.55);
+                blend_px(img, px, py, colour, cov);
+            });
+        }
+        pen += advance;
+    }
+    width
+}
 
 /// Fills an inclusive rectangle, clipped to the image.
 fn fill(img: &mut RgbImage, x0: i64, y0: i64, x1: i64, y1: i64, colour: Rgb<u8>) {
@@ -69,57 +178,266 @@ pub fn write_favicon(out: &Path) -> Result<()> {
         .with_context(|| format!("writing {}", path.display()))
 }
 
-/// Renders og-card.png: a screenshot center-cropped to 1200x630 inside an
-/// RCT-style beveled panel frame.
-pub fn write_og_card(shot: &Path, out: &Path) -> Result<()> {
-    const W: u32 = 1200;
-    const H: u32 = 630;
-    const OUTER: i64 = 3;
-    const BEVEL: i64 = 6;
-    let border = OUTER + BEVEL + 2;
-    let inner_w = W - 2 * border as u32;
-    let inner_h = H - 2 * border as u32;
+const OG_W: u32 = 1200;
+const OG_H: u32 = 630;
+const OG_OUTER: i64 = 3;
+const OG_BEVEL: i64 = 6;
 
-    let shot_img = image::open(shot).with_context(|| format!("reading {}", shot.display()))?;
-    // Cover-fit so the whole ride reads at a glance (captures are cropped to
-    // track bounds already).
-    let cropped = cover_crop(&shot_img, inner_w, inner_h).to_rgb8();
-
-    let mut card = RgbImage::from_pixel(W, H, PANEL);
-    let (w, h) = (W as i64 - 1, H as i64 - 1);
-    outline(&mut card, 0, 0, w, h, OUTER, INK);
+/// Draws the RCT-style beveled panel frame onto a fresh 1200x630 card and
+/// returns it plus the inclusive interior rect the screenshot(s) fill.
+fn og_frame() -> (RgbImage, (i64, i64, i64, i64)) {
+    let mut card = RgbImage::from_pixel(OG_W, OG_H, PANEL);
+    let (w, h) = (OG_W as i64 - 1, OG_H as i64 - 1);
+    outline(&mut card, 0, 0, w, h, OG_OUTER, INK);
     outline(
         &mut card,
-        OUTER,
-        OUTER,
-        w - OUTER,
-        h - OUTER,
-        BEVEL,
+        OG_OUTER,
+        OG_OUTER,
+        w - OG_OUTER,
+        h - OG_OUTER,
+        OG_BEVEL,
         PANEL_HI,
     );
     // Bevel shading: dark on the bottom/right edges for the classic inset look.
     fill(
         &mut card,
-        OUTER,
-        h - OUTER - BEVEL,
-        w - OUTER,
-        h - OUTER,
+        OG_OUTER,
+        h - OG_OUTER - OG_BEVEL,
+        w - OG_OUTER,
+        h - OG_OUTER,
         PANEL_DARK,
     );
     fill(
         &mut card,
-        w - OUTER - BEVEL,
-        OUTER,
-        w - OUTER,
-        h - OUTER,
+        w - OG_OUTER - OG_BEVEL,
+        OG_OUTER,
+        w - OG_OUTER,
+        h - OG_OUTER,
         PANEL_DARK,
     );
-    image::imageops::replace(&mut card, &cropped, border, border);
+    let inset = OG_OUTER + OG_BEVEL + 2;
+    (card, (inset, inset, w - inset, h - inset))
+}
 
-    let path = out.join("og-card.png");
+/// Renders a single screenshot center-cropped to fill the framed card.
+pub fn write_og_card(shot: &Path, dest: &Path) -> Result<()> {
+    let (mut card, (x0, y0, x1, y1)) = og_frame();
+    let (inner_w, inner_h) = ((x1 - x0 + 1) as u32, (y1 - y0 + 1) as u32);
+    let shot_img = image::open(shot).with_context(|| format!("reading {}", shot.display()))?;
+    // Cover-fit so the whole ride reads at a glance (captures are cropped to
+    // track bounds already).
+    let cropped = cover_crop(&shot_img, inner_w, inner_h).to_rgb8();
+    image::imageops::replace(&mut card, &cropped, x0, y0);
+    save_card(card, dest)
+}
+
+/// One side of the head-to-head card: a coaster plus who built it and its
+/// score. `winner` promotes the score badge to gold.
+pub struct CardSide<'a> {
+    pub shot: &'a Path,
+    pub model: &'a str,
+    pub score: Option<f64>,
+    pub winner: bool,
+}
+
+/// Renders the head-to-head card: a brown titlebar ribbon across the top, then
+/// the two coasters side by side, each with its score badged in the outer top
+/// corner and the model name plated along the centre divider.
+pub fn write_compare_card(
+    coaster: &str,
+    mode: &str,
+    left: &CardSide,
+    right: &CardSide,
+    dest: &Path,
+) -> Result<()> {
+    let fonts = Fonts::load()?;
+    let (mut card, (x0, y0, x1, y1)) = og_frame();
+
+    // Titlebar ribbon.
+    const RIBBON_H: i64 = 72;
+    let ry = y0 + RIBBON_H - 1;
+    fill(&mut card, x0, y0, x1, ry, TITLEBAR);
+    fill(&mut card, x0, y0, x1, y0 + 2, TITLEBAR_HI);
+    fill(&mut card, x0, ry - 2, x1, ry, INK);
+    let cx = (x0 + x1) / 2;
+    draw_text(
+        &mut card,
+        &fonts.bold,
+        30.0,
+        (cx, y0 + 34),
+        GOLD,
+        Align::Center,
+        "HEAD TO HEAD",
+    );
+    let subtitle = format!("{coaster}  ·  {mode} mode");
+    draw_text(
+        &mut card,
+        &fonts.regular,
+        20.0,
+        (cx, y0 + 60),
+        CREAM,
+        Align::Center,
+        &subtitle,
+    );
+
+    // Two coaster panels below the ribbon.
+    const GAP: i64 = 6;
+    let py0 = ry + 1;
+    let span = x1 - x0 + 1;
+    let cell_w = ((span - GAP) / 2) as u32;
+    let cell_h = (y1 - py0 + 1) as u32;
+    let sides = [(x0, left), (x0 + cell_w as i64 + GAP, right)];
+    for (i, (px, side)) in sides.iter().enumerate() {
+        let img =
+            image::open(side.shot).with_context(|| format!("reading {}", side.shot.display()))?;
+        let cropped = cover_crop(&img, cell_w, cell_h).to_rgb8();
+        image::imageops::replace(&mut card, &cropped, *px, py0);
+        let is_left = i == 0;
+        let panel_x1 = *px + cell_w as i64 - 1;
+        draw_score_badge(&mut card, &fonts, *px, py0, panel_x1, side, is_left);
+        draw_name_plate(&mut card, &fonts, *px, y1, panel_x1, side.model, is_left);
+    }
+
+    // Beveled divider between the panels.
+    let dx = x0 + cell_w as i64;
+    fill(&mut card, dx, py0, dx + GAP - 1, y1, PANEL_DARK);
+    fill(&mut card, dx, py0, dx, y1, INK);
+    fill(&mut card, dx + GAP - 1, py0, dx + GAP - 1, y1, PANEL_HI);
+
+    save_card(card, dest)
+}
+
+/// The excitement badge in a panel's outer top corner: a beveled RCT plate
+/// (gold for the winner) with the score, or "not rated" when there is none.
+fn draw_score_badge(
+    img: &mut RgbImage,
+    fonts: &Fonts,
+    panel_x0: i64,
+    panel_y0: i64,
+    panel_x1: i64,
+    side: &CardSide,
+    is_left: bool,
+) {
+    const W: i64 = 168;
+    const H: i64 = 78;
+    const M: i64 = 14; // margin from the panel corner
+    let (bx0, bx1) = if is_left {
+        (panel_x0 + M, panel_x0 + M + W)
+    } else {
+        (panel_x1 - M - W, panel_x1 - M)
+    };
+    let (by0, by1) = (panel_y0 + M, panel_y0 + M + H);
+    let face = if side.winner { GOLD } else { PANEL };
+    fill(img, bx0, by0, bx1, by1, face);
+    outline(img, bx0, by0, bx1, by1, 3, INK);
+    fill(img, bx0 + 3, by0 + 3, bx1 - 3, by0 + 4, PANEL_HI);
+    fill(img, bx0 + 3, by1 - 4, bx1 - 3, by1 - 3, PANEL_DARK);
+    let mid = (bx0 + bx1) / 2;
+    match side.score {
+        Some(score) => {
+            draw_text(
+                img,
+                &fonts.regular,
+                15.0,
+                (mid, by0 + 24),
+                INK,
+                Align::Center,
+                "EXCITEMENT",
+            );
+            draw_text(
+                img,
+                &fonts.bold,
+                42.0,
+                (mid, by1 - 16),
+                INK,
+                Align::Center,
+                &format!("{score:.2}"),
+            );
+            if side.winner {
+                // A little drawn crown, since Plex Mono has no ★ glyph.
+                draw_crown(img, mid - 62, by0 - 20);
+                draw_text(
+                    img,
+                    &fonts.bold,
+                    15.0,
+                    (mid + 8, by0 - 8),
+                    GOLD,
+                    Align::Center,
+                    "WINNER",
+                );
+            }
+        }
+        None => {
+            draw_text(
+                img,
+                &fonts.regular,
+                20.0,
+                (mid, (by0 + by1) / 2 + 7),
+                INK,
+                Align::Center,
+                "not rated",
+            );
+        }
+    }
+}
+
+/// A tiny gold crown (three merlons on a base bar) with a 1px ink shadow, since
+/// the font has no star glyph. Top-left anchored, ~22x15.
+fn draw_crown(img: &mut RgbImage, x: i64, y: i64) {
+    let posts = [(x, y + 3), (x + 9, y), (x + 18, y + 3)];
+    // Shadow pass, then gold, so it lifts off the green.
+    for (colour, dx, dy) in [(INK, 1, 1), (GOLD, 0, 0)] {
+        for &(px, py) in &posts {
+            fill(img, px + dx, py + dy, px + dx + 3, y + dy + 12, colour);
+        }
+        fill(img, x + dx, y + dy + 9, x + 21 + dx, y + dy + 13, colour);
+    }
+}
+
+/// The model name plated along the centre divider at the panel's bottom, over a
+/// dark scrim so it reads on any coaster.
+fn draw_name_plate(
+    img: &mut RgbImage,
+    fonts: &Fonts,
+    panel_x0: i64,
+    panel_y1: i64,
+    panel_x1: i64,
+    model: &str,
+    is_left: bool,
+) {
+    let label = model.to_uppercase();
+    const SIZE: f32 = 26.0;
+    const PAD: i64 = 14;
+    const M: i64 = 14;
+    let tw = text_width(&fonts.bold, SIZE, &label) as i64;
+    let py1 = panel_y1 - M;
+    let py0 = py1 - 44;
+    // Names hug the divider: right panel's plate on its left edge, and vice
+    // versa, so the two names meet in the middle.
+    let (px0, px1, anchor, align) = if is_left {
+        let x1 = panel_x1 - M;
+        (x1 - tw - 2 * PAD, x1, x1 - PAD, Align::Right)
+    } else {
+        let x0 = panel_x0 + M;
+        (x0, x0 + tw + 2 * PAD, x0 + PAD, Align::Left)
+    };
+    blend_rect(img, px0, py0, px1, py1, INK, 0.62);
+    fill(img, px0, py0, px1, py0, GOLD);
+    draw_text(
+        img,
+        &fonts.bold,
+        SIZE,
+        (anchor, py1 - 13),
+        CREAM,
+        align,
+        &label,
+    );
+}
+
+fn save_card(card: RgbImage, dest: &Path) -> Result<()> {
     DynamicImage::ImageRgb8(card)
-        .save(&path)
-        .with_context(|| format!("writing {}", path.display()))
+        .save(dest)
+        .with_context(|| format!("writing {}", dest.display()))
 }
 
 /// Writes a <=280px thumbnail of `shot` at `dest`, preserving aspect ratio.
@@ -154,5 +472,58 @@ mod tests {
         assert_eq!(img.get_pixel(1, 1), &INK);
         assert_eq!(img.get_pixel(2, 2), &PANEL);
         assert_eq!(img.get_pixel(9, 9), &INK);
+    }
+
+    #[test]
+    fn embedded_fonts_parse() {
+        Fonts::load().expect("fonts should parse");
+    }
+
+    #[test]
+    fn monospace_width_scales_with_length() {
+        let fonts = Fonts::load().unwrap();
+        let one = text_width(&fonts.bold, 30.0, "8");
+        let four = text_width(&fonts.bold, 30.0, "8888");
+        assert!(one > 0.0);
+        assert!((four - one * 4.0).abs() < 0.5, "Plex Mono is monospace");
+    }
+
+    #[test]
+    fn compare_card_is_the_right_size_and_has_ink() {
+        let dir = std::env::temp_dir().join("coaster-site-card-test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let shot = dir.join("shot.png");
+        // A plain green tile stands in for a coaster capture.
+        DynamicImage::ImageRgb8(RgbImage::from_pixel(280, 180, Rgb([0x3a, 0x6b, 0x2f])))
+            .save(&shot)
+            .unwrap();
+        let dest = dir.join("card.png");
+        write_compare_card(
+            "Twister Roller Coaster",
+            "design",
+            &CardSide {
+                shot: &shot,
+                model: "claude-opus-4-8",
+                score: Some(9.12),
+                winner: true,
+            },
+            &CardSide {
+                shot: &shot,
+                model: "claude-sonnet-5",
+                score: Some(7.44),
+                winner: false,
+            },
+            &dest,
+        )
+        .unwrap();
+        let out = image::open(&dest).unwrap();
+        assert_eq!((out.width(), out.height()), (OG_W, OG_H));
+        // The ribbon and text mean at least some ink-dark pixels exist over the
+        // otherwise green/tan card.
+        let has_ink = out
+            .to_rgb8()
+            .pixels()
+            .any(|p| p.0[0] < 0x40 && p.0[1] < 0x40 && p.0[2] < 0x40);
+        assert!(has_ink, "expected titlebar/text ink on the card");
     }
 }
