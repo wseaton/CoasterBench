@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% import "macros.html" as macros %}
+{% block body %}
+<div class="window">
+  <div class="titlebar"><span>{{ model.model }} &middot; {{ place }} of {{ of_models }}</span>
+    <a class="titlebar-link" href="{{ run_href }}">compare all models &rarr;</a></div>
+  <div class="body">
+    <p class="dim">{{ context }}</p>
+    <div class="summary">
+      <div class="summary-chart">{{ model.chart_svg|safe }}</div>
+      <dl class="statline">
+      {%- for stat in stats %}
+        <dt class="stat-label">{{ stat.label }}</dt>
+        <dd class="stat-value {{ stat.class }}">{{ stat.value }}</dd>
+      {%- endfor %}
+      </dl>
+    </div>
+  </div>
+</div>
+
+{%- if !model.studied.is_empty() %}
+<div class="window">
+  <div class="titlebar"><span>Studied {{ model.studied.len() }} library design(s)</span><span class="btn"></span></div>
+  <div class="body">{% call macros::strip(model.studied.as_slice()) %}{% endcall %}</div>
+</div>
+{%- endif %}
+
+<div class="window">
+  <div class="titlebar"><span>{{ model.rounds.len() }} round(s)</span><span class="btn"></span></div>
+  <div class="body">
+    <div class="round-grid">
+    {%- for round in model.rounds %}
+      {% call macros::round_block(round, model.model.as_str()) %}{% endcall %}
+    {%- endfor %}
+    </div>
+  </div>
+</div>
+<p class="backlink"><a href="{{ run_href }}">&larr; {{ run_name }}</a> &middot; <a href="index.html">all runs</a></p>
+{% endblock %}

@@ -20,8 +20,8 @@ use clap::Parser;
 use art::{Art, ArtStore};
 use model::{EvalRun, ModelRun, Round};
 use view::{
-    Chrome, Facet, Figure, IndexPage, IndexRow, LibraryPage, ModelView, RoundStats, RoundView,
-    RunPage, Shot, StandingRow,
+    Chrome, Facet, Figure, IndexPage, IndexRow, LibraryPage, ModelPage, ModelView, RoundStats,
+    RoundView, RunPage, Shot, StandingRow, Stat,
 };
 
 #[derive(Parser)]
@@ -215,6 +215,135 @@ fn standings(run: &EvalRun) -> Vec<StandingRow> {
         .collect()
 }
 
+/// The page a run's model links to: `run-<run>-<model>.html`.
+fn model_href(run: &EvalRun, model: &str) -> String {
+    format!("run-{}-{}.html", run.name, model::sanitise_name(model))
+}
+
+/// Builds one model's view (chart, studied designs, every round). Copies the
+/// round captures into the site as a side effect, so it runs once per model
+/// and both the run comparison and the model detail page render from it.
+fn build_model_view(
+    run: &EvalRun,
+    model: &ModelRun,
+    store: &ArtStore,
+    out: &Path,
+) -> Result<ModelView> {
+    let studied: Vec<(String, String)> = model
+        .studied_designs()
+        .into_iter()
+        .map(|name| (name.clone(), name))
+        .collect();
+    let mut rounds = Vec::with_capacity(model.rounds.len());
+    for round in &model.rounds {
+        let shots = round_shots(round, out, run, &model.model)?;
+        let stats = round_stats(round);
+        rounds.push(RoundView {
+            number: round.number,
+            build_error: round.build_error.clone(),
+            unrated_note: stats.is_none() && round.build_error.is_none(),
+            stats,
+            lookups: lookups_line(round),
+            program_json: round.program_json.clone(),
+            program_pieces: round.program_pieces,
+            shots_json: serde_json::to_string(&shots.iter().map(|s| &s.src).collect::<Vec<_>>())?,
+            labels_json: serde_json::to_string(
+                &shots.iter().map(|s| &s.label).collect::<Vec<_>>(),
+            )?,
+            shots,
+        });
+    }
+    Ok(ModelView {
+        model: model.model.clone(),
+        href: model_href(run, &model.model),
+        chart_svg: chart::round_chart(model),
+        studied: figures(&studied, store, out)?,
+        rounds,
+    })
+}
+
+/// The headline numbers at the top of a model detail page.
+fn model_stats(model: &ModelRun) -> Vec<Stat> {
+    let stat = |label: &str, value: String, class: &str| Stat {
+        label: label.to_string(),
+        value,
+        class: class.to_string(),
+    };
+    let best = model.best();
+    let ride = best.and_then(|r| r.ride.as_ref());
+    let rated = model.rounds.iter().filter(|r| r.excitement() > 0.0).count();
+    let mut stats = vec![
+        stat(
+            "score",
+            best.map_or_else(|| "—".to_string(), |r| format!("{:.2}", r.excitement())),
+            "rating-excitement",
+        ),
+        stat(
+            "intensity",
+            fmt_opt(ride.and_then(|r| r.intensity)),
+            "rating-intensity",
+        ),
+        stat(
+            "nausea",
+            fmt_opt(ride.and_then(|r| r.nausea)),
+            "rating-nausea",
+        ),
+        stat(
+            "best round",
+            best.map_or_else(|| "—".to_string(), |r| format!("{}", r.number)),
+            "",
+        ),
+        stat(
+            "rated rounds",
+            format!("{rated}/{}", model.rounds.len()),
+            "",
+        ),
+    ];
+    if let Some(sim) = best.and_then(|r| r.similarity.as_ref()) {
+        stats.push(stat("similarity", format!("{:.2}", sim.similarity), "dim"));
+    }
+    stats.push(stat("tokens / cost", usage_cell(model), "usage"));
+    stats
+}
+
+fn build_model_page(
+    run: &EvalRun,
+    view: &ModelView,
+    place: usize,
+    base_url: Option<&str>,
+    out: &Path,
+) -> Result<()> {
+    let model = run
+        .models
+        .iter()
+        .find(|m| m.model == view.model)
+        .context("model view without a model")?;
+    let path = model_href(run, &view.model);
+    let page = ModelPage {
+        chrome: Chrome::new(
+            &format!("Coaster Evals — {} · {}", run.name, view.model),
+            &format!("{} · {}", view.model.to_uppercase(), run.name),
+            &path,
+            base_url,
+        )
+        .width(view::Width::Wide),
+        run_name: run.name.clone(),
+        run_href: format!("run-{}.html", run.name),
+        place: place_label(place),
+        of_models: run.models.len(),
+        context: format!(
+            "{} · {} · {} · {}",
+            run.mode,
+            run.ride_name(),
+            run.harness,
+            view::mode_tagline(&run.mode)
+        ),
+        stats: model_stats(model),
+        model: view,
+    };
+    write_page(&out.join(&path), &page.render()?)
+}
+
 fn build_run_page(
     run: &EvalRun,
     store: &ArtStore,
@@ -223,38 +352,10 @@ fn build_run_page(
 ) -> Result<()> {
     let mut models = Vec::with_capacity(run.models.len());
     for model in run.ranked() {
-        let studied: Vec<(String, String)> = model
-            .studied_designs()
-            .into_iter()
-            .map(|name| (name.clone(), name))
-            .collect();
-        let mut rounds = Vec::with_capacity(model.rounds.len());
-        for round in &model.rounds {
-            let shots = round_shots(round, out, run, &model.model)?;
-            let stats = round_stats(round);
-            rounds.push(RoundView {
-                number: round.number,
-                build_error: round.build_error.clone(),
-                unrated_note: stats.is_none() && round.build_error.is_none(),
-                stats,
-                lookups: lookups_line(round),
-                program_json: round.program_json.clone(),
-                program_pieces: round.program_pieces,
-                shots_json: serde_json::to_string(
-                    &shots.iter().map(|s| &s.src).collect::<Vec<_>>(),
-                )?,
-                labels_json: serde_json::to_string(
-                    &shots.iter().map(|s| &s.label).collect::<Vec<_>>(),
-                )?,
-                shots,
-            });
-        }
-        models.push(ModelView {
-            model: model.model.clone(),
-            chart_svg: chart::round_chart(model),
-            studied: figures(&studied, store, out)?,
-            rounds,
-        });
+        models.push(build_model_view(run, model, store, out)?);
+    }
+    for (i, view) in models.iter().enumerate() {
+        build_model_page(run, view, i + 1, base_url, out)?;
     }
 
     let path = format!("run-{}.html", run.name);
@@ -265,7 +366,7 @@ fn build_run_page(
             &path,
             base_url,
         )
-        .wide(),
+        .width(view::Width::Wide),
         mode_tagline: view::mode_tagline(&run.mode),
         grace: format!("{}", run.grace),
         standings: standings(run),
@@ -315,6 +416,7 @@ fn index_rows(runs: &[EvalRun], store: &ArtStore, out: &Path) -> Result<Vec<Inde
             rows.push(IndexRow {
                 run_name: run.name.clone(),
                 run_href: format!("run-{}.html", run.name),
+                model_href: model_href(run, &model.model),
                 date: run.date(),
                 mode: run.mode.clone(),
                 coaster: run.ride_name(),
@@ -450,6 +552,7 @@ fn main() -> Result<()> {
 
     let index = IndexPage {
         chrome: Chrome::new("Coaster Evals", "COASTER EVALS", "index.html", base_url)
+            .width(view::Width::Mid)
             .with_mermaid(),
         facets: facets(&runs),
         rows: index_rows(&runs, &store, out)?,

@@ -20,8 +20,7 @@
 </head>
 <body>
 <div class="{{ chrome.wrap_class() }}">
-<h1>{{ chrome.titlebar }}</h1>
-<p class="tagline">{{ chrome.tagline() }}</p>
+<div class="masthead"><h1>{{ chrome.titlebar }}</h1><p class="tagline">{{ chrome.tagline() }}</p></div>
 {% block body %}{% endblock %}
 <script>{{ chrome.js()|safe }}</script>
 {% if chrome.needs_mermaid %}<script type="module">

@@ -131,8 +131,11 @@ Non-bundled binaries look for `data/` next to the exe. One-time setup:
   work — index thumbnails, og-card, favicon — via the `image` crate). This is
   what the Pages workflow builds; `evals/site.py` is the superseded Python
   version, kept until the Rust output has a few deploys behind it.
-- Index table is one row per model per run (runs pivoted), grouped by run and
-  faceted by mode/coaster/harness/model.
+- Three page types: `index.html` (one row per model per run, runs pivoted,
+  grouped by run, faceted by mode/coaster/harness/model), `run-<run>.html`
+  (models side by side for comparison), and `run-<run>-<model>.html` (one
+  model's whole run in detail: headline stats, chart, studied designs, every
+  round). Index rows link to the model page, the run name to the comparison.
 - Runs that never finished are skipped, with the reason on stderr and a note
   on the page: any model short of run.json's promised `models`/`rounds` (or,
   for runs from before run.json recorded them, short of the run's own best

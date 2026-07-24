@@ -47,9 +47,18 @@ pub struct Chrome {
     /// Public URL the site deploys to. Slack ignores relative og:image/og:url,
     /// so those tags only appear when a base URL is known.
     pub base_url: Option<String>,
-    pub wide: bool,
+    /// Page width: prose by default, `Mid` for the leaderboard, `Wide` for
+    /// the multi-column run and round grids.
+    pub width: Width,
     /// Pull in mermaid (from jsDelivr) only on the page that draws a diagram.
     pub needs_mermaid: bool,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Width {
+    Prose,
+    Mid,
+    Wide,
 }
 
 impl Chrome {
@@ -59,13 +68,13 @@ impl Chrome {
             titlebar: titlebar.to_string(),
             path: path.to_string(),
             base_url: base_url.map(|b| b.trim_end_matches('/').to_string()),
-            wide: false,
+            width: Width::Prose,
             needs_mermaid: false,
         }
     }
 
-    pub fn wide(mut self) -> Self {
-        self.wide = true;
+    pub fn width(mut self, width: Width) -> Self {
+        self.width = width;
         self
     }
 
@@ -91,7 +100,11 @@ impl Chrome {
     }
 
     pub fn wrap_class(&self) -> &'static str {
-        if self.wide { "wrap wrap-wide" } else { "wrap" }
+        match self.width {
+            Width::Prose => "wrap",
+            Width::Mid => "wrap wrap-mid",
+            Width::Wide => "wrap wrap-wide",
+        }
     }
 
     pub fn og_url(&self) -> Option<String> {
@@ -119,6 +132,8 @@ pub struct Figure {
 pub struct IndexRow {
     pub run_name: String,
     pub run_href: String,
+    /// The model's own detail page.
+    pub model_href: String,
     pub date: String,
     pub mode: String,
     pub coaster: String,
@@ -200,6 +215,8 @@ pub struct RoundStats {
 
 pub struct ModelView {
     pub model: String,
+    /// This model's detail page, linked from the run comparison.
+    pub href: String,
     pub chart_svg: String,
     pub studied: Vec<Figure>,
     pub rounds: Vec<RoundView>,
@@ -213,6 +230,28 @@ pub struct RunPage {
     pub grace: String,
     pub standings: Vec<StandingRow>,
     pub models: Vec<ModelView>,
+}
+
+/// A headline number on the model detail page.
+pub struct Stat {
+    pub label: String,
+    pub value: String,
+    /// CSS class for the value, e.g. "rating-excitement".
+    pub class: String,
+}
+
+/// One model's whole run: the detail view an index row links to.
+#[derive(Template)]
+#[template(path = "model.html")]
+pub struct ModelPage<'a> {
+    pub chrome: Chrome,
+    pub run_name: String,
+    pub run_href: String,
+    pub place: String,
+    pub of_models: usize,
+    pub context: String,
+    pub stats: Vec<Stat>,
+    pub model: &'a ModelView,
 }
 
 #[derive(Template)]
