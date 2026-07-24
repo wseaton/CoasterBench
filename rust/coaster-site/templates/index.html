@@ -39,14 +39,21 @@ flowchart LR
     </div>
     <table class="run-table">
       <thead><tr>
-        <th></th><th>run</th><th>setup</th><th>model</th>
-        <th>score</th><th>int / nau</th><th>tokens / cost</th>
+        <th></th>
+        <th class="sortable" data-sort="run" data-dir="asc">run</th>
+        <th>setup</th>
+        <th class="sortable" data-sort="model" data-dir="asc">model</th>
+        <th class="sortable sorted-desc" data-sort="score" data-dir="desc">score</th>
+        <th class="sortable" data-sort="intensity" data-dir="desc">int / nau</th>
+        <th>tokens / cost</th>
       </tr></thead>
       <tbody>
       {%- for row in rows %}
-        <tr class="{% if row.starts_run %}run-start {% endif %}{% if row.is_winner %}winner{% endif %}"
+        <tr class="{% if row.is_winner %}winner{% endif %}"
             data-run="{{ row.run_name }}" data-mode="{{ row.mode }}" data-coaster="{{ row.coaster }}"
-            data-harness="{{ row.harness }}" data-model="{{ row.model }}">
+            data-harness="{{ row.harness }}" data-model="{{ row.model }}"
+            data-score="{{ row.sort_score }}" data-intensity="{{ row.sort_intensity }}"
+            data-nausea="{{ row.sort_nausea }}">
           <td>
           {%- match row.thumb %}
           {%- when Some(thumb) %}

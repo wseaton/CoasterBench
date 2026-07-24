@@ -20,8 +20,8 @@ use clap::Parser;
 use art::{Art, ArtStore};
 use model::{EvalRun, ModelRun, Round};
 use view::{
-    Chrome, Facet, Figure, IndexPage, IndexRow, LibraryPage, ModelPage, ModelView, RoundStats,
-    RoundView, RunPage, Shot, StandingRow, Stat,
+    Badge, Chrome, Facet, Figure, IndexPage, IndexRow, LibraryPage, ModelPage, ModelView,
+    RoundStats, RoundView, RunPage, Shot, StandingRow, Stat,
 };
 
 #[derive(Parser)]
@@ -144,6 +144,25 @@ fn round_stats(round: &Round) -> Option<RoundStats> {
     })
 }
 
+/// The chip beside a round heading. Only outcomes that need explaining get
+/// one; a round that built, tested and rated cleanly says nothing.
+fn round_badge(round: &Round, stats: Option<&RoundStats>) -> Option<Badge> {
+    let badge = |text: &str, class: &str| {
+        Some(Badge {
+            text: text.to_string(),
+            class: class.to_string(),
+        })
+    };
+    if round.build_error.is_some() {
+        return badge("build failed", "badge-fail");
+    }
+    match stats {
+        Some(stats) if stats.crashed => badge("crashed", "badge-fail"),
+        Some(_) => None,
+        None => badge("not rated", "badge-warn"),
+    }
+}
+
 fn lookups_line(round: &Round) -> Option<String> {
     if round.lookups.is_empty() {
         return None;
@@ -240,6 +259,7 @@ fn build_model_view(
         let stats = round_stats(round);
         rounds.push(RoundView {
             number: round.number,
+            badge: round_badge(round, stats.as_ref()),
             build_error: round.build_error.clone(),
             unrated_note: stats.is_none() && round.build_error.is_none(),
             stats,
@@ -398,8 +418,9 @@ fn thumbnail(
     Ok(Some(rel.to_string_lossy().replace('\\', "/")))
 }
 
-/// Index rows: one per model per run, runs newest first and models best-first
-/// inside each run.
+/// Index rows: one per model per run, best score first (the leaderboard
+/// question is "who built the best coaster", not "what ran most recently").
+/// The client-side sorter can reorder by any column from here.
 fn index_rows(runs: &[EvalRun], store: &ArtStore, out: &Path) -> Result<Vec<IndexRow>> {
     let mut rows = Vec::new();
     for run in runs {
@@ -425,7 +446,9 @@ fn index_rows(runs: &[EvalRun], store: &ArtStore, out: &Path) -> Result<Vec<Inde
                 thumb,
                 place: place_label(i + 1),
                 is_winner: i == 0 && best.is_some(),
-                starts_run: i == 0,
+                sort_score: best.map_or(0.0, |r| r.excitement()),
+                sort_intensity: ride.and_then(|r| r.intensity).unwrap_or(0.0),
+                sort_nausea: ride.and_then(|r| r.nausea).unwrap_or(0.0),
                 score: best.map(|r| format!("{:.2}", r.excitement())),
                 intensity: fmt_opt(ride.and_then(|r| r.intensity)),
                 nausea: fmt_opt(ride.and_then(|r| r.nausea)),
@@ -436,6 +459,7 @@ fn index_rows(runs: &[EvalRun], store: &ArtStore, out: &Path) -> Result<Vec<Inde
             });
         }
     }
+    rows.sort_by(|a, b| b.sort_score.total_cmp(&a.sort_score));
     Ok(rows)
 }
 

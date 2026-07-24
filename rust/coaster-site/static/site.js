@@ -10,7 +10,6 @@ document.addEventListener('click', function (e) {
     document.querySelectorAll('.facet-btn.active').forEach(function (b) {
       if (b.dataset.value) active[b.dataset.facet] = b.dataset.value;
     });
-    var shown = null;
     document.querySelectorAll('.run-table tbody tr').forEach(function (row) {
       var show = true;
       if (active.mode && row.dataset.mode !== active.mode) show = false;
@@ -18,13 +17,36 @@ document.addEventListener('click', function (e) {
       if (active.harness && row.dataset.harness !== active.harness) show = false;
       if (active.model && row.dataset.model !== active.model) show = false;
       row.style.display = show ? '' : 'none';
-      // Rows are grouped by run; whichever row of a run survives the filter
-      // first carries the group separator.
-      if (show) {
-        row.classList.toggle('run-start', row.dataset.run !== shown);
-        shown = row.dataset.run;
-      }
     });
+    return;
+  }
+
+  // Column sorting. The page ships sorted by score, descending; clicking a
+  // header re-sorts, clicking the active one flips direction.
+  var th = e.target.closest('.run-table th.sortable');
+  if (th) {
+    var key = th.dataset.sort;
+    var table = th.closest('table');
+    var wasDesc = th.classList.contains('sorted-desc');
+    var wasAsc = th.classList.contains('sorted-asc');
+    // First click on a column uses its natural direction (scores high-first,
+    // names A-first); clicking the active column flips it.
+    var dir = wasDesc ? 'asc' : wasAsc ? 'desc' : (th.dataset.dir || 'desc');
+    table.querySelectorAll('th').forEach(function (h) {
+      h.classList.remove('sorted-asc', 'sorted-desc');
+    });
+    th.classList.add(dir === 'asc' ? 'sorted-asc' : 'sorted-desc');
+
+    var body = table.querySelector('tbody');
+    var rows = Array.prototype.slice.call(body.rows);
+    var sign = dir === 'asc' ? 1 : -1;
+    rows.sort(function (a, b) {
+      var x = a.dataset[key], y = b.dataset[key];
+      var nx = parseFloat(x), ny = parseFloat(y);
+      if (!isNaN(nx) && !isNaN(ny)) return sign * (nx - ny);
+      return sign * String(x).localeCompare(String(y));
+    });
+    rows.forEach(function (row) { body.appendChild(row); });
     return;
   }
 

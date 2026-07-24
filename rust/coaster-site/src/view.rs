@@ -142,8 +142,10 @@ pub struct IndexRow {
     pub thumb: Option<String>,
     pub place: String,
     pub is_winner: bool,
-    /// True on the first row of each run, which draws the group separator.
-    pub starts_run: bool,
+    /// Sort keys for the client-side column sorter; unrated rows sort last.
+    pub sort_score: f64,
+    pub sort_intensity: f64,
+    pub sort_nausea: f64,
     pub score: Option<String>,
     pub intensity: String,
     pub nausea: String,
@@ -185,8 +187,17 @@ pub struct Shot {
     pub label: String,
 }
 
+/// How a round ended, as a chip next to its heading: only the outcomes worth
+/// flagging get one, so a clean round stays quiet.
+pub struct Badge {
+    pub text: String,
+    pub class: String,
+}
+
 pub struct RoundView {
     pub number: u32,
+    pub badge: Option<Badge>,
+    /// The build failure, kept to one clamped line (full text in the tooltip).
     pub build_error: Option<String>,
     /// Rating line, absent when the round produced no rated ride.
     pub stats: Option<RoundStats>,

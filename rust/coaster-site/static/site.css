@@ -127,15 +127,35 @@ tr.winner td { background: rgba(217,165,32,.25); }
 
 .round { border: 2px solid var(--ink); background: var(--panel-dark);
   box-shadow: inset 2px 2px 0 rgba(255,255,255,.3), inset -2px -2px 0 rgba(0,0,0,.25);
-  padding: .55rem .6rem; margin-bottom: .7rem; }
+  padding: .55rem .6rem; margin-bottom: .7rem;
+  /* Cards line up because the text well is fixed and the capture is pinned to
+     the bottom, whatever a round had to say for itself. */
+  display: flex; flex-direction: column; }
 .round h3 { font-family: "JetBrains Mono", monospace;
-  font-weight: 700; font-size: .75rem; margin-bottom: .3rem; }
+  font-weight: 700; font-size: .75rem; margin-bottom: .3rem;
+  display: flex; align-items: center; gap: .4rem; }
+.round-failed { border-color: var(--fail); }
+.round-meta { min-height: 4.6em; }
+.round-meta .fail { font-size: .72rem; line-height: 1.35; font-weight: 400; }
+.round img, .round .rotator, .round .no-capture { margin-top: auto; }
 .round img {
   display: block; max-width: 100%; margin-top: .5rem;
   border: 2px solid var(--ink);
   box-shadow: 3px 3px 0 rgba(0,0,0,.3);
 }
+.round .no-capture { aspect-ratio: 16 / 10; display: flex; align-items: center;
+  justify-content: center; color: var(--ink-soft); font-size: .7rem;
+  border: 2px dashed var(--panel-deep); margin-top: .5rem; }
 .round .lookups { font-size: .7rem; margin: .3rem 0 0; }
+/* Long build errors and library lines get clamped; the full text is the
+   title attribute. */
+.clamp { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+  line-clamp: 2; overflow: hidden; margin-bottom: 0; }
+.badge { font-family: "JetBrains Mono", monospace; font-size: .58rem; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .05em; padding: .05rem .3rem;
+  border: 1px solid var(--ink); }
+.badge-fail { background: var(--fail); color: #f5e6c8; }
+.badge-warn { background: var(--panel-deep); color: #f5e6c8; }
 .stats { display: flex; flex-wrap: wrap; gap: .15rem .9rem; font-size: .78rem; }
 .footnote { font-size: .7rem; margin: .5rem 0 0; }
 
@@ -226,8 +246,14 @@ tr.winner td { background: rgba(217,165,32,.25); }
   padding: .2rem .45rem; border-bottom: 2px solid #2a2015; white-space: nowrap; }
 .run-table td { padding: .25rem .45rem; border-bottom: 1px solid #cbbd93; vertical-align: middle;
   font-size: .8rem; }
-/* One row per model, grouped by run: a heavier rule starts each new run. */
-.run-table tr.run-start td { border-top: 2px solid var(--ink); }
+/* Rows are ranked by score across every run, so "won its run" is a quiet gold
+   edge rather than a full highlight competing with the ordering. */
+.run-table tr.winner td { background: rgba(217,165,32,.12); }
+.run-table tr.winner td:first-child { box-shadow: inset 3px 0 0 var(--gold); }
+.run-table th.sortable { cursor: pointer; user-select: none; }
+.run-table th.sortable::after { content: " \2195"; opacity: .35; }
+.run-table th.sorted-asc::after { content: " \2191"; opacity: 1; }
+.run-table th.sorted-desc::after { content: " \2193"; opacity: 1; }
 /* Fixed thumb box: captures vary wildly in aspect, and letting them set the
    row height is what made the old table so tall. */
 .run-table .run-thumb { width: 104px; height: 56px; object-fit: cover; display: block;

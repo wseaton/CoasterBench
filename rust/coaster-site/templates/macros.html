@@ -25,11 +25,19 @@
 
 {# A round card: ratings, library lookups, the submitted program, captures. #}
 {% macro round_block(round, model) %}
-<div class="round">
-  <h3>Round {{ round.number }}</h3>
+<div class="round{% if round.build_error.is_some() %} round-failed{% endif %}">
+  <h3>Round {{ round.number }}
+  {%- match round.badge %}
+  {%- when Some(badge) %} <span class="badge {{ badge.class }}">{{ badge.text }}</span>
+  {%- when None %}
+  {%- endmatch %}</h3>
+  {# Fixed-height meta well: rounds differ wildly in what they have to say
+     (a build error, full ratings, nothing), and letting that set the card
+     height leaves the grid ragged. #}
+  <div class="round-meta">
   {%- match round.build_error %}
   {%- when Some(error) %}
-  <p class="fail">{{ error }}</p>
+  <p class="fail clamp" title="{{ error }}">{{ error }}</p>
   {%- when None %}
   {%- endmatch %}
   {%- match round.stats %}
@@ -60,9 +68,10 @@
   {%- endmatch %}
   {%- match round.lookups %}
   {%- when Some(lookups) %}
-  <p class="dim lookups">{{ lookups }}</p>
+  <p class="dim lookups clamp" title="{{ lookups }}">{{ lookups }}</p>
   {%- when None %}
   {%- endmatch %}
+  </div>
   {%- match round.program_json %}
   {%- when Some(program) %}
   <details><summary>track program ({{ round.program_pieces }} pieces)</summary><pre>{{ program }}</pre></details>
@@ -77,6 +86,8 @@
   </div>
   {%- else if round.shots.len() == 1 %}
   <img src="{{ round.shots[0].src }}" alt="park screenshot, {{ model }} round {{ round.number }}" loading="lazy">
+  {%- else %}
+  <div class="no-capture">no capture</div>
   {%- endif %}
 </div>
 {% endmacro %}
