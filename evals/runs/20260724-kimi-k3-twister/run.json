@@ -1,0 +1,18 @@
+{
+  "harness": "opencode",
+  "harnesses": {
+    "openrouter_moonshotai_kimi-k3": "opencode"
+  },
+  "modalities": {
+    "openrouter_moonshotai_kimi-k3": "text,image"
+  },
+  "mode": "design",
+  "models": [
+    "openrouter_moonshotai_kimi-k3"
+  ],
+  "orchestrator": "coaster-bench",
+  "ride_type": 51,
+  "rounds": 6,
+  "similarity_grace": 0.5,
+  "ticks": 25000
+}

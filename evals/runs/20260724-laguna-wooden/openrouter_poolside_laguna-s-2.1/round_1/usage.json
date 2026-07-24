@@ -1,0 +1,9 @@
+{
+  "cache_read_tokens": null,
+  "cost_usd": 0.009820780000000001,
+  "harness": "opencode",
+  "input_tokens": null,
+  "model": "openrouter/poolside/laguna-s-2.1",
+  "num_turns": null,
+  "output_tokens": null
+}

@@ -53,6 +53,9 @@ pub struct RideDetail {
     pub nausea: i16,
     pub max_speed: i32,
     pub average_speed: i32,
+    /// Raw total length summed over stations, as 16.16 fixed-point metres
+    /// (`Ride::getTotalLength()`). Divide by 2^16 for the human-readable metres
+    /// the game shows; see `report::ride_length_metres`.
     pub ride_length: i32,
     pub max_positive_g: i16,
     pub max_negative_g: i16,

@@ -33,6 +33,7 @@ pub struct RideReport {
     pub nausea: Option<f32>,
     pub max_speed: i32,
     pub average_speed: i32,
+    /// Total ride length in metres, matching the game's "Ride length" stat.
     pub ride_length: i32,
     pub max_positive_g: f32,
     pub max_negative_g: f32,
@@ -55,6 +56,15 @@ pub fn status_name(status: u8) -> &'static str {
 
 fn fixed2dp(raw: i16) -> f32 {
     f32::from(raw) / 100.0
+}
+
+/// Converts the raw total ride length (16.16 fixed-point metres, summed over
+/// stations by `Ride::getTotalLength()`) into whole metres, exactly as the game
+/// does with `ToHumanReadableRideLength` (a `>> 16`) before showing it in the
+/// ride window's "Ride length" stat. The raw value is tens of millions; the
+/// metres value is the hundreds-to-thousands figure a human recognises.
+fn ride_length_metres(raw: i32) -> i32 {
+    raw >> 16
 }
 
 /// Below this many pieces similarity is noise: any station + a few flats
@@ -128,7 +138,7 @@ pub fn build(
             nausea: rated.then(|| fixed2dp(detail.nausea)),
             max_speed: detail.max_speed,
             average_speed: detail.average_speed,
-            ride_length: detail.ride_length,
+            ride_length: ride_length_metres(detail.ride_length),
             max_positive_g: fixed2dp(detail.max_positive_g),
             max_negative_g: fixed2dp(detail.max_negative_g),
             max_lateral_g: fixed2dp(detail.max_lateral_g),
@@ -154,6 +164,19 @@ mod tests {
     fn fixed2dp_matches_game_display() {
         assert!((fixed2dp(642) - 6.42).abs() < f32::EPSILON);
         assert!((fixed2dp(0) - 0.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn ride_length_metres_matches_game_shift() {
+        // The game's ToHumanReadableRideLength is a plain >> 16 (16.16 fixed
+        // point metres). Real report.json values that looked like garbage:
+        // 25539696 raw -> 389 m, 46929288 raw -> 716 m (sensible coaster
+        // lengths, matching the ride window's "Ride length" stat).
+        assert_eq!(ride_length_metres(25_539_696), 389);
+        assert_eq!(ride_length_metres(46_929_288), 716);
+        // Exactly one tile-metre boundary and zero.
+        assert_eq!(ride_length_metres(1 << 16), 1);
+        assert_eq!(ride_length_metres(0), 0);
     }
 
     #[test]

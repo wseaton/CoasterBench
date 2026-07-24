@@ -19,6 +19,9 @@ evals/site/
 evals/runs/**/*.png
 evals/runs/**/*.mp4
 evals/runs/**/*.webm
+# Raw harness stderr; the normalised trace.jsonl is the tracked form (*.log
+# is already ignored globally, this covers the matching stderr stream).
+evals/runs/**/session.err
 evals/library-previews/
 .wrangler/
 .claude/settings.local.json
