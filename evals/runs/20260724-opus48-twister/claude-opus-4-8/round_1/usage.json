@@ -1,0 +1,9 @@
+{
+  "cache_read_tokens": 5240161,
+  "cost_usd": 5.222465499999999,
+  "harness": "claude-code",
+  "input_tokens": 128,
+  "model": "claude-opus-4-8",
+  "num_turns": 69,
+  "output_tokens": 65803
+}
