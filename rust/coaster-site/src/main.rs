@@ -327,10 +327,7 @@ fn build_trace_page(
             at: event.ms.map(fmt_elapsed).unwrap_or_default(),
             text: event.text.as_ref().map(|t| clamp(t, 4000)),
             tool: event.name.clone(),
-            input: event
-                .input
-                .as_ref()
-                .and_then(|v| fmt_json_compact(v, 1200)),
+            input: event.input.as_ref().and_then(|v| fmt_json_compact(v, 1200)),
             output: event
                 .output
                 .as_ref()
