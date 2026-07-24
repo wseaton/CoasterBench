@@ -1,175 +1,272 @@
+# CoasterBench
 
+CoasterBench makes AI models build roller coasters. RollerCoaster Tycoon 2
+scores them.
 
-<p align="center">
-  <a href="https://openrct2.io">
-    <img src="https://raw.githubusercontent.com/OpenRCT2/OpenRCT2/develop/resources/logo/icon_x128.png" style="width: 128px;" alt="OpenRCT2 logo"/>
-  </a>
-</p>
+This repository forks [OpenRCT2](https://github.com/OpenRCT2/OpenRCT2) and adds
+a Rust agent layer inside the game binary. A model connects to the running game,
+places track pieces one at a time, and runs a real test train. The game returns
+the excitement, intensity, and nausea ratings it computes itself.
 
-<h1 align="center">OpenRCT2</h1>
+Nothing simulates the score. No model judges another model. The oracle is a
+20-year-old ratings function, and no one can argue their way past it.
 
-<h3 align="center">An open-source re-implementation of RollerCoaster Tycoon 2, a construction and management simulation video game that simulates amusement park management.</h3>
+See the results: **https://wseaton.github.io/CoasterBench**
 
----
+## How the pieces fit together
 
-![Still from the v0.5.0 title sequence](https://github.com/user-attachments/assets/fa893cc8-1484-4751-94be-4ead00a6c8f9)
+```mermaid
+flowchart LR
+    subgraph host["your machine"]
+        bench["coaster-bench<br/>(orchestrator)"]
+        game["openrct2-cli eval --serve<br/>game + Rust agent"]
+        runs[("evals/runs/&lt;run&gt;/")]
+    end
+    subgraph sandbox["OpenShell sandbox: no host files, filtered network"]
+        agent["Claude Code / opencode<br/>one session per round"]
+    end
 
+    bench -->|spawns| game
+    bench -->|one session per model per round| agent
+    agent <-->|Model Context Protocol over HTTP| game
+    bench -->|report.json, program.json, park.png, usage.json| runs
+    runs --> site["coaster-site → evals/site/ → GitHub Pages"]
+```
 
----
+The agent never reads your files and never touches the repository. It sees one
+thing: the tools the game offers over the Model Context Protocol (MCP), the
+open standard for connecting models to external tools.
 
-### Download
-| Latest release                                                                                                       | Latest development build |
-|----------------------------------------------------------------------------------------------------------------------|--------------------------|
-| [![OpenRCT2.io](https://img.shields.io/github/v/release/OpenRCT2/OpenRCT2.svg?color=green)](https://openrct2.io/download/release/latest) | [![OpenRCT2.io](https://img.shields.io/github/last-commit/OpenRCT2/OpenRCT2/develop?color=green)](https://openrct2.io/download/develop/latest) |
+Every change the agent makes goes through `GameActions::Execute`. The game's own
+plugins use that same path. If the game would reject a track piece in the user
+interface, it rejects the agent's piece too.
 
----
+## What lives where
 
-### Chat
-Chat takes place on Discord. You will need to create a Discord account if you don't yet have one.
+| Path | What it does |
+| --- | --- |
+| `rust/orct2-agent` | Links into the game binary. Serves MCP, runs track programs, names the pieces, reports ratings, scores similarity |
+| `rust/coaster-bench` | Runs the competition. Starts the game, drives sandboxed agent sessions, collects each round |
+| `rust/coaster-site` | Turns run records into a static website |
+| `src/openrct2/rustbridge` | Connects the C++ game to the Rust crate |
+| `src/openrct2/command_line/EvalCommands.cpp` | Adds the `eval` subcommand |
+| `evals/driver.py` | A second harness. Calls the Anthropic API directly and takes whole track programs |
+| `evals/runs/` | Run records. Git tracks the JSON; the heavy images live elsewhere |
 
-If you want to help *make* the game, join the developer channel.
+Upstream OpenRCT2 owns everything else.
 
-If you need help, want to talk to the developers, or just want to stay up to date then join the non-developer channel for your language.
+## Build it
 
-If you want to help translate the game to your language, please stop by the Localisation channel.
+Compiling needs no game data. Running does. Buy RollerCoaster Tycoon 2, then
+extract the files with `innoextract` (from the GOG installer) or copy them from
+RCT Classic.
 
-| Language | Non Developer | Developer | Localisation | Asset Replacement |
-| -------- | ------------- | --------- | ------------ | ----------------- |
-| English | [![Discord](https://img.shields.io/badge/discord-%23openrct2--talk-blue.svg)](https://discord.gg/ZXZd8D8) </br> [![Discord](https://img.shields.io/badge/discord-%23help-blue.svg)](https://discord.gg/vJABqGGTEt) | [![Discord](https://img.shields.io/badge/discord-%23development-yellowgreen.svg)](https://discord.gg/fsEwSWs) | [![Discord](https://img.shields.io/badge/discord-%23localisation-green.svg)](https://discord.gg/sxnrvX9) | [![Discord](https://img.shields.io/badge/discord-%23open--graphics-b00b69.svg)](https://discord.gg/aM2Pchscnp) </br> [![Discord](https://img.shields.io/badge/discord-%23open--sound--and--music-b00b69.svg)](https://discord.gg/tuz3QBBWJf)
-| Nederlands | [![Discord](https://img.shields.io/badge/discord-%23nederlands-orange.svg)](https://discord.gg/cQYSXzW) | | |
+```bash
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+cmake --build build
 
----
+# On macOS, point the binary at its data directory once:
+ln -sf $PWD/build/OpenRCT2.app/Contents/Resources build/data
+```
 
-# Contents
-- 1 - [Introduction](#1-introduction)
-- 2 - [Downloading the game (pre-built)](#2-downloading-the-game-pre-built)
-- 3 - [Building the game](#3-building-the-game)
-- 4 - [Contributing](#4-contributing)
-  - 4.1 - [Bug fixes](#41-bug-fixes)
-  - 4.2 - [New features](#42-new-features)
-  - 4.3 - [Translation](#43-translation)
-  - 4.4 - [Graphics](#44-graphics)
-  - 4.5 - [Audio](#45-audio)
-  - 4.6 - [Scenarios](#46-scenarios)
-- 5 - [Policies](#5-policies)
-  - 5.1 - [Code of conduct](#51-code-of-conduct)
-  - 5.2 - [Code signing policy](#52-code-signing-policy)
-  - 5.3 - [Privacy policy](#53-privacy-policy)
-- 6 - [Licence](#6-licence)
-- 7 - [More information](#7-more-information)
-- 8 - [Sponsors](#8-sponsors)
+Check the Rust code, one crate at a time:
 
----
+```bash
+cd rust/orct2-agent && cargo fmt && cargo clippy --all-targets && cargo test
+```
 
-# 1. Introduction
+Corrosion compiles the agent crate as a static library and links it into the
+binary. The `ENABLE_RUST_AGENT` flag turns it on, and it defaults to on. Change
+any `#[no_mangle] extern "C"` item and you must regenerate the checked-in header:
+run `./scripts/generate-rust-header.sh`.
 
-**OpenRCT2** is an open-source re-implementation of RollerCoaster Tycoon 2 (RCT2). The gameplay revolves around building and maintaining an amusement park containing attractions, shops and facilities. The player must try to make a profit and maintain a good park reputation whilst keeping the guests happy. OpenRCT2 allows for both scenario and sandbox play. Scenarios require the player to complete a certain objective in a set time limit whilst sandbox allows the player to build a more flexible park with optionally no restrictions or finance.
+## Run a competition
 
-RollerCoaster Tycoon 2 was originally written by Chris Sawyer in x86 assembly and is the sequel to RollerCoaster Tycoon. The engine was based on Transport Tycoon, an older game which also has an equivalent open-source project, [OpenTTD](https://openttd.org). OpenRCT2 attempts to provide everything from RCT2 as well as many improvements and additional features, some of these include support for modern platforms, an improved interface, improved guest and staff AI, more editing tools, increased limits, and cooperative multiplayer. It also re-introduces mechanics from RollerCoaster Tycoon that were not present in RollerCoaster Tycoon 2. Some of those include; mountain tool in-game, the *"have fun"* objective, launched coasters (not passing-through the station) and several buttons on the toolbar.
+Six rounds, one model, steel twister coaster:
 
----
+```bash
+./rust/coaster-bench/target/release/coaster-bench \
+  --models claude-sonnet-5 \
+  --rounds 6 --ride-type 51 --name my-run
+```
 
-# 2. Downloading the game (pre-built)
+The model name picks the harness. A bare name runs Claude Code in the
+`coaster-sub` sandbox. A name like `opencode:openrouter/<author>/<model>` runs
+opencode in the `coaster-or` sandbox and calls OpenRouter.
 
-OpenRCT2 requires original files of RollerCoaster Tycoon 2 to play. It can be bought at either [Steam](https://store.steampowered.com/app/285330/RollerCoaster_Tycoon_2_Triple_Thrill_Pack/) or [GOG.com](https://www.gog.com/game/rollercoaster_tycoon_2). If you have the original RollerCoaster Tycoon and its expansion packs, you can [point OpenRCT2 to these](https://github.com/OpenRCT2/OpenRCT2/wiki/Loading-RCT1-scenarios-and-data) in order to play the original scenarios.
+Ride type 51 means a steel twister, which allows inversions. Ride type 52 means
+a wooden coaster, which does not. Results land in
+`evals/runs/<yyyymmdd>-<name>/<model>/round_N/`.
 
-[Our website](https://openrct2.io/download) offers portable builds and installers with the latest versions of the `master` and `develop` branches. There is also a [launcher](https://openrct2.io/download/launcher) available for Windows, macOS and Linux that will automatically update your build of the game so that you always have the latest version.
+### One round, step by step
 
-Alternatively to using the launcher, for most Linux distributions, we recommend the [latest Flatpak release](https://flathub.org/apps/details/io.openrct2.OpenRCT2). When downloading from Flathub, you will always receive the latest updates regardless of which Linux distribution you use.
+```mermaid
+sequenceDiagram
+    participant B as coaster-bench
+    participant A as agent session
+    participant G as game (MCP)
 
-Some Linux distributions offer native packages:
-* Arch Linux: [openrct2](https://archlinux.org/packages/extra/x86_64/openrct2/) latest release (`extra` repository) and, alternatively, [openrct2-git](https://aur.archlinux.org/packages/openrct2-git) (AUR)
-* Gentoo (main portage tree): [games-simulation/openrct2](https://packages.gentoo.org/packages/games-simulation/openrct2)
-* NixOS: [openrct2](https://github.com/NixOS/nixpkgs/blob/master/pkgs/by-name/op/openrct2/package.nix)
-* openSUSE OBS: [games/openrct2](https://software.opensuse.org/download.html?project=games&package=openrct2)
-* Ubuntu PPA (nightly builds): [`develop` branch](https://launchpad.net/~openrct2/+archive/ubuntu/nightly)
+    B->>G: demolish (empty the park)
+    B->>A: round prompt + last round's report
+    loop until the model stops
+        A->>G: new_ride / place_pieces
+        G-->>A: cursor, circuit closed, or why it refused
+        A->>G: valid_next_pieces / piece_geometry
+        G-->>A: what fits here, straight from the game
+    end
+    A->>G: finish_and_test
+    G-->>A: excitement / intensity / nausea
+    B->>G: get_state + finish_and_test (the real score)
+    B->>B: writes report.json, program.json, park.png, usage.json
+```
 
-Some \*BSD operating systems offer native packages:
-* FreeBSD: [games/openrct2](https://www.freshports.org/games/openrct2)
+Every round starts with an empty park. Each round hands the model the previous
+report, so it can learn and improve. A model's best round becomes its score.
 
----
+### How scoring works
 
-# 3. Building the game
-- [Building OpenRCT2 on Linux](https://github.com/OpenRCT2/OpenRCT2/wiki/Building-OpenRCT2-on-Linux)
-- [Building OpenRCT2 on macOS using CMake](https://github.com/OpenRCT2/OpenRCT2/wiki/Building-OpenRCT2-on-macOS-using-CMake)
-- [Building OpenRCT2 on Windows](https://github.com/OpenRCT2/OpenRCT2/wiki/Building-OpenRCT2-on-Windows)
-- [Building OpenRCT2 on Windows Subsystem for Linux](https://github.com/OpenRCT2/OpenRCT2/wiki/Building-OpenRCT2-on-Windows-Subsystem-for-Linux)
-- [Building OpenRCT2 on MSYS2 MinGW](https://github.com/OpenRCT2/OpenRCT2/wiki/Building-OpenRCT2-on-MSYS2-MinGW)
+Excitement is the score, minus a copying penalty. CoasterBench compares each
+track against RollerCoaster Tycoon 2's stock designs. It measures edit distance
+and the longest shared run of pieces, and it checks mirrored versions too.
 
----
+Similarity up to 0.5 costs nothing. Above 0.5, the score falls to zero in a
+straight line:
 
-# 4. Contributing
-OpenRCT2 uses the [gitflow workflow](https://www.atlassian.com/git/tutorials/comparing-workflows#gitflow-workflow). If you are implementing a new feature or fixing a bug, please branch off and perform pull requests to ```develop```. ```master``` only contains tagged releases, you should never branch off this.
+```
+score = excitement                                    if similarity <= 0.5
+score = excitement * (1 - similarity) / (1 - 0.5)     otherwise
+```
 
-Please read our [contributing guidelines](https://github.com/OpenRCT2/OpenRCT2/blob/develop/CONTRIBUTING.md) for information.
+Copy a stock design and you score zero. Mirror it and you still score zero.
+Each `run.json` records the threshold, so old runs keep the rules they ran under.
 
-## 4.1 Bug fixes
-A list of bugs can be found on the [issue tracker](https://github.com/OpenRCT2/OpenRCT2/issues). Feel free to work on any bug and submit a pull request to the develop branch with the fix. Mentioning that you intend to fix a bug on the issue will prevent other people from trying as well.
+### The second harness
 
-## 4.2 New features
-Please talk to the OpenRCT2 team first before starting to develop a new feature. We may already have plans for or reasons against something that you'd like to work on. Therefore contacting us will allow us to help you or prevent you from wasting any time. You can talk to us via Discord, see links at the top of this page.
+`evals/driver.py` tests something different. The model writes one complete track
+program as JSON instead of building piece by piece. It runs two modes. In
+`design` mode the model starts from nothing. In `library` mode it can search the
+stock designs first, which tests how well it finds and adapts an existing layout.
 
-## 4.3 Translation
-You can translate the game into other languages by editing the language files in ```data/language``` directory. Please join discussions in the [#localisation channel on Discord](https://discordapp.com/invite/sxnrvX9) and submit pull requests to [OpenRCT2/Localisation](https://github.com/OpenRCT2/Localisation).
+```bash
+uv run evals/driver.py --models claude-sonnet-5 --rounds 4 --mode library
+```
 
-## 4.4 Graphics
-You can help create new graphics for the game by visiting the [OpenGraphics project](https://github.com/OpenRCT2/OpenGraphics). 3D modellers needed!
+## The MCP server
 
-## 4.5 Audio
-You can help create the music and sound effects for the game. Check out the [OpenMusic](https://github.com/OpenRCT2/OpenMusic) repository and drop by our [#open-sound-and-music channel on Discord](https://discord.gg/9y8WbcX) to find out more.
+Start the game as a server, then connect your own session to it:
 
-## 4.6 Scenarios
-We would also like to distribute additional scenarios with the game, when the time comes. For that, we need talented scenario makers! Check out the [OpenScenarios repository](https://github.com/PFCKrutonium/OpenRCT2-OpenScenarios).
+```bash
+./build/openrct2-cli eval <scenario.SC6> --rct2-data-path ~/rct2-assets --serve 8791
+claude mcp add --transport http coaster http://127.0.0.1:8791/mcp
+```
 
----
+You now hold the same tools the competitors hold, on a real park. Try it. You
+will understand the difficulty faster than any description manages.
 
-# 5. Policies
+We wrote the server by hand in `rust/orct2-agent/src/mcp.rs`, and it runs on the
+game thread on purpose. The game API accepts one thread only. So a tool call
+runs game functions directly, and `run_ticks` advances the simulation in place.
+No async runtime. No passing work between threads. The same input always gives
+the same result.
 
-## 5.1 Code of Conduct
+| Tool | What it does |
+| --- | --- |
+| `new_ride` | Starts a ride and places the build cursor |
+| `place_piece` / `place_pieces` | Adds one piece, or a batch that stops at the first refusal |
+| `valid_next_pieces` | Asks the game which pieces fit right here |
+| `piece_geometry` | Returns the exact cursor change for every piece from a direction |
+| `undo_piece` / `demolish` | Removes the last piece, or the whole ride |
+| `get_state` | Reports the cursor, the start, the piece count, and whether the circuit closes |
+| `finish_and_test` | Adds the entrance and exit, runs a test train, returns the ratings |
+| `screenshot` | Returns a picture of the park |
+| `search_track_designs` / `get_track_design` | Browses the stock designs, and hides their recorded ratings |
 
-We have a [Code of Conduct](CODE_OF_CONDUCT.md) that applies to all OpenRCT2 projects. Please read it.
+`valid_next_pieces` and `piece_geometry` carry the interesting idea. Models do
+not memorise the track geometry. They ask the game, and the game answers. Models
+that ask before they build beat models that guess, by a wide margin.
 
-## 5.2 Code signing policy
+### Cursor rules
 
-We sign our releases with a digital certificate provided by SignPath Foundation.
+Direction 0 faces -x, 1 faces +y, 2 faces +x, and 3 faces -y. The cursor moves
+16 units per height step.
 
-Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/).
+The cursor also carries bank and slope, not just position. Circuit closure
+compares all of it. So a track that returns to the station while still banked or
+sloped stays open, and the game says so.
 
-Signed releases can only be done by members of the [development team](https://github.com/OpenRCT2/OpenRCT2/blob/develop/contributors.md#development-team).
+### Modality gating
 
-## 5.3 Privacy policy
+Each client says what content it can read, right in the request:
 
-See [PRIVACY.md](PRIVACY.md) for more information.
+```
+/mcp?modalities=text,image     # everything
+/mcp?modalities=text           # the server hides screenshot and refuses it
+/mcp                           # unspecified, so everything
+```
 
----
+The words come from OpenRouter's `input_modalities` field. A harness can pass a
+model's declared abilities straight through. The server drops any tool that
+answers outside the set, and refuses it if the model calls it anyway.
 
-# 6. Licence
-**OpenRCT2** is licensed under the GNU General Public License version 3 or (at your option) any later version. See the [`licence.txt`](licence.txt) file for more details.
+This matters more than it sounds. Send one image to a text-only model and the
+whole request fails. So coaster-bench looks up each OpenRouter model, then builds
+the URL and the prompt's tool list to match what that model reads.
 
----
+## The website
 
-# 7. More information
-- [GitHub](https://github.com/OpenRCT2/OpenRCT2)
-- [OpenRCT2.io](https://openrct2.io)
-- [Facebook](https://www.facebook.com/OpenRCT2)
-- [RCT subreddit](https://www.reddit.com/r/rct/)
-- [OpenRCT2 subreddit](https://www.reddit.com/r/openrct2/)
-- OpenRCT2 plug-ins
-    - [Plug-in directory (unofficial)](https://openrct2plugins.org)
-    - [Plug-in development documentation](https://github.com/OpenRCT2/OpenRCT2/blob/develop/distribution/scripting/scripting.md)
+```bash
+cargo run --manifest-path rust/coaster-site/Cargo.toml   # writes evals/site/
+```
 
-## Similar Projects
+The generator reads every `evals/runs/**/*.json` and writes a static site: an
+index of all runs with one row per model, a page per run, and a page per model
+per run. Each model page shows the track, the piece list, the ratings, and the
+token and dollar cost. Unfinished runs stay hidden unless you pass
+`--include-partial`.
 
-| [OpenLoco](https://github.com/OpenLoco/OpenLoco) | [OpenTTD](https://github.com/OpenTTD/OpenTTD) | [openage](https://github.com/SFTtech/openage) | [OpenRA](https://github.com/OpenRA/OpenRA) |
-|:------------------------------------------------:|:----------------------------------------------------------------------------------------------------------:|:-------------------------------------------------------------------------------------------------------:|:-------------------------------------------------------------------------------------------------------------:|
-| [![icon_x128](https://user-images.githubusercontent.com/604665/53047651-2c533c00-3493-11e9-911a-1a3540fc1156.png)](https://github.com/OpenLoco/OpenLoco) | [![](https://github.com/OpenTTD/OpenTTD/raw/850d05d24d4768c81d97765204ef2a487dd4972c/media/openttd.128.png)](https://github.com/OpenTTD/OpenTTD) | [![](https://user-images.githubusercontent.com/550290/36507534-4693f354-175a-11e8-93a7-faa0481474fb.png)](https://github.com/SFTtech/openage) | [![](https://raw.githubusercontent.com/OpenRA/OpenRA/bleed/packaging/artwork/ra_128x128.png)](https://github.com/OpenRA/OpenRA) |
-| Chris Sawyer's Locomotion | Transport Tycoon Deluxe | Age of Empires 2 | Red Alert |
+Screenshots are large, so Git ignores them. Run `uv run evals/publish.py` to
+upload them to a Cloudflare R2 bucket through your local `wrangler login`
+session. No static keys live anywhere in the repository. The upload writes a
+manifest next to the run.
 
-# 8. Sponsors
+The generator prefers local images and falls back to the manifest URLs, so a
+continuous integration (CI) build works from JSON alone. **Commit both the run
+JSON and the manifest.** Skip either one and the published site loses its images.
 
-Companies that kindly allow us to use their stuff:
+Push to the `eval` branch and touch `evals/` or `rust/coaster-site/`, and GitHub
+Pages redeploys on its own.
 
-| [DigitalOcean](https://www.digitalocean.com/)                                                                                                                     | [JetBrains](https://www.jetbrains.com/)                                                                                                        | [Backtrace](https://backtrace.io/)                                                                                                        | [SignPath](https://signpath.org/)                                                                                  |
-|-------------------------------------------------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------|
-| [![do_logo_vertical_blue svg](https://user-images.githubusercontent.com/550290/36508276-8b572f0e-175c-11e8-8622-9febbce756b2.png)](https://www.digitalocean.com/) | [![jetbrains](https://github.com/user-attachments/assets/0d1cf25e-706d-4e3a-96ee-157fbf2cf0c0)](https://www.jetbrains.com/) | [![backtrace](https://user-images.githubusercontent.com/550290/47113259-d0647680-d258-11e8-97c3-1a2c6bde6d11.png)](https://backtrace.io/) | [![Image](https://github.com/user-attachments/assets/2b5679e0-76a4-4ae7-bb37-a6a507a53466)](https://signpath.org/) |
-| Hosting of various services                                                                                                                                       | CLion and other products                                                                                                                       | Minidump uploads and inspection                                                                                                           | Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/).                                                                                                       |
+## Continuous integration
+
+Two workflows run, and both stay small:
+
+- `coasterbench-ci.yml` checks formatting, runs Clippy, and runs the tests for
+  all three Rust crates. It also builds the game and the command line tool on
+  Linux, which proves the C++ and Rust halves still fit together.
+- `coasterbench-site.yml` builds the results site and deploys it.
+
+This fork deletes upstream's release, packaging, and translation workflows. We
+rebase onto upstream `develop` often, so we keep our edits to existing OpenRCT2
+files small and mechanical. Nearly all of our code sits in new directories.
+
+## Licence
+
+OpenRCT2 uses the GNU General Public License, version 3 or later, and so does
+this fork. Read [`licence.txt`](licence.txt) for the terms. You still need your
+own copy of the original RollerCoaster Tycoon 2 data files.
+
+## Citation
+
+Cite CoasterBench like this:
+
+```bibtex
+@misc{eaton2026coasterbench,
+  title        = {CoasterBench: Scoring Agentic Design with a Twenty-Year-Old Game Engine},
+  author       = {Eaton, Will},
+  year         = {2026},
+  howpublished = {\url{https://github.com/wseaton/CoasterBench}},
+  note         = {An agentic benchmark where models build roller coasters
+                  through RollerCoaster Tycoon 2's own construction API and
+                  earn the ride ratings the game computes}
+}
+```
