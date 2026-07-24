@@ -48,3 +48,26 @@ There is also a zero-GPU smoke: replay a canned program with no model at all —
 `openrct2-cli eval test/tests/testdata/parks/BigMapTest.sv6 --no-graphics
 --ticks 25000 --program evals/programs/test_oval.json --out report.json`
 must produce `program.ok == true` and a tested ride.
+
+## Field notes: what the first live runs caught (vLLM 0.25.1, A100)
+
+Three findings from the eval's first day out, all now handled by the driver —
+kept here because they are exactly the failure classes this job exists to
+surface, and the first two are worth checking against vLLM upstream:
+
+1. **`tool_choice: "required"` returned zero tool calls** on the server's
+   first-ever structured-output request after startup (Qwen2.5-7B-Instruct,
+   hermes parser). A contract violation; not reproduced in 15 identical
+   probes afterwards, so it looks cold-start-related. The driver retries up
+   to 3× rather than failing the run.
+2. **Reasoning models silently starve the tool call.** Laguna-S-2.1
+   (`poolside_v1` tool + reasoning parsers, thinking enabled) spent the
+   entire completion budget on interleaved thinking and hit
+   `finish_reason: "length"` with `tool_calls: []` — surfacing, misleadingly,
+   as another `required` violation. Any agentic harness with a fixed
+   `max_tokens` sized for non-reasoning models hits this. The driver fails
+   fast with the real cause and takes `--max-tokens` (Laguna wants ~24000).
+3. **`generation_config.json` overrides server sampling defaults** (vLLM
+   warns but serves): Qwen shipped temp 0.7 / top-p 0.8 / rep-penalty 1.05,
+   so "default" runs are not the sampling you assumed. Pin
+   `--generation-config vllm` if you want vLLM defaults.
