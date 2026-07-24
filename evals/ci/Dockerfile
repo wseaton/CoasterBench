@@ -56,8 +56,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /stage/usr /usr
-# The checked-in assetless scenario, so the container is self-contained.
-COPY test/tests/testdata/parks/BigMapTest.sv6 /opt/coasterbench/
+# The checked-in assetless scenario and a known-good smoke program, so the
+# container is self-contained for both serving and zero-GPU smoke runs.
+COPY test/tests/testdata/parks/BigMapTest.sv6 evals/programs/test_oval.json /opt/coasterbench/
 
 EXPOSE 8791
 CMD ["openrct2-cli", "eval", "/opt/coasterbench/BigMapTest.sv6", "--no-graphics", "--serve", "8791", "--serve-bind", "0.0.0.0"]
