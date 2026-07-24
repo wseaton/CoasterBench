@@ -385,6 +385,15 @@ fn main() -> Result<(), String> {
     let args = Args::parse();
     let root = repo_root();
 
+    // Debug aid: print the round-1 prompt verbatim and exit.
+    if std::env::var_os("COASTER_BENCH_PRINT_PROMPT").is_some() {
+        print!(
+            "{}",
+            prompt::round_prompt(args.ride_type, 1, args.rounds, None)
+        );
+        return Ok(());
+    }
+
     let suffix = args.name.clone().unwrap_or_else(|| "bench".into());
     let run_dir = root
         .join("evals/runs")
