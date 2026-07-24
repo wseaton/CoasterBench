@@ -348,8 +348,11 @@ summary { cursor: pointer; font-family: "JetBrains Mono", monospace;
   margin-bottom: .8rem; }
 .vs-card { display: flex; flex-direction: column; gap: .3rem; }
 .vs-card.vs-b { text-align: right; }
-.vs-card img { display: block; width: 100%; max-height: 220px; object-fit: cover;
-  image-rendering: pixelated; border: 2px solid var(--ink); box-shadow: 3px 3px 0 rgba(0,0,0,.3); }
+/* Contain, not cover: these previews are the whole ride, so show all of it in
+   a fixed sky-lit box (both cards match) rather than cropping into the middle. */
+.vs-card img { display: block; width: 100%; aspect-ratio: 16 / 10; object-fit: contain;
+  background: var(--sky); image-rendering: pixelated; border: 2px solid var(--ink);
+  box-shadow: 3px 3px 0 rgba(0,0,0,.3); }
 .vs-card .no-preview { aspect-ratio: 16 / 9; display: flex; align-items: center; justify-content: center;
   color: var(--ink-soft); border: 2px dashed var(--panel-deep); }
 .vs-meta { display: flex; flex-direction: column; font-size: .72rem; }
