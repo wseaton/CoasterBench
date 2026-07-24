@@ -1,6 +1,8 @@
 # Shared config for the three crates, which are separate workspaces:
 #
-#   cargo deny --manifest-path rust/<crate>/Cargo.toml check --config rust/deny.toml
+#   cargo deny --manifest-path rust/<crate>/Cargo.toml --config rust/deny.toml check
+#
+# Needs cargo-deny >= 0.20 for that flag position.
 #
 # orct2-agent links into the GPL-3.0-or-later binary, so every licence below is
 # GPL-3.0 compatible. A dependency under anything else fails the check instead

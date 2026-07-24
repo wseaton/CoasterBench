@@ -22,7 +22,7 @@ jobs:
       matrix:
         crate: [orct2-agent, coaster-bench, coaster-site]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -40,20 +40,20 @@ jobs:
     name: Dependency audit
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: taiki-e/install-action@v2
         with:
-          tool: cargo-deny,cargo-audit
-      # Licences gate the release: orct2-agent links into a GPL-3.0-or-later
-      # binary, so an incompatible dependency makes it undistributable.
+          # pinned: --config moved to the top level in 0.20
+          tool: cargo-deny@0.20.2,cargo-audit
+      # orct2-agent links into a GPL binary, so an incompatible licence there
+      # makes the release undistributable.
       - name: Licences
         run: |
           for crate in orct2-agent coaster-bench coaster-site; do
-            cargo deny --manifest-path rust/$crate/Cargo.toml check --config rust/deny.toml licenses bans
+            cargo deny --manifest-path rust/$crate/Cargo.toml --config rust/deny.toml check licenses bans
           done
-      # Advisories track the world, not this diff, so a new one is a warning
-      # rather than a broken build on an unrelated pull request.
+      # a new advisory shouldn't break an unrelated PR
       - name: Advisories
         continue-on-error: true
         run: |
@@ -68,12 +68,12 @@ jobs:
     # which the agent staticlib needs (Corrosion builds it during cmake).
     container: ghcr.io/openrct2/openrct2-build:26-noble
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust/orct2-agent
-      - uses: hendrikmuhs/ccache-action@v1.2.21
+      - uses: hendrikmuhs/ccache-action@v1.2.23
         with:
           key: linux-x86_64-coasterbench
       - name: Build
@@ -91,7 +91,7 @@ jobs:
     name: Site generator
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:

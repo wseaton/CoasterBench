@@ -304,6 +304,8 @@ summary { cursor: pointer; font-family: "JetBrains Mono", monospace;
 .footer { color: #6c8394; font-size: .75rem; text-align: center; margin-top: 3rem; }
 .footer p { margin: .35rem auto; max-width: 46rem; }
 .footer a { color: #9db4c4; }
+.footer .fine { font-size: .65rem; color: #4a5f6d; line-height: 1.5; }
+.footer .fine a { color: #5b7383; }
 .backlink a { color: #9db4c4; font-family: "JetBrains Mono", monospace;
   font-weight: 700; font-size: .8rem; }
 
