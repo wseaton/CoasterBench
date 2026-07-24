@@ -624,10 +624,14 @@ class OpenAICompat:
     onto the endpoint's structured-output support (vLLM: guided decoding via
     --enable-auto-tool-choice)."""
 
-    def __init__(self, base_url: str, api_key: str):
+    def __init__(self, base_url: str, api_key: str, extra_body: dict | None = None):
         import openai
 
         self._client = openai.OpenAI(base_url=base_url, api_key=api_key)
+        # Endpoint-specific request extras, e.g. vLLM's chat_template_kwargs
+        # ({"enable_thinking": false} tames reasoning models whose thinking
+        # would otherwise exhaust any completion budget on this task).
+        self._extra_body = extra_body or {}
         self.messages = self  # so client.messages.create(...) resolves here
 
     def create(self, *, model: str, max_tokens: int, system: str, messages: list[dict], tools: list[dict], tool_choice: dict) -> _Response:
@@ -657,6 +661,7 @@ class OpenAICompat:
                 messages=payload,
                 tools=oa_tools,
                 tool_choice=oa_choice,
+                extra_body=self._extra_body,
             )
             if resp.usage:
                 input_tokens += resp.usage.prompt_tokens
@@ -713,8 +718,11 @@ def compete(
         tool_use = None
         lookups: list[dict] = []
         round_usage = {"input_tokens": 0, "output_tokens": 0}
-        for step in range(MAX_LOOKUPS_PER_ROUND + 1):
-            force_submit = step == MAX_LOOKUPS_PER_ROUND
+        # Two extra forced-submit attempts: named tool_choice is not actually
+        # enforced by every endpoint (vLLM + poolside_v1 returned a different
+        # tool than the one forced), so the "guaranteed" final step isn't.
+        for step in range(MAX_LOOKUPS_PER_ROUND + 3):
+            force_submit = step >= MAX_LOOKUPS_PER_ROUND
             response = client.messages.create(
                 model=model,
                 max_tokens=max_tokens,
@@ -746,7 +754,7 @@ def compete(
                 }
             )
         if program is None or tool_use is None:
-            # Unreachable: the final loop step forces submit_track_program.
+            # Three forced-submit attempts all returned something else.
             raise RuntimeError(f"{model} never submitted a program in round {rnd}")
         if program.get("ride_type") != ride_type:
             print(
@@ -809,6 +817,11 @@ def main() -> int:
         "--base-url",
         help="OpenAI-compatible endpoint (e.g. a vLLM server: http://localhost:8000/v1); "
         "auth from $OPENAI_API_KEY, defaulting to 'EMPTY' for local servers",
+    )
+    parser.add_argument(
+        "--chat-template-kwargs",
+        help="JSON merged into each request as vLLM chat_template_kwargs "
+        "(OpenAI lane only), e.g. '{\"enable_thinking\": false}'",
     )
     parser.add_argument(
         "--no-graphics",
@@ -885,7 +898,10 @@ def main() -> int:
     )
 
     if args.base_url:
-        client = OpenAICompat(args.base_url, os.environ.get("OPENAI_API_KEY", "EMPTY"))
+        extra_body = (
+            {"chat_template_kwargs": json.loads(args.chat_template_kwargs)} if args.chat_template_kwargs else None
+        )
+        client = OpenAICompat(args.base_url, os.environ.get("OPENAI_API_KEY", "EMPTY"), extra_body)
     elif args.vertex:
         # Auth is GCP application-default credentials, not an Anthropic key.
         kwargs = {"region": args.region}
