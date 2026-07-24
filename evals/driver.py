@@ -54,7 +54,9 @@ from pathlib import Path
 import anthropic
 
 REPO = Path(__file__).resolve().parent.parent
-CLI = REPO / "build" / "openrct2-cli"
+# COASTERBENCH_CLI lets a CI environment point at a binary that didn't come
+# from this checkout's build dir (e.g. extracted from the game image).
+CLI = Path(os.environ.get("COASTERBENCH_CLI", REPO / "build" / "openrct2-cli"))
 DEFAULT_SCENARIO = Path.home() / "rct2-assets" / "Scenarios" / "Build your own Six Flags Park.SC6"
 RCT2_DATA = Path.home() / "rct2-assets"
 # Assetless default: a checked-in upstream test park (large, mostly-open flat
