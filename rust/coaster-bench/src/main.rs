@@ -565,11 +565,14 @@ fn collect_round(
         .or_else(|| state.get("start"))
         .cloned()
         .unwrap_or(Value::Null);
+    // start already comes from cursor_json, which reports tile coordinates
+    // (it divides raw game units by 32); the program format wants tiles, so
+    // pass them straight through — dividing again put every start at (1, 1).
     let program = json!({
         "ride_type": args.ride_type,
         "start": {
-            "x": start.get("x").and_then(Value::as_i64).unwrap_or(0) / 32,
-            "y": start.get("y").and_then(Value::as_i64).unwrap_or(0) / 32,
+            "x": start.get("x").and_then(Value::as_i64).unwrap_or(0),
+            "y": start.get("y").and_then(Value::as_i64).unwrap_or(0),
             "dir": start.get("dir").and_then(Value::as_i64).unwrap_or(0),
         },
         "pieces": pieces,

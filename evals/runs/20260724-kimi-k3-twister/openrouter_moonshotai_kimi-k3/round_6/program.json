@@ -1,4 +1,10 @@
 {
+  "ride_type": 51,
+  "start": {
+    "x": 40,
+    "y": 50,
+    "dir": 2
+  },
   "pieces": [
     "begin_station",
     "middle_station",
@@ -83,11 +89,5 @@
     "s_bend_left",
     "s_bend_left",
     "s_bend_left"
-  ],
-  "ride_type": 51,
-  "start": {
-    "dir": 2,
-    "x": 1,
-    "y": 1
-  }
+  ]
 }

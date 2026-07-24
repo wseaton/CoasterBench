@@ -1,4 +1,10 @@
 {
+  "ride_type": 51,
+  "start": {
+    "x": 40,
+    "y": 40,
+    "dir": 2
+  },
   "pieces": [
     "begin_station",
     "middle_station",
@@ -95,11 +101,5 @@
     "flat",
     "left_turn_5",
     "flat"
-  ],
-  "ride_type": 51,
-  "start": {
-    "dir": 2,
-    "x": 1,
-    "y": 1
-  }
+  ]
 }
