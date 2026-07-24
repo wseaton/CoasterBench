@@ -20,8 +20,9 @@ import html
 import json
 import re
 import shutil
-import subprocess
 import sys
+import tempfile
+import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -254,17 +255,54 @@ MODE_TAGLINES = {
 
 
 @dataclass
+class Art:
+    """A run artifact: a local file, a remote URL in the R2 artifact store
+    (uploaded by evals/publish.py, listed in the run's artifacts.json), or
+    both. Local wins so dev builds don't touch the network."""
+
+    name: str
+    local: Path | None = None
+    url: str | None = None
+
+
+_REMOTE_CACHE: Path | None = None
+
+
+def fetch_art(art: Art) -> Path | None:
+    """Local path for an artifact, downloading remote-only ones into a temp
+    cache (thumbnail and og-card generation need actual pixels)."""
+    global _REMOTE_CACHE
+    if art.local is not None:
+        return art.local
+    if art.url is None:
+        return None
+    if _REMOTE_CACHE is None:
+        _REMOTE_CACHE = Path(tempfile.mkdtemp(prefix="coaster-art-"))
+    dest = _REMOTE_CACHE / re.sub(r"[^A-Za-z0-9._-]", "_", art.url.split("://", 1)[-1])
+    if not dest.is_file():
+        # Cloudflare's bot filtering 403s the default Python-urllib agent.
+        request = urllib.request.Request(art.url, headers={"User-Agent": "coasterbench-site"})
+        try:
+            with urllib.request.urlopen(request) as response:
+                dest.write_bytes(response.read())
+        except OSError as exc:
+            print(f"warning: failed to fetch {art.url}: {exc}", file=sys.stderr)
+            return None
+    return dest
+
+
+@dataclass
 class Round:
     number: int
     report: dict
     program: dict | None
-    screenshot: Path | None
+    screenshot: Art | None
     # Additional view rotations of the same capture (park-r1/2/3.png).
-    rotation_shots: list[Path] = field(default_factory=list)
+    rotation_shots: list[Art] = field(default_factory=list)
     # See-through verification capture (park-x.png): terrain and supports
     # hidden so tunnelled track is visible. The upstream sprite-sort glitch
     # that hides track near track crossings at some rotations still applies.
-    xray_shot: Path | None = None
+    xray_shot: Art | None = None
     # Library tool calls the model made before submitting (library mode).
     lookups: list[dict] = field(default_factory=list)
     # Token/cost accounting for the round (usage.json), when recorded.
@@ -379,6 +417,19 @@ def esc(text: object) -> str:
 
 
 PREVIEWS_DIR = Path(__file__).resolve().parent / "library-previews"
+PREVIEWS_MANIFEST = Path(__file__).resolve().parent / "library-previews.json"
+
+_PREVIEW_MANIFEST: set[str] | None = None
+
+
+def preview_manifest() -> set[str]:
+    """File names of previews uploaded to the artifact store (publish.py)."""
+    global _PREVIEW_MANIFEST
+    if _PREVIEW_MANIFEST is None:
+        _PREVIEW_MANIFEST = (
+            set(json.loads(PREVIEWS_MANIFEST.read_text())) if PREVIEWS_MANIFEST.is_file() else set()
+        )
+    return _PREVIEW_MANIFEST
 
 
 def sanitise_name(name: str) -> str:
@@ -391,7 +442,7 @@ def preview_path(design_name: str) -> Path | None:
     return path if path.is_file() else None
 
 
-def load_runs(runs_dir: Path) -> list[EvalRun]:
+def load_runs(runs_dir: Path, artifact_base: str) -> list[EvalRun]:
     runs: list[EvalRun] = []
     if not runs_dir.is_dir():
         return runs
@@ -406,6 +457,19 @@ def load_runs(runs_dir: Path) -> list[EvalRun]:
             meta = json.loads(meta_path.read_text())
         mode = meta.get("mode", "design")
         grace = meta.get("similarity_grace", DEFAULT_SIMILARITY_GRACE)
+        # Screenshots (and videos) live in the R2 artifact store, not git;
+        # the manifest written by evals/publish.py says what was uploaded.
+        manifest_path = run_dir / "artifacts.json"
+        manifest: set[str] = set(json.loads(manifest_path.read_text())) if manifest_path.is_file() else set()
+
+        def art(rel: Path, run_dir: Path = run_dir, manifest: set[str] = manifest) -> Art | None:
+            path = run_dir / rel
+            if path.is_file():
+                return Art(name=rel.name, local=path)
+            if rel.as_posix() in manifest:
+                return Art(name=rel.name, url=f"{artifact_base}/runs/{run_dir.name}/{rel.as_posix()}")
+            return None
+
         models: list[ModelRun] = []
         for model_dir in sorted(run_dir.iterdir()):
             if not model_dir.is_dir():
@@ -417,14 +481,15 @@ def load_runs(runs_dir: Path) -> list[EvalRun]:
                     continue
                 program_path = round_dir / "program.json"
                 lookups_path = round_dir / "lookups.json"
+                rd_rel = round_dir.relative_to(run_dir)
                 shot = next(
-                    (p for p in (round_dir / "park_small.png", round_dir / "park.png") if p.is_file()),
+                    (a for name in ("park_small.png", "park.png") if (a := art(rd_rel / name)) is not None),
                     None,
                 )
                 rotation_shots = [
-                    p for i in (1, 2, 3) if (p := round_dir / f"park-r{i}.png").is_file()
+                    a for i in (1, 2, 3) if (a := art(rd_rel / f"park-r{i}.png")) is not None
                 ]
-                xray = round_dir / "park-x.png"
+                xray = art(rd_rel / "park-x.png")
                 usage_path = round_dir / "usage.json"
                 rounds.append(
                     Round(
@@ -433,7 +498,7 @@ def load_runs(runs_dir: Path) -> list[EvalRun]:
                         program=json.loads(program_path.read_text()) if program_path.is_file() else None,
                         screenshot=shot,
                         rotation_shots=rotation_shots,
-                        xray_shot=xray if xray.is_file() else None,
+                        xray_shot=xray,
                         lookups=json.loads(lookups_path.read_text()) if lookups_path.is_file() else [],
                         usage=json.loads(usage_path.read_text()) if usage_path.is_file() else None,
                         grace=grace,
@@ -756,25 +821,29 @@ def round_block(model: ModelRun, rnd: Round, assets: list[tuple[str, str]]) -> s
     return f'<div class="round">{"".join(parts)}</div>'
 
 
-def copy_preview(out: Path, design_name: str) -> str | None:
-    """Copies a design's preview into the site assets; returns the relative
-    asset path, or None when no preview was rendered for it."""
+def copy_preview(out: Path, design_name: str, artifact_base: str) -> str | None:
+    """Copies a design's preview into the site assets (or points at the
+    artifact store when it only exists there); returns the img src, or None
+    when no preview was rendered for it."""
     src = preview_path(design_name)
-    if src is None:
-        return None
-    rel = Path("assets") / "library" / src.name
-    dest = out / rel
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    if not dest.is_file():
-        shutil.copyfile(src, dest)
-    return rel.as_posix()
+    if src is not None:
+        rel = Path("assets") / "library" / src.name
+        dest = out / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if not dest.is_file():
+            shutil.copyfile(src, dest)
+        return rel.as_posix()
+    fname = f"{sanitise_name(design_name)}.png"
+    if fname in preview_manifest():
+        return f"{artifact_base}/library-previews/{fname}"
+    return None
 
 
-def design_gallery(out: Path, designs: list[tuple[str, str]]) -> str:
+def design_gallery(out: Path, designs: list[tuple[str, str]], artifact_base: str) -> str:
     """Thumbnail grid of (design name, caption) pairs."""
     figures = []
     for name, caption in designs:
-        asset = copy_preview(out, name)
+        asset = copy_preview(out, name, artifact_base)
         if asset is None:
             figures.append(
                 f'<figure><div class="no-preview">no preview</div>'
@@ -812,7 +881,9 @@ def write_og_card(runs: list[EvalRun], out: Path) -> bool:
     ]
     if not shots:
         return False
-    shot_path = max(shots, key=lambda s: s[0])[1]
+    shot_path = fetch_art(max(shots, key=lambda s: s[0])[1])
+    if shot_path is None:
+        return False
 
     W, H = 1200, 630
     panel, panel_hi, panel_dark, ink = "#c2b280", "#dccfa4", "#8c7a52", "#2a2015"
@@ -880,11 +951,16 @@ def run_thumbnail(run: EvalRun, out: Path) -> str | None:
                 break
     if shot is None:
         return None
+    src = fetch_art(shot)
+    if src is None:
+        return None
     rel = Path("assets") / "thumbs" / f"{run.name}.png"
     dest = out / rel
     dest.parent.mkdir(parents=True, exist_ok=True)
-    subprocess.run(["sips", "-Z", "280", str(shot), "--out", str(dest)], capture_output=True)
-    return rel.as_posix() if dest.is_file() else None
+    img = Image.open(src)
+    img.thumbnail((280, 280), Image.LANCZOS)
+    img.save(dest, optimize=True)
+    return rel.as_posix()
 
 
 def facet_buttons(facet: str, values: list[str]) -> str:
@@ -962,14 +1038,14 @@ def run_table(runs: list[EvalRun], out: Path) -> str:
     return filters + table
 
 
-def build_site(runs: list[EvalRun], out: Path, runs_dir: Path, base_url: str | None) -> None:
+def build_site(runs: list[EvalRun], out: Path, runs_dir: Path, base_url: str | None, artifact_base: str) -> None:
     out.mkdir(parents=True, exist_ok=True)
     # Clear previously generated output so renamed/deleted runs don't linger.
     shutil.rmtree(out / "assets", ignore_errors=True)
     for stale in out.glob("*.html"):
         stale.unlink()
 
-    have_previews = PREVIEWS_DIR.is_dir() and any(PREVIEWS_DIR.glob("*.png"))
+    have_previews = (PREVIEWS_DIR.is_dir() and any(PREVIEWS_DIR.glob("*.png"))) or bool(preview_manifest())
 
     index_body = [how_it_works()]
     intro = "<p>" + " · ".join(f"<b>{esc(m)}</b>: {esc(t)}" for m, t in MODE_TAGLINES.items()) + "</p>"
@@ -998,11 +1074,14 @@ def build_site(runs: list[EvalRun], out: Path, runs_dir: Path, base_url: str | N
                 if rnd.xray_shot is not None:
                     shots.append((rnd.xray_shot, "x-ray"))
                 for shot, label in shots:
-                    rel = Path("assets") / run.name / model.model / f"round_{rnd.number}_{shot.stem}{shot.suffix}"
-                    dest = out / rel
-                    dest.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copyfile(shot, dest)
-                    assets.append((rel.as_posix(), label))
+                    if shot.local is not None:
+                        rel = Path("assets") / run.name / model.model / f"round_{rnd.number}_{shot.name}"
+                        dest = out / rel
+                        dest.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copyfile(shot.local, dest)
+                        assets.append((rel.as_posix(), label))
+                    elif shot.url is not None:
+                        assets.append((shot.url, label))
                 blocks.append(round_block(model, rnd, assets))
             # Gallery of the stock designs this model studied, in fetch order.
             studied: list[str] = []
@@ -1014,7 +1093,7 @@ def build_site(runs: list[EvalRun], out: Path, runs_dir: Path, base_url: str | N
             if studied:
                 inner = (
                     f"<h2>studied {len(studied)} library design(s)</h2>"
-                    + design_gallery(out, [(name, name) for name in studied])
+                    + design_gallery(out, [(name, name) for name in studied], artifact_base)
                     + '<div style="height:1rem"></div>'
                     + inner
                 )
@@ -1041,13 +1120,15 @@ def build_site(runs: list[EvalRun], out: Path, runs_dir: Path, base_url: str | N
             ]
         else:
             # No library.json yet: caption with the (sanitised) file names.
-            entries = [(p.stem, p.stem) for p in sorted(PREVIEWS_DIR.glob("*.png"))]
+            local = {p.stem for p in PREVIEWS_DIR.glob("*.png")} if PREVIEWS_DIR.is_dir() else set()
+            remote = {Path(f).stem for f in preview_manifest()}
+            entries = [(name, name) for name in sorted(local | remote)]
         body = [
             window(
                 f"Track design library ({len(entries)} designs)",
                 "<p>The stock RCT2 designs models can search in library mode. "
                 "Previews are rendered by the game's own track-preview pipeline.</p>"
-                + design_gallery(out, entries),
+                + design_gallery(out, entries, artifact_base),
             ),
             '<p class="backlink"><a href="index.html">&larr; all runs</a></p>',
         ]
@@ -1076,10 +1157,16 @@ def main() -> int:
         help="public URL the site deploys to; required for Slack unfurl images, "
         "which must be absolute URLs (default %(default)s)",
     )
+    parser.add_argument(
+        "--artifact-base",
+        default="https://artifacts.wseaton.com",
+        help="public URL of the R2 artifact store holding screenshots not "
+        "present locally (see evals/publish.py; default %(default)s)",
+    )
     args = parser.parse_args()
 
-    runs = load_runs(args.runs)
-    build_site(runs, args.out, args.runs, args.base_url)
+    runs = load_runs(args.runs, args.artifact_base)
+    build_site(runs, args.out, args.runs, args.base_url, args.artifact_base)
     if not args.base_url:
         print(
             "note: no --base-url given, og:image/og:url omitted (Slack unfurls will be text-only)",

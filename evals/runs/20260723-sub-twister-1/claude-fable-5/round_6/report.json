@@ -1,0 +1,41 @@
+{
+  "bounds": {
+    "max_tile_x": 89,
+    "max_tile_y": 53,
+    "max_z": 360,
+    "min_tile_x": 31,
+    "min_tile_y": 32,
+    "min_z": 112
+  },
+  "program": null,
+  "rides": [
+    {
+      "average_speed": 353461,
+      "crashed": false,
+      "excitement": 7.389999866485596,
+      "highest_drop": 28,
+      "id": 0,
+      "intensity": 9.960000038146973,
+      "max_lateral_g": 2.640000104904175,
+      "max_negative_g": -0.8799999952316284,
+      "max_positive_g": 4.320000171661377,
+      "max_speed": 1404576,
+      "nausea": 5.940000057220459,
+      "num_drops": 27,
+      "num_inversions": 7,
+      "ride_length": 92908242,
+      "ride_type": 51,
+      "status": "testing",
+      "tested": true,
+      "total_air_time": 247
+    }
+  ],
+  "similarity": {
+    "common_substring_share": 0.08264462809917356,
+    "edit_similarity": 0.3099173553719008,
+    "mirrored": true,
+    "nearest_design": "Slippery Seals",
+    "nearest_ride_type": 19,
+    "similarity": 0.3099173553719008
+  }
+}

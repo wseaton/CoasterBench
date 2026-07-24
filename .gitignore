@@ -14,6 +14,12 @@ artifacts
 rust/orct2-agent/target/
 rust/coaster-bench/target/
 evals/site/
+# Heavy eval artifacts live in the R2 bucket (evals/publish.py), not git.
+evals/runs/**/*.png
+evals/runs/**/*.mp4
+evals/runs/**/*.webm
+evals/library-previews/
+.wrangler/
 .claude/settings.local.json
 .claude/worktrees/
 bin.*/

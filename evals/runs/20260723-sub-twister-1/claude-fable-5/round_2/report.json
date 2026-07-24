@@ -1,0 +1,41 @@
+{
+  "bounds": {
+    "max_tile_x": 59,
+    "max_tile_y": 61,
+    "max_z": 392,
+    "min_tile_x": 26,
+    "min_tile_y": 34,
+    "min_z": 112
+  },
+  "program": null,
+  "rides": [
+    {
+      "average_speed": 438629,
+      "crashed": false,
+      "excitement": 7.579999923706055,
+      "highest_drop": 32,
+      "id": 0,
+      "intensity": 8.630000114440918,
+      "max_lateral_g": 2.5,
+      "max_negative_g": -1.1100000143051147,
+      "max_positive_g": 4.78000020980835,
+      "max_speed": 1519043,
+      "nausea": 4.800000190734863,
+      "num_drops": 16,
+      "num_inversions": 5,
+      "ride_length": 71180298,
+      "ride_type": 51,
+      "status": "testing",
+      "tested": true,
+      "total_air_time": 120
+    }
+  ],
+  "similarity": {
+    "common_substring_share": 0.0875,
+    "edit_similarity": 0.38125,
+    "mirrored": false,
+    "nearest_design": "Driftwood",
+    "nearest_ride_type": 52,
+    "similarity": 0.38125
+  }
+}
