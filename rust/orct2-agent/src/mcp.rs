@@ -103,7 +103,11 @@ impl Claim {
     /// proceed. Taking ownership always wins; otherwise the lease must match.
     fn authorise(&self, session: &mut Session) -> bool {
         if self.takes_ownership {
+            // A new round takes the park, so the previous round's best test
+            // must not carry over into it.
             session.lease = self.lease.clone();
+            session.best_test = None;
+            session.best_shot = None;
             return true;
         }
         match (&session.lease, &self.lease) {
@@ -114,10 +118,26 @@ impl Claim {
     }
 }
 
+/// Render the whole park to a PNG and return the bytes. The full map is
+/// intentional: an agent needs whole-park spatial context, not a viewport.
+fn capture_park_png() -> Result<Vec<u8>, String> {
+    let path = std::env::temp_dir().join("orct2_mcp_capture.png");
+    let path_str = path.to_string_lossy();
+    if !host::capture(&path_str, 0, 0, false, false) {
+        return Err("capture failed".into());
+    }
+    std::fs::read(&path).map_err(|e| format!("read capture: {e}"))
+}
+
+fn image_content(bytes: Vec<u8>) -> Vec<Value> {
+    let data = base64::engine::general_purpose::STANDARD.encode(bytes);
+    vec![json!({"type": "image", "data": data, "mimeType": "image/png"})]
+}
+
 /// The content kind a tool answers with; everything not listed here is text.
 fn tool_modality(name: &str) -> Modalities {
     match name {
-        "screenshot" => Modalities::IMAGE,
+        "screenshot" | "best_screenshot" => Modalities::IMAGE,
         _ => Modalities::TEXT,
     }
 }
@@ -167,6 +187,27 @@ struct Session {
     /// refused instead of silently sharing the park. Unleased servers stay
     /// open, so an interactive session needs no ceremony.
     lease: Option<String>,
+    /// The highest-excitement finish_and_test report seen this lease. A model
+    /// that tests a good coaster then demolishes it to chase a better one used
+    /// to be scored on whatever it was mid-building at the timeout, which
+    /// punished iterating; the round is scored on this instead. Reset when a
+    /// new round claims the park.
+    best_test: Option<Value>,
+    /// Park PNG captured at the moment `best_test` was set, so the scored
+    /// coaster can be pictured even after it was demolished. Reset with it.
+    best_shot: Option<Vec<u8>>,
+}
+
+/// Best-ride excitement in a finish_and_test report, if any ride was rated.
+fn report_excitement(report: &Value) -> Option<f64> {
+    report
+        .get("rides")?
+        .as_array()?
+        .iter()
+        .filter_map(|r| r.get("excitement").and_then(Value::as_f64))
+        .fold(None, |best: Option<f64>, e| {
+            Some(best.map_or(e, |b| b.max(e)))
+        })
 }
 
 impl Session {
@@ -411,6 +452,16 @@ fn all_tool_definitions() -> Value {
             }}
         },
         {
+            "name": "best_result",
+            "description": "Return the highest-excitement finish_and_test result from this round, even if the park has since been demolished or rebuilt. Your round is scored on this, so demolishing a tested coaster to try something better never loses the earlier score.",
+            "inputSchema": {"type": "object", "properties": {}}
+        },
+        {
+            "name": "best_screenshot",
+            "description": "Rendered image of the park as it stood for your best_result, even if you have since rebuilt.",
+            "inputSchema": {"type": "object", "properties": {}}
+        },
+        {
             "name": "screenshot",
             "description": "Rendered image of the park including the track built so far.",
             "inputSchema": {"type": "object", "properties": {}}
@@ -603,23 +654,47 @@ fn call_tool(name: &str, args: &Value, session: &mut Session) -> Result<Vec<Valu
             let ride_id = build.ride_id;
             let placed: Vec<u16> = build.placed.iter().map(|p| p.track_type).collect();
             let eval_report = report::build(None, Some(ride_id), Some(&placed), library);
-            serde_json::to_value(&eval_report)
-                .map(text_content)
-                .map_err(|e| format!("report serialise: {e}"))
-        }
-        "screenshot" => {
-            let path = std::env::temp_dir().join("orct2_mcp_capture.png");
-            let path_str = path.to_string_lossy();
-            // Full map on purpose: the agent needs whole-park spatial context.
-            if !host::capture(&path_str, 0, 0, false, false) {
-                return Err("capture failed".into());
+            let mut report =
+                serde_json::to_value(&eval_report).map_err(|e| format!("report serialise: {e}"))?;
+            // Snapshot the piece list and start alongside the ratings, so the
+            // harness can rebuild program.json for the scored coaster rather
+            // than for whatever currently stands in the park.
+            if let Some(obj) = report.as_object_mut() {
+                let names: Vec<&str> = build.placed.iter().map(|p| p.name).collect();
+                obj.insert("placed_pieces".into(), json!(names));
+                obj.insert("start".into(), cursor_json(&build.start));
             }
-            let bytes = std::fs::read(&path).map_err(|e| format!("read capture: {e}"))?;
-            let data = base64::engine::general_purpose::STANDARD.encode(bytes);
-            Ok(vec![
-                json!({"type": "image", "data": data, "mimeType": "image/png"}),
-            ])
+            // Remember the best rated test this round, so demolishing a good
+            // coaster to chase a better one can't lose the good one. Snapshot
+            // the park at the same moment so the scored ride can still be
+            // pictured after a later rebuild replaces it.
+            if let Some(excitement) = report_excitement(&report) {
+                let prev = session.best_test.as_ref().and_then(report_excitement);
+                if prev.is_none_or(|b| excitement > b) {
+                    session.best_test = Some(report.clone());
+                    session.best_shot = capture_park_png().ok();
+                }
+            }
+            Ok(text_content(report))
         }
+        "best_result" => {
+            // The best rated test of the round, regardless of what currently
+            // stands in the park. The harness scores this; a model may also
+            // call it to see whether a rebuild actually beat its earlier work.
+            match &session.best_test {
+                Some(report) => Ok(text_content(report.clone())),
+                None => Err("no rated test yet this round".into()),
+            }
+        }
+        "best_screenshot" => {
+            // The park as it stood when best_test was set; the harness saves
+            // this as the round's artifact so the picture matches the score.
+            match &session.best_shot {
+                Some(bytes) => Ok(image_content(bytes.clone())),
+                None => Err("no rated test yet this round".into()),
+            }
+        }
+        "screenshot" => Ok(image_content(capture_park_png()?)),
         "undo_piece" => {
             let build = session.build.as_mut().ok_or("no active ride")?;
             if build.finalized {
@@ -847,6 +922,8 @@ mod tests {
             "valid_next_pieces",
             "get_state",
             "finish_and_test",
+            "best_result",
+            "best_screenshot",
             "screenshot",
             "demolish",
             "search_track_designs",
@@ -887,6 +964,37 @@ mod tests {
             .and_then(Value::as_str)
             .unwrap_or_default();
         assert!(text.contains("unavailable"), "got {text}");
+    }
+
+    #[test]
+    fn report_excitement_picks_the_best_rated_ride() {
+        assert_eq!(report_excitement(&json!({"rides": []})), None);
+        assert_eq!(
+            report_excitement(&json!({"rides": [{"excitement": null}]})),
+            None,
+            "an unrated ride does not count"
+        );
+        assert_eq!(
+            report_excitement(&json!({"rides": [{"excitement": 5.89}, {"excitement": 6.08}]})),
+            Some(6.08)
+        );
+    }
+
+    #[test]
+    fn claiming_the_park_clears_the_previous_rounds_best() {
+        let mut session = Session {
+            best_test: Some(json!({"rides": [{"excitement": 6.08}]})),
+            ..Default::default()
+        };
+        // A same-lease request (no claim) leaves the best in place.
+        Claim::from_request_target("/mcp").authorise(&mut session);
+        assert!(session.best_test.is_some());
+        // The next round claiming the park wipes it.
+        Claim::from_request_target("/mcp?lease=r2&claim=1").authorise(&mut session);
+        assert!(
+            session.best_test.is_none(),
+            "a fresh round must not inherit the last round's score"
+        );
     }
 
     #[test]

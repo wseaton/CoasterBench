@@ -526,7 +526,9 @@ fn collect_round(
     // round record must exist either way so the site can show what happened.
     let state = client.call("get_state", json!({})).unwrap_or(json!({}));
     let placed = state.get("pieces_placed").cloned().unwrap_or(json!(0));
-    let report = client
+    // Test the current park: catches a round where the agent never called
+    // finish_and_test itself, and updates the server's best-so-far.
+    let final_report = client
         .call("finish_and_test", json!({"ticks": args.ticks}))
         .unwrap_or_else(|e| {
             json!({
@@ -540,10 +542,29 @@ fn collect_round(
                 "similarity": null,
             })
         });
+    // Score the best tested coaster of the round, not whatever happens to be
+    // standing now: a model that demolished a good ride to try a better one
+    // should keep the good score. best_result errors when nothing rated, in
+    // which case the final-park report (with its error) is what we record.
+    let (report, scored_from_best) = match client.call("best_result", json!({})) {
+        Ok(best) if best_excitement(&best) >= best_excitement(&final_report) => (best, true),
+        _ => (final_report, false),
+    };
 
-    // Reconstruct a program.json so the site's piece listing keeps working.
-    let pieces = state.get("placed_pieces").cloned().unwrap_or(json!([]));
-    let start = state.get("start").cloned().unwrap_or(Value::Null);
+    // Reconstruct program.json for the piece listing. The scored report
+    // carries its own placed_pieces/start (finish_and_test snapshots them), so
+    // this describes the scored coaster even when it has since been rebuilt;
+    // fall back to the live state for pre-snapshot reports.
+    let pieces = report
+        .get("placed_pieces")
+        .or_else(|| state.get("placed_pieces"))
+        .cloned()
+        .unwrap_or(json!([]));
+    let start = report
+        .get("start")
+        .or_else(|| state.get("start"))
+        .cloned()
+        .unwrap_or(Value::Null);
     let program = json!({
         "ride_type": args.ride_type,
         "start": {
@@ -556,9 +577,16 @@ fn collect_round(
     write_json(&round_dir.join("program.json"), &program)?;
     write_json(&round_dir.join("report.json"), &report)?;
 
-    match client.call_image("screenshot", json!({})) {
+    // Picture the scored coaster: best_screenshot when the score came from an
+    // earlier (possibly demolished) build, otherwise the current park.
+    let shot_tool = if scored_from_best {
+        "best_screenshot"
+    } else {
+        "screenshot"
+    };
+    match client.call_image(shot_tool, json!({})) {
         Ok(png) => std::fs::write(round_dir.join("park.png"), png).map_err(|e| e.to_string())?,
-        Err(e) => eprintln!("  screenshot failed: {e}"),
+        Err(e) => eprintln!("  {shot_tool} failed: {e}"),
     }
     Ok(report)
 }
