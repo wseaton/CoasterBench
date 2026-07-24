@@ -646,30 +646,35 @@ class OpenAICompat:
             if tool_choice.get("type") == "tool"
             else "required"
         )
-        resp = self._client.chat.completions.create(
-            model=model,
-            max_tokens=max_tokens,
-            messages=payload,
-            tools=oa_tools,
-            tool_choice=oa_choice,
-        )
-        choice = resp.choices[0].message
-        content: list = []
-        if choice.content:
-            content.append(TextBlock(text=choice.content))
-        for call in choice.tool_calls or []:
-            try:
-                args = json.loads(call.function.arguments or "{}")
-            except json.JSONDecodeError:
-                args = {}
-            content.append(ToolUseBlock(id=call.id, name=call.function.name, input=args))
-        if not any(b.type == "tool_use" for b in content):
-            raise RuntimeError(f"{model} returned no tool call despite tool_choice={oa_choice!r}")
-        usage = resp.usage
-        return _Response(
-            content=content,
-            usage=_Usage(usage.prompt_tokens if usage else 0, usage.completion_tokens if usage else 0),
-        )
+        # tool_choice="required" is not airtight in the wild: vLLM's guided
+        # grammar can emit an empty call array, so a callless response gets
+        # retried rather than killing the run.
+        input_tokens = output_tokens = 0
+        for attempt in range(3):
+            resp = self._client.chat.completions.create(
+                model=model,
+                max_tokens=max_tokens,
+                messages=payload,
+                tools=oa_tools,
+                tool_choice=oa_choice,
+            )
+            if resp.usage:
+                input_tokens += resp.usage.prompt_tokens
+                output_tokens += resp.usage.completion_tokens
+            choice = resp.choices[0].message
+            content: list = []
+            if choice.content:
+                content.append(TextBlock(text=choice.content))
+            for call in choice.tool_calls or []:
+                try:
+                    args = json.loads(call.function.arguments or "{}")
+                except json.JSONDecodeError:
+                    args = {}
+                content.append(ToolUseBlock(id=call.id, name=call.function.name, input=args))
+            if any(b.type == "tool_use" for b in content):
+                return _Response(content=content, usage=_Usage(input_tokens, output_tokens))
+            print(f"  [{model}] no tool call (attempt {attempt + 1}/3), retrying", flush=True)
+        raise RuntimeError(f"{model} returned no tool call in 3 attempts despite tool_choice={oa_choice!r}")
 
 
 def compete(
