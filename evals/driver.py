@@ -89,9 +89,15 @@ SCHEMATIC_FEEDBACK = False
 
 def rct2_args() -> list[str]:
     """The eval CLI either loads the RCT2 install or runs assetless."""
+    args = []
+    # Containers/chroots can't always resolve the data dir relative to the
+    # binary (/proc may be absent); CI sets this explicitly.
+    data = os.environ.get("COASTERBENCH_OPENRCT2_DATA")
+    if data:
+        args += ["--openrct2-data-path", data]
     if NO_GRAPHICS:
-        return ["--no-graphics"]
-    return ["--rct2-data-path", str(RCT2_DATA)]
+        return args + ["--no-graphics"]
+    return args + ["--rct2-data-path", str(RCT2_DATA)]
 
 PIECE_CATALOG = """
 Station (required, place these FIRST, 3+ in a row): begin_station, middle_station, end_station
