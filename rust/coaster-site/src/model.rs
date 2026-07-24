@@ -153,7 +153,59 @@ pub struct Round {
     pub lookups: Vec<Lookup>,
     /// Token/cost accounting for the round (usage.json), when recorded.
     pub usage: Option<Usage>,
+    /// Normalised agent session events (trace.jsonl), oldest first. Only rounds
+    /// driven by coaster-bench have one.
+    pub trace: Vec<TraceEvent>,
     grace: f64,
+}
+
+/// One event from a round's trace.jsonl. Field meanings are set by
+/// coaster-bench's trace module; everything past `kind` is optional because a
+/// killed session leaves half-written events behind.
+#[derive(Debug, Deserialize)]
+pub struct TraceEvent {
+    pub kind: String,
+    #[serde(default)]
+    pub ms: Option<i64>,
+    #[serde(default)]
+    pub text: Option<String>,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub input: Option<serde_json::Value>,
+    #[serde(default)]
+    pub output: Option<serde_json::Value>,
+    #[serde(default)]
+    pub status: Option<String>,
+    #[serde(default)]
+    pub dur_ms: Option<i64>,
+    #[serde(default)]
+    pub cost_usd: Option<f64>,
+}
+
+impl TraceEvent {
+    pub fn is_tool(&self) -> bool {
+        self.kind == "tool"
+    }
+
+    /// A tool call the game refused: the rejections are the substance of a
+    /// trace, so they get counted and highlighted separately.
+    pub fn is_rejection(&self) -> bool {
+        self.is_tool() && self.status.as_deref() == Some("error")
+    }
+}
+
+/// Reads trace.jsonl, skipping any line that fails to parse: a session killed
+/// mid-write can leave a truncated last line, and a partial trace still
+/// explains more than no trace.
+fn read_trace(path: &Path) -> Vec<TraceEvent> {
+    let Ok(raw) = std::fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    raw.lines()
+        .filter(|l| l.starts_with('{'))
+        .filter_map(|l| serde_json::from_str(l).ok())
+        .collect()
 }
 
 impl Round {
@@ -404,6 +456,7 @@ fn load_round(
         xray_shot: art("park-x.png"),
         lookups: read_json_opt(&round_dir.join("lookups.json"))?.unwrap_or_default(),
         usage: read_json_opt(&round_dir.join("usage.json"))?,
+        trace: read_trace(&round_dir.join("trace.jsonl")),
         grace,
     }))
 }

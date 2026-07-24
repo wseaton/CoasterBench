@@ -196,6 +196,10 @@ pub struct Badge {
 
 pub struct RoundView {
     pub number: u32,
+    /// Link to this round's trace page, when a trace was recorded.
+    pub trace_href: Option<String>,
+    pub trace_events: usize,
+    pub trace_rejections: usize,
     pub badge: Option<Badge>,
     /// The build failure, kept to one clamped line (full text in the tooltip).
     pub build_error: Option<String>,
@@ -270,4 +274,42 @@ pub struct ModelPage<'a> {
 pub struct LibraryPage {
     pub chrome: Chrome,
     pub figures: Vec<Figure>,
+}
+
+/// One row of a session trace: what the model said, or a tool call and how the
+/// game answered.
+pub struct TraceRow {
+    /// "text", "thinking", "tool" or "step".
+    pub kind: String,
+    /// Elapsed session time, e.g. "1:42".
+    pub at: String,
+    pub text: Option<String>,
+    pub tool: Option<String>,
+    pub input: Option<String>,
+    pub output: Option<String>,
+    /// Set when the game refused the call, so the row can be flagged.
+    pub failed: bool,
+    pub duration: Option<String>,
+    pub cost: Option<String>,
+}
+
+/// Summary strip above a trace: enough to see the shape of a round without
+/// reading it.
+pub struct TraceSummary {
+    pub label: String,
+    pub value: String,
+    pub class: String,
+}
+
+#[derive(Template)]
+#[template(path = "trace.html")]
+pub struct TracePage {
+    pub chrome: Chrome,
+    pub run_name: String,
+    pub run_href: String,
+    pub model: String,
+    pub model_href: String,
+    pub round: u32,
+    pub summary: Vec<TraceSummary>,
+    pub rows: Vec<TraceRow>,
 }

@@ -256,10 +256,11 @@ impl Contender {
     }
 
     /// MCP endpoint this contender's harness should connect to. The server
-    /// hides tools answering outside the advertised modality set.
-    fn mcp_url(&self, port: u16) -> String {
+    /// hides tools answering outside the advertised modality set, and refuses
+    /// anyone whose lease is not the one that currently owns the park.
+    fn mcp_url(&self, port: u16, lease: &str) -> String {
         format!(
-            "http://host.containers.internal:{port}/mcp?modalities={}",
+            "http://host.containers.internal:{port}/mcp?modalities={}&lease={lease}",
             self.modalities.as_query_value()
         )
     }
@@ -320,12 +321,12 @@ fn openrouter_spend() -> Option<f64> {
 
 /// Point the opencode sandbox at this contender's MCP endpoint. Written fresh
 /// per session so a mixed vision/text-only lineup can share one sandbox.
-fn write_opencode_config(args: &Args, contender: &Contender) -> Result<(), String> {
+fn write_opencode_config(args: &Args, contender: &Contender, lease: &str) -> Result<(), String> {
     let config = json!({
         "$schema": "https://opencode.ai/config.json",
         "model": contender.model,
         "mcp": {
-            "coaster": {"type": "remote", "url": contender.mcp_url(args.port), "enabled": true}
+            "coaster": {"type": "remote", "url": contender.mcp_url(args.port, lease), "enabled": true}
         }
     })
     .to_string();
@@ -381,6 +382,7 @@ fn run_agent_session(
     contender: &Contender,
     prompt: &str,
     round_dir: &Path,
+    lease: &str,
 ) -> SessionResult {
     let mut cmd = Command::new("openshell");
     let spend_before = match contender.harness {
@@ -391,7 +393,7 @@ fn run_agent_session(
         Harness::ClaudeCode => {
             let mcp_config = json!({
                 "mcpServers": {
-                    "coaster": {"type": "http", "url": contender.mcp_url(args.port)}
+                    "coaster": {"type": "http", "url": contender.mcp_url(args.port, lease)}
                 }
             });
             cmd.args(["sandbox", "exec", "-n", &args.sandbox, "--"])
@@ -407,7 +409,7 @@ fn run_agent_session(
             // sandbox, so the per-contender endpoint has to be written there
             // before the session starts. Model comes fully qualified on the
             // command line (e.g. openrouter/poolside/...).
-            if let Err(e) = write_opencode_config(args, contender) {
+            if let Err(e) = write_opencode_config(args, contender, lease) {
                 return SessionResult {
                     usage: Value::Null,
                     error: Some(e),
@@ -585,6 +587,14 @@ fn best_excitement(report: &Value) -> Option<f64> {
     Some(raw * multiplier)
 }
 
+/// Wall-clock seconds, used to make each round's lease unique across restarts.
+fn epoch_secs() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+}
+
 fn today() -> String {
     // No chrono dep for one date string: days since epoch -> civil date.
     let secs = SystemTime::now()
@@ -708,6 +718,10 @@ fn main() -> Result<(), String> {
         let mut best: Option<(u32, f64)> = None;
         let mut feedback: Option<String> = None;
         for round in 1..=args.rounds {
+            // One lease per round: claiming it evicts any agent still alive
+            // from an earlier round, which would otherwise build in this park.
+            let lease = format!("{}-r{round}-{}", model, epoch_secs());
+            client.claim("127.0.0.1", args.port, &lease);
             // A fresh park state for every round.
             let _ = client.call("demolish", json!({}));
             let prompt = prompt::round_prompt(
@@ -727,7 +741,7 @@ fn main() -> Result<(), String> {
                 "[{model}] round {round}: agent session starting (log: {})",
                 round_dir.join("session.log").display()
             );
-            let session = run_agent_session(&args, contender, &prompt, &round_dir);
+            let session = run_agent_session(&args, contender, &prompt, &round_dir, &lease);
             if let Some(e) = &session.error {
                 eprintln!("[{model}] round {round}: {e}");
             }
@@ -818,10 +832,12 @@ mod tests {
             model: "claude-sonnet-5".into(),
             modalities: Modalities::TEXT | Modalities::IMAGE,
         };
-        assert!(text_only.mcp_url(8791).ends_with("/mcp?modalities=text"));
+        assert!(text_only
+            .mcp_url(8791, "lease-1")
+            .ends_with("/mcp?modalities=text&lease=lease-1"));
         assert!(multimodal
-            .mcp_url(8791)
-            .ends_with("/mcp?modalities=text,image"));
+            .mcp_url(8791, "lease-1")
+            .ends_with("/mcp?modalities=text,image&lease=lease-1"));
     }
 
     #[test]

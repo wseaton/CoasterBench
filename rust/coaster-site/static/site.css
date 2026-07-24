@@ -304,3 +304,29 @@ summary { cursor: pointer; font-family: "JetBrains Mono", monospace;
 .footer a { color: #9db4c4; }
 .backlink a { color: #9db4c4; font-family: "JetBrains Mono", monospace;
   font-weight: 700; font-size: .8rem; }
+
+/* Session trace ---------------------------------------------------------- */
+.trace-link { font-family: "JetBrains Mono", monospace; font-size: .62rem;
+  font-weight: 700; color: #9db4c4; margin-left: .4rem; white-space: nowrap; }
+.trace-filters { display: flex; gap: .3rem; }
+.trace { list-style: none; margin: 0; padding: 0; }
+.trace-row { display: flex; gap: .6rem; padding: .45rem 0;
+  border-bottom: 1px solid rgba(42,32,21,.18); }
+.trace-row[hidden] { display: none; }
+.trace-at { font-family: "JetBrains Mono", monospace; font-size: .65rem;
+  min-width: 3rem; padding-top: .15rem; }
+.trace-body { flex: 1; min-width: 0; }
+.trace-head { display: flex; align-items: baseline; gap: .5rem; }
+.trace-tool { font-family: "JetBrains Mono", monospace; font-weight: 700;
+  font-size: .75rem; }
+.trace-badge { font-family: "JetBrains Mono", monospace; font-size: .6rem;
+  font-weight: 700; padding: 0 .3rem; background: var(--fail, #8a2b2b); color: #fff; }
+.trace-io { font-size: .7rem; margin: .25rem 0 0; padding: .3rem .45rem;
+  background: rgba(42,32,21,.07); overflow-x: auto; white-space: pre-wrap;
+  word-break: break-word; }
+.trace-out { background: rgba(42,32,21,.13); }
+.trace-text { font-size: .8rem; margin: 0; white-space: pre-wrap; }
+/* Reasoning is bulk, not signal: present but visually recessive. */
+.trace-thinking .trace-text { opacity: .7; font-style: italic; }
+.trace-failed { background: rgba(138,43,43,.09); }
+.trace-step { opacity: .55; font-size: .7rem; }

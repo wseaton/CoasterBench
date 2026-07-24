@@ -239,6 +239,134 @@ fn model_href(run: &EvalRun, model: &str) -> String {
     format!("run-{}-{}.html", run.name, model::sanitise_name(model))
 }
 
+/// One round's session trace lives on its own page: a long round runs to
+/// hundreds of events, which would bury the ratings on the model page.
+fn trace_href(run: &EvalRun, model: &str, round: u32) -> String {
+    format!(
+        "trace-{}-{}-r{round}.html",
+        run.name,
+        model::sanitise_name(model)
+    )
+}
+
+fn fmt_elapsed(ms: i64) -> String {
+    let secs = ms.max(0) / 1000;
+    format!("{}:{:02}", secs / 60, secs % 60)
+}
+
+fn fmt_json_compact(value: &serde_json::Value, limit: usize) -> Option<String> {
+    let text = match value {
+        serde_json::Value::Null => return None,
+        serde_json::Value::String(s) => s.clone(),
+        other => other.to_string(),
+    };
+    let text = text.trim();
+    if text.is_empty() || text == "{}" {
+        return None;
+    }
+    Some(clamp(text, limit))
+}
+
+/// Long tool payloads are truncated: a `valid_next_pieces` result runs to
+/// kilobytes and the interesting part is always at the front.
+fn clamp(text: &str, limit: usize) -> String {
+    if text.chars().count() <= limit {
+        return text.to_string();
+    }
+    let head: String = text.chars().take(limit).collect();
+    format!("{head}… ({} chars)", text.chars().count())
+}
+
+fn build_trace_page(
+    run: &EvalRun,
+    model: &ModelRun,
+    round: &Round,
+    base_url: Option<&str>,
+    out: &Path,
+) -> Result<()> {
+    let tools = round.trace.iter().filter(|e| e.is_tool()).count();
+    let rejected = round.trace.iter().filter(|e| e.is_rejection()).count();
+    let elapsed = round.trace.iter().filter_map(|e| e.ms).max().unwrap_or(0);
+    let cost: f64 = round.trace.iter().filter_map(|e| e.cost_usd).sum();
+
+    let mut summary = vec![
+        view::TraceSummary {
+            label: "events".into(),
+            value: round.trace.len().to_string(),
+            class: String::new(),
+        },
+        view::TraceSummary {
+            label: "tool calls".into(),
+            value: tools.to_string(),
+            class: String::new(),
+        },
+        view::TraceSummary {
+            label: "rejected".into(),
+            value: rejected.to_string(),
+            class: if rejected > 0 { "fail" } else { "dim" }.into(),
+        },
+        view::TraceSummary {
+            label: "session".into(),
+            value: fmt_elapsed(elapsed),
+            class: String::new(),
+        },
+    ];
+    if cost > 0.0 {
+        summary.push(view::TraceSummary {
+            label: "cost".into(),
+            value: format!("${cost:.2}"),
+            class: "usage".into(),
+        });
+    }
+
+    let rows = round
+        .trace
+        .iter()
+        .map(|event| view::TraceRow {
+            kind: event.kind.clone(),
+            at: event.ms.map(fmt_elapsed).unwrap_or_default(),
+            text: event.text.as_ref().map(|t| clamp(t, 4000)),
+            tool: event.name.clone(),
+            input: event
+                .input
+                .as_ref()
+                .and_then(|v| fmt_json_compact(v, 1200)),
+            output: event
+                .output
+                .as_ref()
+                .and_then(|v| fmt_json_compact(v, 1200)),
+            failed: event.is_rejection(),
+            duration: event.dur_ms.map(|d| format!("{d} ms")),
+            cost: event
+                .cost_usd
+                .filter(|c| *c > 0.0)
+                .map(|c| format!("${c:.4}")),
+        })
+        .collect();
+
+    let path = trace_href(run, &model.model, round.number);
+    let page = view::TracePage {
+        chrome: Chrome::new(
+            &format!(
+                "Coaster Evals — {} · {} · round {}",
+                run.name, model.model, round.number
+            ),
+            &format!("TRACE · ROUND {}", round.number),
+            &path,
+            base_url,
+        )
+        .width(view::Width::Mid),
+        run_name: run.name.clone(),
+        run_href: format!("run-{}.html", run.name),
+        model: model.model.clone(),
+        model_href: model_href(run, &model.model),
+        round: round.number,
+        summary,
+        rows,
+    };
+    write_page(&out.join(&path), &page.render()?)
+}
+
 /// Builds one model's view (chart, studied designs, every round). Copies the
 /// round captures into the site as a side effect, so it runs once per model
 /// and both the run comparison and the model detail page render from it.
@@ -259,6 +387,10 @@ fn build_model_view(
         let stats = round_stats(round);
         rounds.push(RoundView {
             number: round.number,
+            trace_href: (!round.trace.is_empty())
+                .then(|| trace_href(run, &model.model, round.number)),
+            trace_events: round.trace.len(),
+            trace_rejections: round.trace.iter().filter(|e| e.is_rejection()).count(),
             badge: round_badge(round, stats.as_ref()),
             build_error: round.build_error.clone(),
             unrated_note: stats.is_none() && round.build_error.is_none(),
@@ -376,6 +508,11 @@ fn build_run_page(
     }
     for (i, view) in models.iter().enumerate() {
         build_model_page(run, view, i + 1, base_url, out)?;
+    }
+    for model in &run.models {
+        for round in model.rounds.iter().filter(|r| !r.trace.is_empty()) {
+            build_trace_page(run, model, round, base_url, out)?;
+        }
     }
 
     let path = format!("run-{}.html", run.name);

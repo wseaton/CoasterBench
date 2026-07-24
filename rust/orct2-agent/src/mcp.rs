@@ -77,6 +77,43 @@ impl std::ops::BitOr for Modalities {
     }
 }
 
+/// A request's claim on the park, read from the query string.
+struct Claim {
+    lease: Option<String>,
+    /// `claim=1` takes ownership, replacing whatever lease was held.
+    takes_ownership: bool,
+}
+
+impl Claim {
+    fn from_request_target(target: &str) -> Claim {
+        let query = target.split_once('?').map(|(_, q)| q).unwrap_or("");
+        let param = |key: &str| {
+            query
+                .split('&')
+                .find_map(|p| p.strip_prefix(key))
+                .map(str::to_string)
+        };
+        Claim {
+            lease: param("lease="),
+            takes_ownership: param("claim=").as_deref() == Some("1"),
+        }
+    }
+
+    /// Applies the claim to the session and reports whether the request may
+    /// proceed. Taking ownership always wins; otherwise the lease must match.
+    fn authorise(&self, session: &mut Session) -> bool {
+        if self.takes_ownership {
+            session.lease = self.lease.clone();
+            return true;
+        }
+        match (&session.lease, &self.lease) {
+            (None, _) => true,
+            (Some(held), Some(offered)) => held == offered,
+            (Some(_), None) => false,
+        }
+    }
+}
+
 /// The content kind a tool answers with; everything not listed here is text.
 fn tool_modality(name: &str) -> Modalities {
     match name {
@@ -121,6 +158,15 @@ struct Session {
     build: Option<Build>,
     /// Stock design library, loaded from the host on first use.
     library: Option<Vec<LibraryDesign>>,
+    /// Who currently owns the park, if anyone.
+    ///
+    /// There is one park and one build state, so two agents connected at once
+    /// fight: each demolishes what the other builds, and neither can finish. A
+    /// harness claims the park for a round (`/mcp?lease=<id>&claim=1`) and
+    /// passes the same lease to its agent; anyone holding a stale lease is
+    /// refused instead of silently sharing the park. Unleased servers stay
+    /// open, so an interactive session needs no ceremony.
+    lease: Option<String>,
 }
 
 impl Session {
@@ -180,7 +226,17 @@ fn handle_connection(stream: TcpStream, session: &mut Session) -> Result<(), Str
             write_http(&mut stream, 202, "text/plain", b"")?;
             continue;
         }
-        let response = dispatch(&message, session, modalities);
+        let response = if Claim::from_request_target(&target).authorise(session) {
+            dispatch(&message, session, modalities)
+        } else {
+            // A stale agent from a finished round: refuse rather than let it
+            // build in a park that now belongs to someone else.
+            rpc_error(
+                message.get("id").cloned().unwrap_or(Value::Null),
+                -32000,
+                "this park is leased to another session; your lease is stale",
+            )
+        };
         write_json(&mut stream, &response)?;
     }
 }
@@ -523,7 +579,7 @@ fn call_tool(name: &str, args: &Value, session: &mut Session) -> Result<Vec<Valu
             // Disjoint field borrows: the cached library (shared with the
             // search tools) is read while the build is mutated, so every
             // finish_and_test doesn't re-import all 200+ .TD6 files.
-            let Session { build, library } = session;
+            let Session { build, library, .. } = session;
             if library.is_none() {
                 *library = library::load().ok();
             }
@@ -831,6 +887,48 @@ mod tests {
             .and_then(Value::as_str)
             .unwrap_or_default();
         assert!(text.contains("unavailable"), "got {text}");
+    }
+
+    #[test]
+    fn an_unleased_park_serves_everyone() {
+        let mut session = Session::default();
+        assert!(Claim::from_request_target("/mcp").authorise(&mut session));
+        assert!(Claim::from_request_target("/mcp?lease=whatever").authorise(&mut session));
+    }
+
+    #[test]
+    fn a_claim_locks_the_park_to_one_lease() {
+        let mut session = Session::default();
+        assert!(Claim::from_request_target("/mcp?lease=round1&claim=1").authorise(&mut session));
+        assert_eq!(session.lease.as_deref(), Some("round1"));
+
+        // The holder keeps working; everyone else is refused.
+        assert!(Claim::from_request_target("/mcp?lease=round1").authorise(&mut session));
+        assert!(!Claim::from_request_target("/mcp?lease=round0").authorise(&mut session));
+        assert!(!Claim::from_request_target("/mcp").authorise(&mut session));
+    }
+
+    #[test]
+    fn the_next_round_takes_the_park_from_the_last_one() {
+        let mut session = Session::default();
+        Claim::from_request_target("/mcp?lease=round1&claim=1").authorise(&mut session);
+        assert!(Claim::from_request_target("/mcp?lease=round2&claim=1").authorise(&mut session));
+        assert_eq!(session.lease.as_deref(), Some("round2"));
+        // The previous round's agent, still alive somewhere, is now locked out.
+        assert!(!Claim::from_request_target("/mcp?lease=round1").authorise(&mut session));
+    }
+
+    #[test]
+    fn lease_and_modalities_coexist_in_one_query() {
+        let mut session = Session::default();
+        let target = "/mcp?modalities=text&lease=r1&claim=1";
+        assert!(Claim::from_request_target(target).authorise(&mut session));
+        assert_eq!(session.lease.as_deref(), Some("r1"));
+        assert_eq!(
+            Modalities::from_request_target(target),
+            Modalities::TEXT,
+            "the lease param does not disturb modality parsing"
+        );
     }
 
     #[test]

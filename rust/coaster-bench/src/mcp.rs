@@ -16,6 +16,17 @@ impl McpClient {
         }
     }
 
+    /// Takes ownership of the park for `lease`, locking out any agent still
+    /// alive from an earlier round. Every later request carries the lease.
+    pub fn claim(&mut self, host: &str, port: u16, lease: &str) {
+        self.url = format!("http://{host}:{port}/mcp?lease={lease}&claim=1");
+        let claimed = self.call("get_state", json!({})).is_ok();
+        // Ownership is taken by the claim=1 request itself; drop the flag so
+        // the rest of the round runs as an ordinary lease holder.
+        self.url = format!("http://{host}:{port}/mcp?lease={lease}");
+        let _ = claimed;
+    }
+
     fn rpc(&mut self, method: &str, params: Value) -> Result<Value, String> {
         let id = self.next_id;
         self.next_id += 1;

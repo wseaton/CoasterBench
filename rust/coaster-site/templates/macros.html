@@ -30,6 +30,11 @@
   {%- match round.badge %}
   {%- when Some(badge) %} <span class="badge {{ badge.class }}">{{ badge.text }}</span>
   {%- when None %}
+  {%- endmatch %}
+  {%- match round.trace_href %}
+  {%- when Some(href) %} <a class="trace-link" href="{{ href }}">trace ({{ round.trace_events }}
+    {%- if round.trace_rejections > 0 %}, {{ round.trace_rejections }} rejected{% endif %}) &rarr;</a>
+  {%- when None %}
   {%- endmatch %}</h3>
   {# Fixed-height meta well: rounds differ wildly in what they have to say
      (a build error, full ratings, nothing), and letting that set the card

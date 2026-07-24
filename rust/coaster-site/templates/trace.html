@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="window">
+  <div class="titlebar"><span>{{ model }} &middot; {{ run_name }} &middot; round {{ round }}</span>
+    <a class="titlebar-link" href="{{ model_href }}">back to model &rarr;</a></div>
+  <div class="body">
+    <dl class="statline">
+    {%- for item in summary %}
+      <dt class="stat-label">{{ item.label }}</dt>
+      <dd class="stat-value {{ item.class }}">{{ item.value }}</dd>
+    {%- endfor %}
+    </dl>
+  </div>
+</div>
+
+<div class="window">
+  <div class="titlebar"><span>Session trace</span>
+    <span class="trace-filters">
+      <button class="facet-btn active" data-trace-filter="">all</button>
+      <button class="facet-btn" data-trace-filter="tool">tools</button>
+      <button class="facet-btn" data-trace-filter="failed">rejections</button>
+    </span></div>
+  <div class="body">
+  {%- if rows.is_empty() %}
+    <p class="dim">No trace recorded for this round. Traces exist for rounds run by
+    coaster-bench after the event-stream change.</p>
+  {%- else %}
+    <ol class="trace">
+    {%- for row in rows %}
+      <li class="trace-row trace-{{ row.kind }}{% if row.failed %} trace-failed{% endif %}"
+          data-kind="{{ row.kind }}" data-failed="{{ row.failed }}">
+        <span class="trace-at dim">{{ row.at }}</span>
+        {%- match row.tool %}
+        {%- when Some(tool) %}
+        <div class="trace-body">
+          <div class="trace-head"><span class="trace-tool">{{ tool }}</span>
+            {%- match row.duration %}{%- when Some(d) %}<span class="dim">{{ d }}</span>{%- when None %}{%- endmatch %}
+            {%- if row.failed %}<span class="trace-badge">rejected</span>{% endif %}</div>
+          {%- match row.input %}
+          {%- when Some(input) %}<pre class="trace-io">{{ input }}</pre>
+          {%- when None %}{%- endmatch %}
+          {%- match row.output %}
+          {%- when Some(output) %}<pre class="trace-io trace-out">{{ output }}</pre>
+          {%- when None %}{%- endmatch %}
+        </div>
+        {%- when None %}
+        <div class="trace-body">
+          {%- match row.text %}
+          {%- when Some(text) %}<p class="trace-text">{{ text }}</p>
+          {%- when None %}{%- endmatch %}
+          {%- match row.cost %}
+          {%- when Some(cost) %}<span class="dim">{{ cost }}</span>
+          {%- when None %}{%- endmatch %}
+        </div>
+        {%- endmatch %}
+      </li>
+    {%- endfor %}
+    </ol>
+  {%- endif %}
+  </div>
+</div>
+<p class="backlink"><a href="{{ model_href }}">&larr; {{ model }}</a> &middot;
+  <a href="{{ run_href }}">{{ run_name }}</a> &middot; <a href="index.html">all runs</a></p>
+{% endblock %}

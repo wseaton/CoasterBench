@@ -81,3 +81,19 @@ function markScrollableStrips() {
 window.addEventListener('resize', markScrollableStrips);
 window.addEventListener('load', markScrollableStrips);
 markScrollableStrips();
+
+// Trace page: show everything, only tool calls, or only rejected calls.
+document.querySelectorAll('[data-trace-filter]').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    var want = btn.dataset.traceFilter;
+    document.querySelectorAll('[data-trace-filter]').forEach(function (b) {
+      b.classList.toggle('active', b === btn);
+    });
+    document.querySelectorAll('.trace-row').forEach(function (row) {
+      var show = want === ''
+        || (want === 'tool' && row.dataset.kind === 'tool')
+        || (want === 'failed' && row.dataset.failed === 'true');
+      row.hidden = !show;
+    });
+  });
+});
