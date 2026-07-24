@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["anthropic[vertex]>=0.40"]
+# dependencies = ["anthropic[vertex]>=0.40", "openai>=1.40"]
 # ///
 """Coaster design head-to-head: two Claude models iteratively design a coaster.
 
@@ -25,6 +25,16 @@ Usage (Google Vertex AI; auth via `gcloud auth application-default login`):
 
 Vertex model IDs for current-generation models are the bare first-party
 strings (claude-opus-4-6, claude-sonnet-5) — no prefix, no @date suffix.
+
+Usage (any OpenAI-compatible endpoint, e.g. a local vLLM server):
+  vllm serve Qwen/Qwen2.5-7B-Instruct --enable-auto-tool-choice ...
+  uv run evals/driver.py --base-url http://localhost:8000/v1 \
+      --models Qwen/Qwen2.5-7B-Instruct --rounds 4 --no-graphics
+
+--no-graphics runs the game without RCT2 assets (design mode only): the
+scenario defaults to a checked-in test park, feedback is the eval report
+alone (no park screenshot), and the similarity penalty is inert because
+there is no stock library to compare against.
 """
 
 from __future__ import annotations
@@ -47,6 +57,34 @@ REPO = Path(__file__).resolve().parent.parent
 CLI = REPO / "build" / "openrct2-cli"
 DEFAULT_SCENARIO = Path.home() / "rct2-assets" / "Scenarios" / "Build your own Six Flags Park.SC6"
 RCT2_DATA = Path.home() / "rct2-assets"
+# Assetless default: a checked-in upstream test park (large, mostly-open flat
+# grass, cash-rich) that loads and builds with only the bundled JSON objects.
+CI_SCENARIO = REPO / "test" / "tests" / "testdata" / "parks" / "BigMapTest.sv6"
+
+MAP_LINES = {
+    DEFAULT_SCENARIO.name: (
+        "Flat grass around tile (60, 60); a lake sits near map centre roughly tiles (68-85, 55-75) — do NOT "
+        "build into it. Stay within tiles 20-120. Directions: dir 0 faces -x, dir 1 faces +y, dir 2 faces +x, "
+        "dir 3 faces -y."
+    ),
+    CI_SCENARIO.name: (
+        "A large park: flat open grass across roughly tiles 30-190 on both axes, with scattered existing "
+        "rides and footpaths (placement errors will name what is in the way; shift a few tiles and retry). "
+        "Flat grass around tile (60, 60) is a good anchor. Directions: dir 0 faces -x, dir 1 faces +y, "
+        "dir 2 faces +x, dir 3 faces -y."
+    ),
+}
+
+# Set from --no-graphics in main(): the game loads no sprite data, so no RCT2
+# assets are needed and nothing can render (no screenshots, no previews).
+NO_GRAPHICS = False
+
+
+def rct2_args() -> list[str]:
+    """The eval CLI either loads the RCT2 install or runs assetless."""
+    if NO_GRAPHICS:
+        return ["--no-graphics"]
+    return ["--rct2-data-path", str(RCT2_DATA)]
 
 PIECE_CATALOG = """
 Station (required, place these FIRST, 3+ in a row): begin_station, middle_station, end_station
@@ -92,9 +130,14 @@ def ride_type_info(ride_type: int) -> tuple[str, str]:
     return name, line + " This is the required type for this competition."
 
 
-def build_system_prompt(ride_type: int) -> str:
+def build_system_prompt(ride_type: int, scenario: Path) -> str:
     _, ride_line = ride_type_info(ride_type)
-    return SYSTEM_PROMPT.replace("{RIDE_TYPE_LINE}", ride_line)
+    map_line = MAP_LINES.get(
+        scenario.name,
+        "Terrain unknown; flat grass around tile (60, 60) is a reasonable first bet. Use validation "
+        "errors to find open ground. Directions: dir 0 faces -x, dir 1 faces +y, dir 2 faces +x, dir 3 faces -y.",
+    )
+    return SYSTEM_PROMPT.replace("{RIDE_TYPE_LINE}", ride_line).replace("{MAP_LINE}", map_line)
 
 
 SYSTEM_PROMPT = f"""You are competing to design the best RollerCoaster Tycoon 2 roller coaster.
@@ -124,7 +167,7 @@ Your track is also compared against the stock RCT2 track design library (mirrore
 {PIECE_CATALOG}
 
 ## Map
-Flat grass around tile (60, 60); a lake sits near map centre roughly tiles (68-85, 55-75) — do NOT build into it. Stay within tiles 20-120. Directions: dir 0 faces -x, dir 1 faces +y, dir 2 faces +x, dir 3 faces -y.
+{{MAP_LINE}}
 
 Before submitting, use the validate_track_program tool (same payload) to dry-run your program: it reports placement errors with the exact piece index, or whether the circuit closes, without spending your round. You get a limited number of validations per round, use them to fix geometry, then submit.
 
@@ -290,12 +333,12 @@ def run_eval(program: dict, scenario: Path, workdir: Path, ticks: int) -> tuple[
     cmd = [
         str(CLI), "eval", str(scenario),
         "--ticks", str(ticks),
-        "--rct2-data-path", str(RCT2_DATA),
+        *rct2_args(),
         "--program", str(program_path),
         "--out", str(report_path),
-        "--capture", str(capture_path),
-        "--capture-xray",
     ]
+    if not NO_GRAPHICS:
+        cmd += ["--capture", str(capture_path), "--capture-xray"]
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
     if not report_path.exists():
         return {"program": {"ok": False, "error": {"message": f"eval crashed: {proc.stderr[-500:]}"}}}, None
@@ -345,7 +388,7 @@ def validate_program(program: dict, scenario: Path) -> str:
             [
                 str(CLI), "eval", str(scenario),
                 "--ticks", "5",
-                "--rct2-data-path", str(RCT2_DATA),
+                *rct2_args(),
                 "--program", str(program_path),
                 "--out", str(report_path),
             ],
@@ -495,8 +538,142 @@ def feedback_content(attempt: Attempt) -> list[dict]:
     return content
 
 
+@dataclass
+class ToolUseBlock:
+    id: str
+    name: str
+    input: dict
+    type: str = "tool_use"
+
+
+@dataclass
+class TextBlock:
+    text: str
+    type: str = "text"
+
+
+@dataclass
+class _Usage:
+    input_tokens: int
+    output_tokens: int
+
+
+@dataclass
+class _Response:
+    content: list
+    usage: _Usage
+
+
+def _to_openai(message: dict) -> list[dict]:
+    """One anthropic-form history entry -> the OpenAI messages it becomes.
+
+    The driver only ever builds three shapes: a plain-string user message, a
+    user message holding tool_result blocks, and an assistant message whose
+    content is the block list a previous create() returned.
+    """
+    role = message["role"]
+    content = message["content"]
+    if role == "assistant":
+        text = "".join(b.text for b in content if b.type == "text")
+        calls = [
+            {"id": b.id, "type": "function", "function": {"name": b.name, "arguments": json.dumps(b.input)}}
+            for b in content
+            if b.type == "tool_use"
+        ]
+        msg: dict = {"role": "assistant", "content": text or None}
+        if calls:
+            msg["tool_calls"] = calls
+        return [msg]
+    if isinstance(content, str):
+        return [{"role": "user", "content": content}]
+    out: list[dict] = []
+    images: list[str] = []
+    for block in content:
+        if not isinstance(block, dict) or block.get("type") != "tool_result":
+            continue
+        inner = block.get("content")
+        texts: list[str] = []
+        if isinstance(inner, str):
+            texts.append(inner)
+        else:
+            for part in inner or []:
+                if part.get("type") == "text":
+                    texts.append(part["text"])
+                elif part.get("type") == "image":
+                    images.append(part["source"]["data"])
+        out.append(
+            {"role": "tool", "tool_call_id": block["tool_use_id"], "content": "\n".join(texts) or "(no text)"}
+        )
+    for data in images:
+        # OpenAI tool messages are text-only; a park screenshot rides along
+        # as a follow-up user message instead.
+        out.append(
+            {
+                "role": "user",
+                "content": [{"type": "image_url", "image_url": {"url": f"data:image/png;base64,{data}"}}],
+            }
+        )
+    return out
+
+
+class OpenAICompat:
+    """Anthropic-messages-shaped facade over an OpenAI chat-completions
+    endpoint (vLLM serve, llama.cpp, OpenRouter, ...). compete() only touches
+    client.messages.create, response.content, and response.usage, so the tool
+    loop stays identical across lanes. Named and required tool_choice both map
+    onto the endpoint's structured-output support (vLLM: guided decoding via
+    --enable-auto-tool-choice)."""
+
+    def __init__(self, base_url: str, api_key: str):
+        import openai
+
+        self._client = openai.OpenAI(base_url=base_url, api_key=api_key)
+        self.messages = self  # so client.messages.create(...) resolves here
+
+    def create(self, *, model: str, max_tokens: int, system: str, messages: list[dict], tools: list[dict], tool_choice: dict) -> _Response:
+        payload: list[dict] = [{"role": "system", "content": system}]
+        for message in messages:
+            payload.extend(_to_openai(message))
+        oa_tools = [
+            {
+                "type": "function",
+                "function": {"name": t["name"], "description": t.get("description", ""), "parameters": t["input_schema"]},
+            }
+            for t in tools
+        ]
+        oa_choice: str | dict = (
+            {"type": "function", "function": {"name": tool_choice["name"]}}
+            if tool_choice.get("type") == "tool"
+            else "required"
+        )
+        resp = self._client.chat.completions.create(
+            model=model,
+            max_tokens=max_tokens,
+            messages=payload,
+            tools=oa_tools,
+            tool_choice=oa_choice,
+        )
+        choice = resp.choices[0].message
+        content: list = []
+        if choice.content:
+            content.append(TextBlock(text=choice.content))
+        for call in choice.tool_calls or []:
+            try:
+                args = json.loads(call.function.arguments or "{}")
+            except json.JSONDecodeError:
+                args = {}
+            content.append(ToolUseBlock(id=call.id, name=call.function.name, input=args))
+        if not any(b.type == "tool_use" for b in content):
+            raise RuntimeError(f"{model} returned no tool call despite tool_choice={oa_choice!r}")
+        usage = resp.usage
+        return _Response(
+            content=content,
+            usage=_Usage(usage.prompt_tokens if usage else 0, usage.completion_tokens if usage else 0),
+        )
+
+
 def compete(
-    client: anthropic.Anthropic | anthropic.AnthropicVertex,
+    client: anthropic.Anthropic | anthropic.AnthropicVertex | OpenAICompat,
     model: str,
     rounds: int,
     scenario: Path,
@@ -507,7 +684,7 @@ def compete(
 ) -> Contender:
     contender = Contender(model=model)
     ride_name, _ = ride_type_info(ride_type)
-    system_prompt = build_system_prompt(ride_type) + (LIBRARY_PROMPT if library is not None else "")
+    system_prompt = build_system_prompt(ride_type, scenario) + (LIBRARY_PROMPT if library is not None else "")
     tools = [TOOL, VALIDATE_TOOL] + (LIBRARY_TOOLS if library is not None else [])
     messages: list[dict] = [
         {
@@ -608,6 +785,17 @@ def main() -> int:
     parser.add_argument("--scenario", type=Path, default=DEFAULT_SCENARIO)
     parser.add_argument("--vertex", action="store_true", help="use Google Vertex AI instead of the first-party API")
     parser.add_argument(
+        "--base-url",
+        help="OpenAI-compatible endpoint (e.g. a vLLM server: http://localhost:8000/v1); "
+        "auth from $OPENAI_API_KEY, defaulting to 'EMPTY' for local servers",
+    )
+    parser.add_argument(
+        "--no-graphics",
+        action="store_true",
+        help="run the game without RCT2 assets (design mode only): no screenshots in "
+        "feedback and no stock library, so the similarity penalty is inert",
+    )
+    parser.add_argument(
         "--project",
         default=os.environ.get("ANTHROPIC_VERTEX_PROJECT_ID"),
         help="GCP project id (default: $ANTHROPIC_VERTEX_PROJECT_ID)",
@@ -626,6 +814,19 @@ def main() -> int:
 
     if not CLI.exists():
         print(f"error: {CLI} not built", file=sys.stderr)
+        return 1
+    if args.no_graphics:
+        if args.mode == "library":
+            print("error: library mode needs the RCT2 track designs; --no-graphics is design mode only", file=sys.stderr)
+            return 1
+        global NO_GRAPHICS
+        NO_GRAPHICS = True
+        if args.scenario == DEFAULT_SCENARIO:
+            # The graphics-lane default lives in the RCT2 install; assetless
+            # runs default to the checked-in test park instead.
+            args.scenario = CI_SCENARIO
+    if args.vertex and args.base_url:
+        print("error: pick one of --vertex and --base-url", file=sys.stderr)
         return 1
     if not args.scenario.exists():
         print(f"error: scenario not found: {args.scenario}", file=sys.stderr)
@@ -652,6 +853,8 @@ def main() -> int:
                 "ticks": args.ticks,
                 "ride_type": args.ride_type,
                 "scenario": args.scenario.name,
+                "no_graphics": args.no_graphics,
+                **({"endpoint": args.base_url} if args.base_url else {}),
                 # The site reads the penalty parameters from here; keep the
                 # driver the single source of truth for the scoring math.
                 "similarity_grace": SIMILARITY_GRACE,
@@ -660,7 +863,9 @@ def main() -> int:
         )
     )
 
-    if args.vertex:
+    if args.base_url:
+        client = OpenAICompat(args.base_url, os.environ.get("OPENAI_API_KEY", "EMPTY"))
+    elif args.vertex:
         # Auth is GCP application-default credentials, not an Anthropic key.
         kwargs = {"region": args.region}
         if args.project:

@@ -1,0 +1,57 @@
+# CoasterBench game image for CI: openrct2-cli with the Rust agent bridge,
+# headless-only, zero RCT2 assets (runs eval/MCP with --no-graphics).
+#
+# The image is CPU-only and small (~hundreds of MB); build it once, push to a
+# registry, and pin the digest in CI. The model under test runs elsewhere
+# (e.g. `vllm serve` in a sibling container); this container only hosts the
+# game as an MCP server or batch eval.
+#
+#   docker build -f evals/ci/Dockerfile -t coasterbench-game .
+#   docker run --rm -p 8791:8791 coasterbench-game \
+#       openrct2-cli eval /opt/coasterbench/BigMapTest.sv6 --no-graphics \
+#       --serve 8791 --serve-bind 0.0.0.0
+#
+# NOTE: draft — authored on macOS, not yet exercised on a Linux builder.
+
+FROM ubuntu:24.04 AS build
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential cmake ninja-build git curl ca-certificates pkg-config \
+        libpng-dev libzip-dev libssl-dev libcurl4-openssl-dev libicu-dev \
+        nlohmann-json3-dev libflac-dev libogg-dev libvorbis-dev libzstd-dev \
+        libbz2-dev duktape-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Rust toolchain for the agent staticlib (corrosion drives cargo from CMake).
+RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
+ENV PATH=/root/.cargo/bin:$PATH
+
+COPY . /src
+
+# Headless CLI only: no SDL/OpenGL/UI. TTF and audio downloads are dead weight
+# for an assetless eval. DOWNLOAD_OBJECTS stays ON: the bundled JSON object
+# pack (~11 MB) is what lets parks load without any RCT2 install.
+RUN cmake -S /src -B /build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+        -DDISABLE_GUI=ON \
+        -DDISABLE_TTF=ON \
+        -DDISABLE_DISCORD_RPC=ON \
+        -DDISABLE_VERSION_CHECKER=ON \
+        -DDOWNLOAD_OPENSFX=OFF \
+        -DDOWNLOAD_OPENMUSIC=OFF \
+        -DDOWNLOAD_TITLE_SEQUENCES=OFF \
+    && cmake --build /build \
+    && DESTDIR=/stage cmake --install /build --prefix /usr
+
+FROM ubuntu:24.04
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libpng16-16t64 libzip4t64 libicu74 libcurl4t64 libssl3t64 \
+        libflac12t64 libvorbisfile3 libzstd1 ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=build /stage/usr /usr
+# The checked-in assetless scenario, so the container is self-contained.
+COPY test/tests/testdata/parks/BigMapTest.sv6 /opt/coasterbench/
+
+EXPOSE 8791
+CMD ["openrct2-cli", "eval", "/opt/coasterbench/BigMapTest.sv6", "--no-graphics", "--serve", "8791", "--serve-bind", "0.0.0.0"]
