@@ -1,0 +1,77 @@
+name: CoasterBench CI
+on:
+  push:
+    branches: [eval]
+  pull_request:
+  workflow_dispatch:
+
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: ci-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  rust:
+    name: Rust (${{ matrix.crate }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        crate: [orct2-agent, coaster-bench, coaster-site]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust/${{ matrix.crate }}
+      - name: Format
+        run: cargo fmt --check --manifest-path rust/${{ matrix.crate }}/Cargo.toml
+      - name: Clippy
+        run: cargo clippy --manifest-path rust/${{ matrix.crate }}/Cargo.toml --all-targets --all-features -- -D warnings
+      - name: Test
+        run: cargo test --manifest-path rust/${{ matrix.crate }}/Cargo.toml
+
+  game:
+    name: Game + CLI (Linux)
+    runs-on: ubuntu-24.04
+    # Upstream's build image already has every C++ dependency; we only add Rust,
+    # which the agent staticlib needs (Corrosion builds it during cmake).
+    container: ghcr.io/openrct2/openrct2-build:26-noble
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust/orct2-agent
+      - uses: hendrikmuhs/ccache-action@v1.2.21
+        with:
+          key: linux-x86_64-coasterbench
+      - name: Build
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DENABLE_RUST_AGENT=ON \
+            -DWITH_TESTS=OFF \
+            -DDISABLE_DISCORD_RPC=ON
+          cmake --build build --target openrct2-cli
+
+  site:
+    name: Site generator
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust/coaster-site
+      # The real deploy lives in coasterbench-site.yml; this only proves every
+      # committed run still renders.
+      - name: Build site
+        run: cargo run --manifest-path rust/coaster-site/Cargo.toml
