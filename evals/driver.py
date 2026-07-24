@@ -749,6 +749,15 @@ def compete(
                 print(f"  [{model}] round {rnd}: {tool_use.name}({json.dumps(tool_use.input)})", flush=True)
                 result, lookup = library_tool_result(tool_use.name, tool_use.input, library or [])
                 lookups.append(lookup)
+            if step + 1 >= MAX_LOOKUPS_PER_ROUND:
+                # Named tool_choice is advisory on some stacks, so forcing has
+                # to happen in-band too: agentic models otherwise keep
+                # validating forever instead of ever submitting.
+                result += (
+                    "\n\nVALIDATION BUDGET EXHAUSTED: you must now call "
+                    "submit_track_program with your best current program. Do not "
+                    "call any other tool."
+                )
             messages.append(
                 {
                     "role": "user",
