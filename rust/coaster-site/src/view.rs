@@ -57,6 +57,9 @@ pub struct Chrome {
     /// Defaults to the shared `og-card.png`; run/model/compare pages set their
     /// own so the preview shows the coaster the page is actually about.
     pub og_card: String,
+    /// Per-page unfurl description; falls back to the site tagline. Matchup
+    /// permalinks set the specific "A vs B" line here.
+    pub description: Option<String>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -76,6 +79,7 @@ impl Chrome {
             width: Width::Prose,
             needs_mermaid: false,
             og_card: "og-card.png".to_string(),
+            description: None,
         }
     }
 
@@ -88,6 +92,17 @@ impl Chrome {
     pub fn og_card(mut self, card: &str) -> Self {
         self.og_card = card.to_string();
         self
+    }
+
+    /// Override the unfurl description (og:description) for this page.
+    pub fn description(mut self, desc: &str) -> Self {
+        self.description = Some(desc.to_string());
+        self
+    }
+
+    /// The unfurl description: per-page override, else the site tagline.
+    pub fn og_description(&self) -> &str {
+        self.description.as_deref().unwrap_or(TAGLINE)
     }
 
     pub fn with_mermaid(mut self) -> Self {

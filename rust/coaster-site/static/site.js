@@ -253,6 +253,11 @@ document.querySelectorAll('[data-trace-filter]').forEach(function (btn) {
       + ' excitement (+' + Math.abs(sa - sb).toFixed(2) + ').';
   }
 
+  // Each matchup has a pre-generated permalink page (compare-<a>.vs.<b>.html)
+  // carrying its own og:image, so a copied address-bar URL unfurls with the
+  // right coasters. Crawlers can't run this JS, hence the static file per pair.
+  function permalink(aId, bId) { return 'compare-' + aId + '.vs.' + bId + '.html'; }
+
   function render() {
     var a = byId[selects.a.value], b = byId[selects.b.value];
     if (!a || !b || a.id === b.id) { result.innerHTML = ''; return; }
@@ -261,10 +266,9 @@ document.querySelectorAll('[data-trace-filter]').forEach(function (btn) {
       + '<p class="vs-verdict">' + verdict(a, b) + '</p>'
       + '<div class="vs-metrics">' + METRICS.map(function (m) { return bar(m, a, b); }).join('') + '</div>'
       + '<div class="vs-spark-wrap"><span class="dim">excitement per round</span>' + spark(a, b) + '</div>';
-    var url = new URL(window.location);
-    url.searchParams.set('a', a.id);
-    url.searchParams.set('b', b.id);
-    history.replaceState(null, '', url);
+    // Point the address bar at this matchup's static permalink, which carries
+    // its own og:image. Old ?a=&b= deep links still resolve via the load path.
+    history.replaceState(null, '', permalink(a.id, b.id));
   }
 
   // Reflect A's pick, refill B to A's scenario, then render.

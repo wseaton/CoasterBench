@@ -707,42 +707,105 @@ fn default_pair(contenders: &[view::Contender]) -> (String, String) {
     }
 }
 
+/// The filename stem shared by a matchup's permalink page and its card, so the
+/// Rust side and site.js agree on the URL. Ids are already file-safe.
+fn pair_slug(a_id: &str, b_id: &str) -> String {
+    format!("{a_id}.vs.{b_id}")
+}
+
+/// Draws a matchup card (a on the left, b on the right, winner badged gold) to
+/// `filename`, reusing the contenders' thumbnails. None when either lacks art.
+fn write_matchup_card(
+    a: &view::Contender,
+    b: &view::Contender,
+    out: &Path,
+    filename: &str,
+) -> Result<Option<String>> {
+    let (Some(la), Some(rp)) = (a.thumb.as_ref(), b.thumb.as_ref()) else {
+        return Ok(None);
+    };
+    // Crown the higher score. A tie, or two unrated coasters, crowns nobody.
+    let (a_wins, b_wins) = match (a.score, b.score) {
+        (Some(x), Some(y)) if x > y => (true, false),
+        (Some(x), Some(y)) if y > x => (false, true),
+        (Some(_), None) => (true, false),
+        (None, Some(_)) => (false, true),
+        _ => (false, false),
+    };
+    images::write_compare_card(
+        &a.coaster,
+        &a.mode,
+        &images::CardSide {
+            shot: &out.join(la),
+            model: &a.model,
+            score: a.score,
+            winner: a_wins,
+        },
+        &images::CardSide {
+            shot: &out.join(rp),
+            model: &b.model,
+            score: b.score,
+            winner: b_wins,
+        },
+        &out.join(filename),
+    )?;
+    Ok(Some(filename.to_string()))
+}
+
+/// One matchup permalink: the interactive picker defaulted to this pair, with
+/// its own unfurl card and description so a shared link previews the right
+/// fight. All variants embed the same contender list (`json`, `count`).
+#[allow(clippy::too_many_arguments)]
+fn write_compare_variant(
+    json: &str,
+    count: usize,
+    a: &view::Contender,
+    b: &view::Contender,
+    page_path: &str,
+    card_name: Option<&str>,
+    base_url: Option<&str>,
+    out: &Path,
+) -> Result<()> {
+    let mut chrome = Chrome::new(
+        &format!("Coaster Evals — {} vs {}", a.model, b.model),
+        "HEAD TO HEAD",
+        page_path,
+        base_url,
+    )
+    .width(view::Width::Mid)
+    .description(&format!(
+        "{} vs {} — {} · {} mode. Head-to-head on CoasterBench.",
+        a.model, b.model, a.coaster, a.mode
+    ));
+    if let Some(card) = card_name {
+        chrome = chrome.og_card(card);
+    }
+    write_page(
+        &out.join(page_path),
+        &view::ComparePage {
+            chrome,
+            contenders_json: json.to_string(),
+            default_a: a.id.clone(),
+            default_b: b.id.clone(),
+            count,
+        }
+        .render()?,
+    )
+}
+
 fn build_compare_page(
     contenders: &[view::Contender],
     base_url: Option<&str>,
     out: &Path,
 ) -> Result<()> {
-    let (default_a, default_b) = default_pair(contenders);
-    // Draw the default matchup's two coasters into one head-to-head card. The
-    // thumbnails were already written by contenders(), so reuse them as the
-    // panel art (crisp enough upscaled for a half-width panel).
+    let json = serde_json::to_string(contenders)?;
+    let count = contenders.len();
     let by_id = |id: &str| contenders.iter().find(|c| c.id == id);
-    let card = match (by_id(&default_a), by_id(&default_b)) {
-        (Some(a), Some(b)) => match (a.thumb.as_ref(), b.thumb.as_ref()) {
-            (Some(la), Some(rp)) => {
-                // Highlight whichever coaster actually scored higher.
-                let a_wins = a.score.unwrap_or(0.0) >= b.score.unwrap_or(0.0);
-                images::write_compare_card(
-                    &a.coaster,
-                    &a.mode,
-                    &images::CardSide {
-                        shot: &out.join(la),
-                        model: &a.model,
-                        score: a.score,
-                        winner: a_wins,
-                    },
-                    &images::CardSide {
-                        shot: &out.join(rp),
-                        model: &b.model,
-                        score: b.score,
-                        winner: !a_wins,
-                    },
-                    &out.join("og-compare.png"),
-                )?;
-                Some("og-compare.png")
-            }
-            _ => None,
-        },
+
+    // The hub page: the default matchup, its card, and the picker.
+    let (default_a, default_b) = default_pair(contenders);
+    let hub_card = match (by_id(&default_a), by_id(&default_b)) {
+        (Some(a), Some(b)) => write_matchup_card(a, b, out, "og-compare.png")?,
         _ => None,
     };
     let mut chrome = Chrome::new(
@@ -752,17 +815,47 @@ fn build_compare_page(
         base_url,
     )
     .width(view::Width::Mid);
-    if let Some(card) = card {
-        chrome = chrome.og_card(card);
+    if let Some(card) = hub_card {
+        chrome = chrome.og_card(&card);
     }
-    let page = view::ComparePage {
-        chrome,
-        contenders_json: serde_json::to_string(contenders)?,
-        default_a,
-        default_b,
-        count: contenders.len(),
-    };
-    write_page(&out.join("compare.html"), &page.render()?)
+    write_page(
+        &out.join("compare.html"),
+        &view::ComparePage {
+            chrome,
+            contenders_json: json.clone(),
+            default_a,
+            default_b,
+            count,
+        }
+        .render()?,
+    )?;
+
+    // A permalink page + card for every ordered same-scenario matchup, so a
+    // shared `compare-<a>.vs.<b>.html` unfurls with that exact pairing. The
+    // picker only allows same-scenario fights, so those are the only reachable
+    // deep links. Ordered (a left, b right) to match the URL and the swap.
+    let scenario = |c: &view::Contender| (c.coaster.clone(), c.mode.clone());
+    for a in contenders {
+        for b in contenders {
+            if a.id == b.id || scenario(a) != scenario(b) {
+                continue;
+            }
+            let slug = pair_slug(&a.id, &b.id);
+            let card_name = format!("og-compare-{slug}.png");
+            let card = write_matchup_card(a, b, out, &card_name)?;
+            write_compare_variant(
+                &json,
+                count,
+                a,
+                b,
+                &format!("compare-{slug}.html"),
+                card.as_deref(),
+                base_url,
+                out,
+            )?;
+        }
+    }
+    Ok(())
 }
 
 fn facets(runs: &[EvalRun]) -> Vec<Facet> {
@@ -880,9 +973,18 @@ fn clean_output(out: &Path) -> Result<()> {
     if assets.is_dir() {
         std::fs::remove_dir_all(&assets)?;
     }
+    // Drop every .html and every generated og-*.png card. The per-matchup
+    // cards/pages are keyed on contender ids, so a removed run would otherwise
+    // leave orphans; all live ones are rewritten this build.
     for entry in std::fs::read_dir(out)?.flatten() {
-        if entry.path().extension().is_some_and(|e| e == "html") {
-            std::fs::remove_file(entry.path())?;
+        let path = entry.path();
+        let is_html = path.extension().is_some_and(|e| e == "html");
+        let is_og_card = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(|n| n.starts_with("og-") && n.ends_with(".png"));
+        if is_html || is_og_card {
+            std::fs::remove_file(path)?;
         }
     }
     Ok(())
