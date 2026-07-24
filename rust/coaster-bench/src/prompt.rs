@@ -18,8 +18,10 @@ pub fn round_prompt(
     rounds: u32,
     previous_feedback: Option<&str>,
     modalities: Modalities,
+    budget_secs: u64,
 ) -> String {
     let name = ride_name(ride_type);
+    let budget_mins = budget_secs / 60;
     // Models that can't take images get an MCP endpoint with screenshot
     // stripped, so the tool list must not advertise it either.
     let screenshot = if modalities.contains(Modalities::IMAGE) {
@@ -49,7 +51,8 @@ This is round {round} of {rounds}. You build interactively through the "coaster"
 - piece_geometry(dir): exact cursor delta (tiles, z, direction, bank, slope) for every piece from a given direction. Use this to PLAN closure.
 - undo_piece(): remove the last piece.
 - get_state(): cursor, start, pieces placed, circuit_closed.
-- finish_and_test(ticks?): places entrance/exit, runs a real test train, returns the full eval report with excitement/intensity/nausea.{screenshot}
+- finish_and_test(ticks?): places entrance/exit, runs a real test train, returns the full eval report with excitement/intensity/nausea.
+- best_result(): the highest-excitement finish_and_test from this round so far. Your score is this, not your latest build.{screenshot}
 - demolish(): tear down and start over (then new_ride again).
 
 ## Rules
@@ -65,10 +68,15 @@ This is round {round} of {rounds}. You build interactively through the "coaster"
 1. Plan a layout, then new_ride and build with place_pieces in chunks.
 2. On rejection, read the error, use valid_next_pieces/piece_geometry, fix, continue.
 3. Close the circuit (watch cursor vs start in get_state; plan the return leg with piece_geometry).
-4. finish_and_test, read the report. If time permits, demolish and rebuild better.
-5. End your session with a one-line summary of your final coaster and its excitement.
+4. finish_and_test as soon as you have a closed circuit, so you bank a score early.
+5. Only then experiment: demolish and rebuild to beat it. A worse or unfinished rebuild costs nothing, because best_result keeps your highest score.
+6. End with a one-line summary of your best coaster and its excitement.
 
-Maximise excitement. The last finish_and_test result of this session is your round score.
+## Budget
+You have about {budget_mins} minutes of wall-clock this round, then the session is cut off.
+Get a working, tested circuit banked EARLY; do not spend the whole budget on one perfect build.
+Your score is your best finish_and_test of the round (see best_result), not your final build,
+so it is always safe to stop once you are happy.
 {feedback}"#
     )
 }
@@ -77,9 +85,13 @@ Maximise excitement. The last finish_and_test result of this session is your rou
 mod tests {
     use super::*;
 
+    fn both() -> Modalities {
+        Modalities::TEXT | Modalities::IMAGE
+    }
+
     #[test]
     fn twister_prompt_mentions_inversions_allowed() {
-        let p = round_prompt(51, 1, 6, None, Modalities::TEXT | Modalities::IMAGE);
+        let p = round_prompt(51, 1, 6, None, both(), 1800);
         assert!(p.contains("ALLOWED"));
         assert!(p.contains("ride_type 51"));
         assert!(p.contains("round 1 of 6"));
@@ -87,29 +99,30 @@ mod tests {
 
     #[test]
     fn wooden_prompt_forbids_inversions() {
-        assert!(
-            round_prompt(52, 2, 4, None, Modalities::TEXT | Modalities::IMAGE)
-                .contains("NOT support")
-        );
+        assert!(round_prompt(52, 2, 4, None, both(), 1800).contains("NOT support"));
     }
 
     #[test]
     fn feedback_is_included_when_present() {
-        let p = round_prompt(
-            51,
-            2,
-            6,
-            Some("{\"excitement\": 5.0}"),
-            Modalities::TEXT | Modalities::IMAGE,
-        );
+        let p = round_prompt(51, 2, 6, Some("{\"excitement\": 5.0}"), both(), 1800);
         assert!(p.contains("Previous round result"));
         assert!(p.contains("excitement"));
     }
 
     #[test]
     fn text_only_prompt_omits_the_screenshot_tool() {
-        let p = round_prompt(52, 1, 6, None, Modalities::TEXT);
+        let p = round_prompt(52, 1, 6, None, Modalities::TEXT, 1800);
         assert!(!p.contains("screenshot"));
         assert!(p.contains("demolish()"), "other tools still listed");
+    }
+
+    #[test]
+    fn budget_is_stated_in_minutes() {
+        let p = round_prompt(51, 1, 6, None, both(), 1800);
+        assert!(p.contains("30 minutes"), "1800s -> 30 minutes");
+        assert!(
+            p.contains("best_result"),
+            "wrap-up guidance points at the tool"
+        );
     }
 }

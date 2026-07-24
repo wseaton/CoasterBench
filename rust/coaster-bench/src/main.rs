@@ -662,6 +662,7 @@ fn main() -> Result<(), String> {
                 args.rounds,
                 None,
                 Modalities::TEXT | Modalities::IMAGE,
+                args.session_timeout,
             )
         );
         return Ok(());
@@ -758,6 +759,7 @@ fn main() -> Result<(), String> {
                 args.rounds,
                 feedback.as_deref(),
                 contender.modalities,
+                args.session_timeout,
             );
             // Created up front: the session streams its logs in here while it
             // runs, so `tail -f` works on a round in progress.
