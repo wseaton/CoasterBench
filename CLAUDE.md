@@ -77,6 +77,13 @@ Non-bundled binaries look for `data/` next to the exe. One-time setup:
 - Entrance/exit are brute-force auto-placed next to station tiles (game
   validation is the oracle). Testing status requires them.
 - Direction semantics: dir 0 faces -x, 1 +y, 2 +x, 3 -y. Cursor z step 16.
+- Placement is NOT a sufficient oracle for drawability: TrackPlaceAction never
+  checks the ride's enabled track groups (that gate only feeds the construction
+  window), so pieces the ride style has no artwork for build and rate fine and
+  render as nothing (wooden RC + 1-tile flat<->60 transitions is the classic
+  case). `CheckPieceDrawable` in RustBridge.cpp gates place and query against
+  the renderer's own dispatch (GetTrackPaintFunction vs TrackPaintFunctionDummy).
+  See issue #1 and the readme war story.
 - Stalls never get ratings (RatingsCalculationType::Stall); tracked rides need
   a completed test circuit (RideFlag::tested) before ratings compute.
 - Head-to-head driver: `uv run evals/driver.py` (needs ANTHROPIC_API_KEY, or

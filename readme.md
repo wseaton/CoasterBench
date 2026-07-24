@@ -35,7 +35,8 @@ The agent has no filesystem or repository access. Its only interface is the tool
 set the game exposes over the Model Context Protocol (MCP), an open standard for
 connecting models to external tools. All state changes pass through
 `GameActions::Execute`, the validation path used by the game's own plugins, so
-the harness accepts exactly the placements the game accepts.
+the harness accepts the placements the game accepts, minus one class the game
+accepts but cannot draw (see [War stories](#war-stories)).
 
 ## Repository layout
 
@@ -232,6 +233,45 @@ Upstream's release, packaging, and translation workflows are removed in this
 fork. The fork rebases onto upstream `develop` regularly, so modifications to
 existing OpenRCT2 files are kept minimal and mechanical, with new code in
 separate directories.
+
+## War stories
+
+### Track that builds, tests, rates, and renders as nothing
+
+Some runs produced park screenshots with long stretches of the coaster simply
+absent: no track, no supports, grass where a ride had just been rated. The ride
+was continuous by every measure the game reports, and the gaps moved when the
+view was rotated, which pointed at the painter.
+
+It was not the painter. Instrumenting the paint path showed every track tile
+visited and painted, every created paint struct drawn (1166 of 1166, nothing
+lost in quadrant sorting), and no change when creation-time culling was
+disabled outright. What did show up: 32 tiles whose paint function was called
+and emitted nothing. Sixteen were legitimate — the empty filler sequences of
+banked five-tile turns and large helices have no sprites by design. The other
+sixteen were exactly the program's sixteen one-tile flat↔60° transitions on a
+wooden coaster.
+
+RCT2 only ever drew the three-tile long-base steep transitions for wooden
+coasters, so the wooden paint dispatch has no case for the one-tile versions
+and returns `TrackPaintFunctionDummy`, which draws nothing. The ride type's
+descriptor agrees: `flatToSteepSlope` is not among its track groups, so the
+in-game construction window will never offer those pieces. But that gate feeds
+only the window. `TrackPlaceAction` never consults it, so programmatic
+placement is accepted, and the physics rates the result happily because ratings
+read the track element descriptor rather than the artwork. The same hole is
+reachable without this harness: the ride-type-change cheat rewrites every
+piece's ride type with no drawability check, and plugins call the same
+unchecked action.
+
+The harness now asks the renderer's own dispatch whether a piece can be drawn
+before placing or offering it, so a model that reaches for an undrawable piece
+gets a clear rejection instead of an invisible ride. Details in
+[issue #1](https://github.com/wseaton/CoasterBench/issues/1).
+
+The lesson generalises past this fork: "the game accepted it" is a weaker
+oracle than it sounds. Validation, simulation, and rendering are three separate
+authorities in RCT2, and they disagree.
 
 ## Licence
 

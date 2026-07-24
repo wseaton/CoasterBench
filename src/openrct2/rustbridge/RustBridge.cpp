@@ -41,6 +41,7 @@
     #include "../ride/RideManager.hpp"
     #include "../ride/RideRatings.h"
     #include "../ride/TrackData.h"
+    #include "../ride/TrackStyle.h"
     #include "../ride/TrackDesign.h"
     #include "../ride/TrackDesignRepository.h"
     #include "../ride/ted/TrackElemType.h"
@@ -236,6 +237,31 @@ namespace
         return true;
     }
 
+    // TrackPlaceAction also never checks whether the ride type can *draw* the
+    // piece: the enabled-track-group gate only feeds the construction window,
+    // so a piece the ride style has no artwork for places fine, rates fine, and
+    // then paints nothing at all (no track, no supports) because the paint
+    // dispatch falls through to TrackPaintFunctionDummy. Wooden coasters and
+    // the 1-tile flat<->60 transitions are the classic case. Ask the same
+    // dispatch the renderer uses rather than the ride's track groups: the
+    // groups also gate pieces that draw perfectly well.
+    bool CheckPieceDrawable(const Ride& ride, TrackElemType trackType, char* err, size_t errLen)
+    {
+        const auto& rtd = ride.getRideTypeDescriptor();
+        const auto drawerEntry = getTrackDrawerEntry(rtd, false, trackTypeIsCovered(trackType));
+        auto& paintFunction = GetTrackPaintFunction(
+            drawerEntry.trackStyle, uncoverTrackType(trackType));
+        if (&paintFunction != &TrackPaintFunctionDummy)
+        {
+            return true;
+        }
+        CopyError(
+            err, errLen,
+            "ride type " + std::to_string(ride.type) + " has no artwork for this piece; it would build and rate "
+                "but render as nothing (invisible track)");
+        return false;
+    }
+
     // First loaded ride object whose entry supports the requested ride type.
     ObjectEntryIndex FindSubtypeForRideType(ride_type_t rideType)
     {
@@ -387,7 +413,8 @@ bool orct2_host_track_place(
     const auto& ted = TrackMetadata::GetTrackElementDescriptor(trackType);
     const auto& coords = ted.coordinates;
 
-    if (!CheckEntryContinuity(trackType, *cursor, err, err_len))
+    if (!CheckPieceDrawable(*ride, trackType, err, err_len)
+        || !CheckEntryContinuity(trackType, *cursor, err, err_len))
     {
         return false;
     }
@@ -552,7 +579,8 @@ bool orct2_host_track_query(uint16_t ride_id, uint16_t track_type, const Orct2Tr
     }
     auto trackType = static_cast<TrackElemType>(track_type);
     const auto& coords = TrackMetadata::GetTrackElementDescriptor(trackType).coordinates;
-    if (!CheckEntryContinuity(trackType, *cursor, err, err_len))
+    if (!CheckPieceDrawable(*ride, trackType, err, err_len)
+        || !CheckEntryContinuity(trackType, *cursor, err, err_len))
     {
         return false;
     }
