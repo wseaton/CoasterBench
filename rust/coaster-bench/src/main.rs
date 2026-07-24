@@ -144,6 +144,59 @@ fn wait_for_server(client: &mut mcp::McpClient, budget: Duration) -> Result<(), 
 struct Contender {
     harness: Harness,
     model: String,
+    /// What the model can actually be fed. The MCP server hides tools that
+    /// answer outside this set, because a single image content block sent to a
+    /// text-only model fails the whole request upstream.
+    modalities: Modalities,
+}
+
+/// Input modalities a model accepts, named after the OpenRouter catalogue's
+/// `input_modalities` field, which is also the wire format the game's MCP
+/// server parses out of `/mcp?modalities=...`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Modalities(u8);
+
+impl Modalities {
+    const TEXT: Modalities = Modalities(1 << 0);
+    const IMAGE: Modalities = Modalities(1 << 1);
+    const AUDIO: Modalities = Modalities(1 << 2);
+    const FILE: Modalities = Modalities(1 << 3);
+
+    fn from_catalog_name(name: &str) -> Modalities {
+        match name {
+            "text" => Modalities::TEXT,
+            "image" => Modalities::IMAGE,
+            "audio" => Modalities::AUDIO,
+            "file" => Modalities::FILE,
+            _ => Modalities(0),
+        }
+    }
+
+    fn contains(self, other: Modalities) -> bool {
+        self.0 & other.0 == other.0
+    }
+
+    /// Wire form for the MCP query string, e.g. "text,image".
+    fn as_query_value(self) -> String {
+        [
+            (Modalities::TEXT, "text"),
+            (Modalities::IMAGE, "image"),
+            (Modalities::AUDIO, "audio"),
+            (Modalities::FILE, "file"),
+        ]
+        .iter()
+        .filter(|(flag, _)| self.contains(*flag))
+        .map(|(_, name)| *name)
+        .collect::<Vec<_>>()
+        .join(",")
+    }
+}
+
+impl std::ops::BitOr for Modalities {
+    type Output = Modalities;
+    fn bitor(self, rhs: Modalities) -> Modalities {
+        Modalities(self.0 | rhs.0)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -166,11 +219,16 @@ impl Contender {
         match spec.split_once(':') {
             Some(("opencode", model)) => Contender {
                 harness: Harness::Opencode,
+                // Claude models are all multimodal; OpenRouter ones are not,
+                // so ask the catalogue instead of assuming.
+                modalities: openrouter_modalities(model)
+                    .unwrap_or(Modalities::TEXT | Modalities::IMAGE),
                 model: model.to_string(),
             },
             _ => Contender {
                 harness: Harness::ClaudeCode,
                 model: spec.to_string(),
+                modalities: Modalities::TEXT | Modalities::IMAGE,
             },
         }
     }
@@ -179,6 +237,42 @@ impl Contender {
     fn display(&self) -> String {
         self.model.replace('/', "_")
     }
+
+    /// MCP endpoint this contender's harness should connect to. The server
+    /// hides tools answering outside the advertised modality set.
+    fn mcp_url(&self, port: u16) -> String {
+        format!(
+            "http://host.containers.internal:{port}/mcp?modalities={}",
+            self.modalities.as_query_value()
+        )
+    }
+}
+
+/// Input modalities an OpenRouter model declares. `None` when the catalogue
+/// can't be reached or doesn't list the model, so callers pick their own
+/// default. The opencode model id carries a provider prefix
+/// ("openrouter/author/model") that the catalogue ids don't have.
+fn openrouter_modalities(model: &str) -> Option<Modalities> {
+    let id = model.strip_prefix("openrouter/").unwrap_or(model);
+    let catalog: Value = ureq::get("https://openrouter.ai/api/v1/models")
+        .timeout(Duration::from_secs(30))
+        .call()
+        .ok()?
+        .into_json()
+        .ok()?;
+    let declared = catalog
+        .get("data")?
+        .as_array()?
+        .iter()
+        .find(|m| m.get("id").and_then(Value::as_str) == Some(id))?
+        .pointer("/architecture/input_modalities")?
+        .as_array()?
+        .iter()
+        .filter_map(Value::as_str)
+        .fold(Modalities(0), |set, name| {
+            set | Modalities::from_catalog_name(name)
+        });
+    Some(declared)
 }
 
 /// Token/cost accounting for one agent session; every field best-effort.
@@ -221,6 +315,35 @@ fn claude_usage(stdout: &[u8]) -> Value {
     })
 }
 
+/// Point the opencode sandbox at this contender's MCP endpoint. Written fresh
+/// per session so a mixed vision/text-only lineup can share one sandbox.
+fn write_opencode_config(args: &Args, contender: &Contender) -> Result<(), String> {
+    let config = json!({
+        "$schema": "https://opencode.ai/config.json",
+        "model": contender.model,
+        "mcp": {
+            "coaster": {"type": "remote", "url": contender.mcp_url(args.port), "enabled": true}
+        }
+    })
+    .to_string();
+    let script = format!(
+        "mkdir -p ~/.config/opencode && cat > ~/.config/opencode/opencode.json <<'OPENCODE_EOF'\n{config}\nOPENCODE_EOF"
+    );
+    let output = Command::new("openshell")
+        .args(["sandbox", "exec", "-n", &args.opencode_sandbox, "--"])
+        .args(["sh", "-c", &script])
+        .output()
+        .map_err(|e| format!("write opencode config: {e}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "write opencode config ({}): {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    Ok(())
+}
+
 /// One agent session in the harness's sandbox. Success is judged by game
 /// state, not the transcript; usage is captured best-effort either way.
 fn run_agent_session(args: &Args, contender: &Contender, prompt: &str) -> SessionResult {
@@ -233,7 +356,7 @@ fn run_agent_session(args: &Args, contender: &Contender, prompt: &str) -> Sessio
         Harness::ClaudeCode => {
             let mcp_config = json!({
                 "mcpServers": {
-                    "coaster": {"type": "http", "url": format!("http://host.containers.internal:{}/mcp", args.port)}
+                    "coaster": {"type": "http", "url": contender.mcp_url(args.port)}
                 }
             });
             cmd.args(["sandbox", "exec", "-n", &args.sandbox, "--"])
@@ -244,8 +367,16 @@ fn run_agent_session(args: &Args, contender: &Contender, prompt: &str) -> Sessio
                 .args(["--output-format", "json"]);
         }
         Harness::Opencode => {
-            // MCP server location lives in the sandbox's opencode.json; the
-            // model comes fully qualified (e.g. openrouter/poolside/...).
+            // opencode reads its MCP server list from a config file inside the
+            // sandbox, so the per-contender endpoint has to be written there
+            // before the session starts. Model comes fully qualified on the
+            // command line (e.g. openrouter/poolside/...).
+            if let Err(e) = write_opencode_config(args, contender) {
+                return SessionResult {
+                    usage: Value::Null,
+                    error: Some(e),
+                };
+            }
             cmd.args(["sandbox", "exec", "-n", &args.opencode_sandbox, "--"])
                 .args(["opencode", "run", prompt, "-m", &contender.model]);
         }
@@ -389,7 +520,13 @@ fn main() -> Result<(), String> {
     if std::env::var_os("COASTER_BENCH_PRINT_PROMPT").is_some() {
         print!(
             "{}",
-            prompt::round_prompt(args.ride_type, 1, args.rounds, None)
+            prompt::round_prompt(
+                args.ride_type,
+                1,
+                args.rounds,
+                None,
+                Modalities::TEXT | Modalities::IMAGE,
+            )
         );
         return Ok(());
     }
@@ -415,6 +552,20 @@ fn main() -> Result<(), String> {
     println!("game server ready on port {}", args.port);
 
     let contenders: Vec<Contender> = args.models.iter().map(|s| Contender::parse(s)).collect();
+    for c in &contenders {
+        if !c.modalities.contains(Modalities::IMAGE) {
+            println!(
+                "[{}] modalities {}: screenshot tool hidden",
+                c.display(),
+                c.modalities.as_query_value()
+            );
+        }
+    }
+    let modalities: Value = contenders
+        .iter()
+        .map(|c| (c.display(), json!(c.modalities.as_query_value())))
+        .collect::<serde_json::Map<_, _>>()
+        .into();
     let harnesses: Value = contenders
         .iter()
         .map(|c| (c.display(), json!(c.harness.name())))
@@ -436,6 +587,7 @@ fn main() -> Result<(), String> {
             "harness": run_harness,
             "harnesses": harnesses,
             "models": contenders.iter().map(Contender::display).collect::<Vec<_>>(),
+            "modalities": modalities,
             "rounds": args.rounds,
             "ticks": args.ticks,
             "ride_type": args.ride_type,
@@ -451,8 +603,13 @@ fn main() -> Result<(), String> {
         for round in 1..=args.rounds {
             // A fresh park state for every round.
             let _ = client.call("demolish", json!({}));
-            let prompt =
-                prompt::round_prompt(args.ride_type, round, args.rounds, feedback.as_deref());
+            let prompt = prompt::round_prompt(
+                args.ride_type,
+                round,
+                args.rounds,
+                feedback.as_deref(),
+                contender.modalities,
+            );
             println!("[{model}] round {round}: agent session starting");
             let session = run_agent_session(&args, contender, &prompt);
             if let Some(e) = &session.error {
@@ -533,6 +690,34 @@ fn main() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn contenders_advertise_their_modalities_to_the_mcp_server() {
+        let text_only = Contender {
+            harness: Harness::Opencode,
+            model: "openrouter/poolside/laguna-s-2.1".into(),
+            modalities: Modalities::TEXT,
+        };
+        let multimodal = Contender {
+            harness: Harness::ClaudeCode,
+            model: "claude-sonnet-5".into(),
+            modalities: Modalities::TEXT | Modalities::IMAGE,
+        };
+        assert!(text_only.mcp_url(8791).ends_with("/mcp?modalities=text"));
+        assert!(multimodal
+            .mcp_url(8791)
+            .ends_with("/mcp?modalities=text,image"));
+    }
+
+    #[test]
+    fn modality_sets_render_in_catalogue_order() {
+        assert_eq!(Modalities::TEXT.as_query_value(), "text");
+        assert_eq!(
+            (Modalities::FILE | Modalities::TEXT).as_query_value(),
+            "text,file"
+        );
+        assert!(!Modalities::TEXT.contains(Modalities::IMAGE));
+    }
 
     #[test]
     fn civil_date_matches_known_epochs() {

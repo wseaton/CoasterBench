@@ -92,6 +92,13 @@ Non-bundled binaries look for `data/` next to the exe. One-time setup:
   `./rust/coaster-bench/target/release/coaster-bench --models claude-fable-5
   --rounds 4 --ride-type 51 --name my-run`. Port must be in the sandbox
   policy (default 8791).
+- Second coaster-bench lane: `--models opencode:openrouter/<author>/<model>`
+  runs opencode in the `coaster-or` sandbox against OpenRouter (key in the
+  login keychain as `openrouter-api-key`, cost tracked by spend delta).
+  coaster-bench writes that sandbox's ~/.config/opencode/opencode.json per
+  session, so the MCP endpoint is per contender. Model input modalities come
+  from the OpenRouter catalogue and are recorded in run.json; a text-only
+  model gets `?modalities=text` and a prompt with no screenshot tool.
 - Two driver modes (`--mode`, recorded in run.json + standings.json, separate
   leaderboard sections in the site): `design` (from scratch) and `library`
   (model can search the stock .TD6 library via extra tools; tests retrieval +
@@ -108,6 +115,13 @@ Non-bundled binaries look for `data/` next to the exe. One-time setup:
   by driver.py, but any harness can drop the same file); the site shows
   per-round lookup chips, a "studied designs" preview gallery per model, and
   a full library.html gallery.
+- Heavy artifacts (PNGs, videos) are gitignored, not tracked; only run JSON
+  is. After a run, `uv run evals/publish.py` uploads them to the Cloudflare
+  R2 bucket `coasterbench` (public at https://artifacts.wseaton.com) through
+  the local `wrangler login` OAuth session (no static keys anywhere) and
+  records manifests (`runs/<run>/artifacts.json`, `evals/library-previews.json`).
+  site.py prefers local files, falls back to manifest URLs, so the GitHub
+  Pages CI build works from JSON alone.
 
 ## MCP server (interactive per-piece building)
 
@@ -125,6 +139,12 @@ Non-bundled binaries look for `data/` next to the exe. One-time setup:
   and slope (TrackPitch: 0=none, 2=up25, 4=up60, 6=down25, 8=down60); circuit
   closure check compares full cursor (x/y/z/dir/bank/slope) to catch incomplete
   circuits that re-enter the station still banked or sloped.
+- Clients advertise what content they can take in the request target:
+  `/mcp?modalities=text,image` (vocabulary lifted from OpenRouter's
+  `input_modalities`; absent = everything). Tools answering outside the set are
+  dropped from tools/list and refused on call, so a text-only model never sees
+  screenshot — one image content block fails the whole upstream request
+  (Poolside answers "please check the model you provided").
 - Register with Claude Code:
   `claude mcp add --transport http coaster http://127.0.0.1:8791/mcp`
 - Rust unit tests link against `#[cfg(test)]` stubs in host.rs (the C++ host

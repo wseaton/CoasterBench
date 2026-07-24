@@ -22,6 +22,69 @@ use crate::pieces;
 use crate::program;
 use crate::report;
 
+/// Content kinds a client can accept, named after the OpenRouter model
+/// catalogue's `input_modalities` so a harness can pass a model's declared
+/// capabilities straight through. A client advertises its set in the request
+/// target (`/mcp?modalities=text`), and tools that would answer with content
+/// outside that set are hidden from tools/list and refused on call: a
+/// text-only model handed an image content block fails the whole request
+/// upstream, so it must never see the screenshot tool.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Modalities(u8);
+
+impl Modalities {
+    const TEXT: Modalities = Modalities(1 << 0);
+    const IMAGE: Modalities = Modalities(1 << 1);
+    const AUDIO: Modalities = Modalities(1 << 2);
+    const FILE: Modalities = Modalities(1 << 3);
+    /// What a client gets when it advertises nothing: everything the server has.
+    const ALL: Modalities = Modalities(0b1111);
+
+    fn contains(self, other: Modalities) -> bool {
+        self.0 & other.0 == other.0
+    }
+
+    /// Parse a comma-separated list; unknown names are ignored.
+    fn parse(list: &str) -> Modalities {
+        list.split(',').fold(Modalities(0), |set, name| {
+            set | match name.trim() {
+                "text" => Modalities::TEXT,
+                "image" => Modalities::IMAGE,
+                "audio" => Modalities::AUDIO,
+                "file" => Modalities::FILE,
+                _ => Modalities(0),
+            }
+        })
+    }
+
+    /// Read the set out of an HTTP request target, e.g. "/mcp?modalities=text".
+    fn from_request_target(target: &str) -> Modalities {
+        let Some((_, query)) = target.split_once('?') else {
+            return Modalities::ALL;
+        };
+        query
+            .split('&')
+            .find_map(|param| param.strip_prefix("modalities="))
+            .map(Modalities::parse)
+            .unwrap_or(Modalities::ALL)
+    }
+}
+
+impl std::ops::BitOr for Modalities {
+    type Output = Modalities;
+    fn bitor(self, rhs: Modalities) -> Modalities {
+        Modalities(self.0 | rhs.0)
+    }
+}
+
+/// The content kind a tool answers with; everything not listed here is text.
+fn tool_modality(name: &str) -> Modalities {
+    match name {
+        "screenshot" => Modalities::IMAGE,
+        _ => Modalities::TEXT,
+    }
+}
+
 /// One placed piece: what and where, so it can be undone.
 struct Placed {
     name: &'static str,
@@ -94,11 +157,12 @@ fn handle_connection(stream: TcpStream, session: &mut Session) -> Result<(), Str
     let mut reader = BufReader::new(stream.try_clone().map_err(|e| e.to_string())?);
     let mut stream = stream;
     loop {
-        let (method, body) = match read_http_request(&mut reader) {
+        let (method, target, body) = match read_http_request(&mut reader) {
             Ok(Some(r)) => r,
             Ok(None) => return Ok(()), // clean EOF
             Err(e) => return Err(e),
         };
+        let modalities = Modalities::from_request_target(&target);
         if method != "POST" {
             write_http(&mut stream, 405, "text/plain", b"method not allowed")?;
             continue;
@@ -116,14 +180,14 @@ fn handle_connection(stream: TcpStream, session: &mut Session) -> Result<(), Str
             write_http(&mut stream, 202, "text/plain", b"")?;
             continue;
         }
-        let response = dispatch(&message, session);
+        let response = dispatch(&message, session, modalities);
         write_json(&mut stream, &response)?;
     }
 }
 
 fn read_http_request(
     reader: &mut BufReader<TcpStream>,
-) -> Result<Option<(String, Vec<u8>)>, String> {
+) -> Result<Option<(String, String, Vec<u8>)>, String> {
     let mut request_line = String::new();
     let n = reader
         .read_line(&mut request_line)
@@ -131,11 +195,9 @@ fn read_http_request(
     if n == 0 {
         return Ok(None);
     }
-    let method = request_line
-        .split_whitespace()
-        .next()
-        .unwrap_or("")
-        .to_string();
+    let mut parts = request_line.split_whitespace();
+    let method = parts.next().unwrap_or("").to_string();
+    let target = parts.next().unwrap_or("").to_string();
     let mut content_length = 0usize;
     loop {
         let mut line = String::new();
@@ -155,7 +217,7 @@ fn read_http_request(
     }
     let mut body = vec![0u8; content_length];
     reader.read_exact(&mut body).map_err(|e| e.to_string())?;
-    Ok(Some((method, body)))
+    Ok(Some((method, target, body)))
 }
 
 fn write_http(
@@ -194,7 +256,7 @@ fn rpc_error(id: Value, code: i64, message: &str) -> Value {
     json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": message}})
 }
 
-fn dispatch(message: &Value, session: &mut Session) -> Value {
+fn dispatch(message: &Value, session: &mut Session, modalities: Modalities) -> Value {
     let id = message.get("id").cloned().unwrap_or(Value::Null);
     let method = message.get("method").and_then(Value::as_str).unwrap_or("");
     match method {
@@ -213,7 +275,7 @@ fn dispatch(message: &Value, session: &mut Session) -> Value {
             )
         }
         "ping" => rpc_result(id, json!({})),
-        "tools/list" => rpc_result(id, json!({"tools": tool_definitions()})),
+        "tools/list" => rpc_result(id, json!({"tools": tool_definitions(modalities)})),
         "tools/call" => {
             let name = message
                 .pointer("/params/name")
@@ -223,6 +285,15 @@ fn dispatch(message: &Value, session: &mut Session) -> Value {
                 .pointer("/params/arguments")
                 .cloned()
                 .unwrap_or(json!({}));
+            if !modalities.contains(tool_modality(name)) {
+                return rpc_result(
+                    id,
+                    json!({
+                        "content": [{"type": "text", "text": format!("{name} is unavailable: this client did not advertise the content kind it answers with")}],
+                        "isError": true,
+                    }),
+                );
+            }
             match call_tool(name, &args, session) {
                 Ok(content) => rpc_result(id, json!({"content": content, "isError": false})),
                 Err(text) => rpc_result(
@@ -235,7 +306,18 @@ fn dispatch(message: &Value, session: &mut Session) -> Value {
     }
 }
 
-fn tool_definitions() -> Value {
+fn tool_definitions(modalities: Modalities) -> Value {
+    let mut tools = all_tool_definitions();
+    if let Some(list) = tools.as_array_mut() {
+        list.retain(|t| {
+            let name = t.get("name").and_then(Value::as_str).unwrap_or_default();
+            modalities.contains(tool_modality(name))
+        });
+    }
+    tools
+}
+
+fn all_tool_definitions() -> Value {
     json!([
         {
             "name": "new_ride",
@@ -669,7 +751,7 @@ mod tests {
         let mut session = Session::default();
         let msg = json!({"jsonrpc": "2.0", "id": 1, "method": "initialize",
                          "params": {"protocolVersion": "2025-03-26"}});
-        let resp = dispatch(&msg, &mut session);
+        let resp = dispatch(&msg, &mut session, Modalities::ALL);
         assert_eq!(
             resp.pointer("/result/protocolVersion")
                 .and_then(Value::as_str),
@@ -682,7 +764,7 @@ mod tests {
     fn dispatch_unknown_method_is_rpc_error() {
         let mut session = Session::default();
         let msg = json!({"jsonrpc": "2.0", "id": 2, "method": "bogus"});
-        let resp = dispatch(&msg, &mut session);
+        let resp = dispatch(&msg, &mut session, Modalities::ALL);
         assert_eq!(
             resp.pointer("/error/code").and_then(Value::as_i64),
             Some(-32601)
@@ -693,7 +775,7 @@ mod tests {
     fn tools_list_contains_the_full_toolset() {
         let mut session = Session::default();
         let msg = json!({"jsonrpc": "2.0", "id": 3, "method": "tools/list"});
-        let resp = dispatch(&msg, &mut session);
+        let resp = dispatch(&msg, &mut session, Modalities::ALL);
         let tools = resp
             .pointer("/result/tools")
             .and_then(Value::as_array)
@@ -719,13 +801,74 @@ mod tests {
     }
 
     #[test]
+    fn text_only_clients_never_see_the_screenshot_tool() {
+        let mut session = Session::default();
+        let msg = json!({"jsonrpc": "2.0", "id": 3, "method": "tools/list"});
+        let resp = dispatch(&msg, &mut session, Modalities::TEXT);
+        let names: Vec<&str> = resp
+            .pointer("/result/tools")
+            .and_then(Value::as_array)
+            .expect("tools array")
+            .iter()
+            .filter_map(|t| t.get("name").and_then(Value::as_str))
+            .collect();
+        assert!(!names.contains(&"screenshot"));
+        assert!(names.contains(&"place_piece"), "only screenshot is hidden");
+    }
+
+    #[test]
+    fn screenshot_call_is_refused_for_text_only_clients() {
+        let mut session = Session::default();
+        let msg = json!({"jsonrpc": "2.0", "id": 6, "method": "tools/call",
+                         "params": {"name": "screenshot", "arguments": {}}});
+        let resp = dispatch(&msg, &mut session, Modalities::TEXT);
+        assert_eq!(
+            resp.pointer("/result/isError").and_then(Value::as_bool),
+            Some(true)
+        );
+        let text = resp
+            .pointer("/result/content/0/text")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        assert!(text.contains("unavailable"), "got {text}");
+    }
+
+    #[test]
+    fn modalities_parse_from_the_request_target() {
+        assert_eq!(Modalities::from_request_target("/mcp"), Modalities::ALL);
+        assert_eq!(
+            Modalities::from_request_target("/mcp?modalities=text"),
+            Modalities::TEXT
+        );
+        assert_eq!(
+            Modalities::from_request_target("/mcp?foo=1&modalities=text,image"),
+            Modalities::TEXT | Modalities::IMAGE
+        );
+        // Unknown names drop out, a known one still lands.
+        assert_eq!(
+            Modalities::from_request_target("/mcp?modalities=text,hologram"),
+            Modalities::TEXT
+        );
+    }
+
+    #[test]
+    fn a_modality_set_contains_its_members_but_not_others() {
+        let text_and_image = Modalities::TEXT | Modalities::IMAGE;
+        assert!(text_and_image.contains(Modalities::TEXT));
+        assert!(text_and_image.contains(Modalities::IMAGE));
+        assert!(!text_and_image.contains(Modalities::AUDIO));
+        assert!(Modalities::ALL.contains(text_and_image));
+        assert!(!Modalities::TEXT.contains(text_and_image));
+    }
+
+    #[test]
     fn search_without_a_library_errors_cleanly() {
         // The test stub host has no track library; the tool should report
         // that as a tool error, not panic.
         let mut session = Session::default();
         let msg = json!({"jsonrpc": "2.0", "id": 5, "method": "tools/call",
                          "params": {"name": "search_track_designs", "arguments": {}}});
-        let resp = dispatch(&msg, &mut session);
+        let resp = dispatch(&msg, &mut session, Modalities::ALL);
         assert_eq!(
             resp.pointer("/result/isError").and_then(Value::as_bool),
             Some(true)
@@ -737,7 +880,7 @@ mod tests {
         let mut session = Session::default();
         let msg = json!({"jsonrpc": "2.0", "id": 4, "method": "tools/call",
                          "params": {"name": "get_state", "arguments": {}}});
-        let resp = dispatch(&msg, &mut session);
+        let resp = dispatch(&msg, &mut session, Modalities::ALL);
         assert_eq!(
             resp.pointer("/result/isError").and_then(Value::as_bool),
             Some(true)

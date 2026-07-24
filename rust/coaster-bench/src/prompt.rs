@@ -2,6 +2,8 @@
 //! the driver.py system prompt: the MCP tools replace the memorised geometry
 //! tables (valid_next_pieces and piece_geometry are ground truth).
 
+use crate::Modalities;
+
 pub fn ride_name(ride_type: u16) -> &'static str {
     match ride_type {
         51 => "steel twister roller coaster",
@@ -15,8 +17,16 @@ pub fn round_prompt(
     round: u32,
     rounds: u32,
     previous_feedback: Option<&str>,
+    modalities: Modalities,
 ) -> String {
     let name = ride_name(ride_type);
+    // Models that can't take images get an MCP endpoint with screenshot
+    // stripped, so the tool list must not advertise it either.
+    let screenshot = if modalities.contains(Modalities::IMAGE) {
+        "\n- screenshot(): park image."
+    } else {
+        ""
+    };
     let inversions = if ride_type == 51 {
         "Inversions are ALLOWED and rewarded (vertical loops, corkscrews, half loops)."
     } else {
@@ -39,8 +49,7 @@ This is round {round} of {rounds}. You build interactively through the "coaster"
 - piece_geometry(dir): exact cursor delta (tiles, z, direction, bank, slope) for every piece from a given direction. Use this to PLAN closure.
 - undo_piece(): remove the last piece.
 - get_state(): cursor, start, pieces placed, circuit_closed.
-- finish_and_test(ticks?): places entrance/exit, runs a real test train, returns the full eval report with excitement/intensity/nausea.
-- screenshot(): park image.
+- finish_and_test(ticks?): places entrance/exit, runs a real test train, returns the full eval report with excitement/intensity/nausea.{screenshot}
 - demolish(): tear down and start over (then new_ride again).
 
 ## Rules
@@ -70,7 +79,7 @@ mod tests {
 
     #[test]
     fn twister_prompt_mentions_inversions_allowed() {
-        let p = round_prompt(51, 1, 6, None);
+        let p = round_prompt(51, 1, 6, None, Modalities::TEXT | Modalities::IMAGE);
         assert!(p.contains("ALLOWED"));
         assert!(p.contains("ride_type 51"));
         assert!(p.contains("round 1 of 6"));
@@ -78,13 +87,29 @@ mod tests {
 
     #[test]
     fn wooden_prompt_forbids_inversions() {
-        assert!(round_prompt(52, 2, 4, None).contains("NOT support"));
+        assert!(
+            round_prompt(52, 2, 4, None, Modalities::TEXT | Modalities::IMAGE)
+                .contains("NOT support")
+        );
     }
 
     #[test]
     fn feedback_is_included_when_present() {
-        let p = round_prompt(51, 2, 6, Some("{\"excitement\": 5.0}"));
+        let p = round_prompt(
+            51,
+            2,
+            6,
+            Some("{\"excitement\": 5.0}"),
+            Modalities::TEXT | Modalities::IMAGE,
+        );
         assert!(p.contains("Previous round result"));
         assert!(p.contains("excitement"));
+    }
+
+    #[test]
+    fn text_only_prompt_omits_the_screenshot_tool() {
+        let p = round_prompt(52, 1, 6, None, Modalities::TEXT);
+        assert!(!p.contains("screenshot"));
+        assert!(p.contains("demolish()"), "other tools still listed");
     }
 }
