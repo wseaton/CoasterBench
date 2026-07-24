@@ -13,6 +13,7 @@
 mod mcp;
 mod prompt;
 
+use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -54,9 +55,16 @@ struct Args {
     #[arg(long, default_value_t = 8791)]
     port: u16,
 
-    /// Max agentic turns per round session.
+    /// Max agentic turns per round session. Claude Code only; opencode has no
+    /// equivalent, so --session-timeout is what bounds it.
     #[arg(long, default_value_t = 120)]
     max_turns: u32,
+
+    /// Wall-clock budget per round session, in seconds. A session that runs
+    /// past it is killed and the round is scored on whatever stands in the
+    /// park. Without this an opencode session can iterate indefinitely.
+    #[arg(long, default_value_t = 1800)]
+    session_timeout: u64,
 
     #[arg(
         long,
@@ -238,6 +246,14 @@ impl Contender {
         self.model.replace('/', "_")
     }
 
+    /// Which OpenShell sandbox this contender's harness runs in.
+    fn sandbox<'a>(&self, args: &'a Args) -> &'a str {
+        match self.harness {
+            Harness::ClaudeCode => &args.sandbox,
+            Harness::Opencode => &args.opencode_sandbox,
+        }
+    }
+
     /// MCP endpoint this contender's harness should connect to. The server
     /// hides tools answering outside the advertised modality set.
     fn mcp_url(&self, port: u16) -> String {
@@ -344,9 +360,41 @@ fn write_opencode_config(args: &Args, contender: &Contender) -> Result<(), Strin
     Ok(())
 }
 
+/// Kill agent processes left behind in a sandbox. Killing the local openshell
+/// client does NOT stop the process it started inside the sandbox, so a run
+/// that dies (Ctrl-C, `pkill`, a timeout) strands an agent that keeps building
+/// in the shared park and keeps spending. Two of those once fought over the
+/// same ride for an hour, each demolishing the other's track.
+///
+/// The sandbox image has no ps/pkill, so this walks /proc and matches the
+/// executable rather than the command line: the command line of this very
+/// script contains "opencode", and matching that would kill the cleanup shell.
+/// It must stay a single line; openshell's exec drops multi-line scripts.
+fn kill_stray_agents(sandbox: &str) {
+    let script = "for pid in $(ls /proc | grep \"^[0-9]\"); do [ \"$pid\" = \"$$\" ] && continue; \
+                  exe=$(readlink /proc/$pid/exe 2>/dev/null); \
+                  case \"$exe\" in *opencode*|*claude*) kill -TERM \"$pid\" ;; esac; done";
+    let _ = Command::new("openshell")
+        .args(["sandbox", "exec", "-n", sandbox, "--"])
+        .args(["sh", "-c", script])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+}
+
 /// One agent session in the harness's sandbox. Success is judged by game
 /// state, not the transcript; usage is captured best-effort either way.
-fn run_agent_session(args: &Args, contender: &Contender, prompt: &str) -> SessionResult {
+///
+/// Output streams to `session.log` / `session.err` in the round directory as
+/// the session runs, so a round in progress can be tailed, and a round that
+/// went wrong can be read afterwards. Files, not pipes: a session can outrun a
+/// pipe buffer and deadlock while nobody is reading it.
+fn run_agent_session(
+    args: &Args,
+    contender: &Contender,
+    prompt: &str,
+    round_dir: &Path,
+) -> SessionResult {
     let mut cmd = Command::new("openshell");
     let spend_before = match contender.harness {
         Harness::Opencode => openrouter_spend(),
@@ -381,8 +429,24 @@ fn run_agent_session(args: &Args, contender: &Contender, prompt: &str) -> Sessio
                 .args(["opencode", "run", prompt, "-m", &contender.model]);
         }
     }
-    let output = match cmd.output() {
-        Ok(o) => o,
+    let log_path = round_dir.join("session.log");
+    let err_path = round_dir.join("session.err");
+    let (log, errlog) = match (File::create(&log_path), File::create(&err_path)) {
+        (Ok(a), Ok(b)) => (a, b),
+        _ => {
+            return SessionResult {
+                usage: Value::Null,
+                error: Some(format!(
+                    "cannot open session logs in {}",
+                    round_dir.display()
+                )),
+            }
+        }
+    };
+    cmd.stdout(Stdio::from(log)).stderr(Stdio::from(errlog));
+
+    let mut child = match cmd.spawn() {
+        Ok(c) => c,
         Err(e) => {
             return SessionResult {
                 usage: Value::Null,
@@ -390,9 +454,34 @@ fn run_agent_session(args: &Args, contender: &Contender, prompt: &str) -> Sessio
             }
         }
     };
+    let budget = Duration::from_secs(args.session_timeout);
+    let started = Instant::now();
+    let mut timed_out = false;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break Some(status),
+            Ok(None) if started.elapsed() >= budget => {
+                timed_out = true;
+                let _ = child.kill();
+                let status = child.wait().ok();
+                // The local client is gone; the agent inside the sandbox is not.
+                kill_stray_agents(contender.sandbox(args));
+                break status;
+            }
+            Ok(None) => std::thread::sleep(Duration::from_secs(1)),
+            Err(e) => {
+                return SessionResult {
+                    usage: Value::Null,
+                    error: Some(format!("waiting on agent session: {e}")),
+                }
+            }
+        }
+    };
+
+    let stdout = std::fs::read(&log_path).unwrap_or_default();
     let usage = match contender.harness {
         // Parsed even on failure: max-turns exits nonzero but still reports usage.
-        Harness::ClaudeCode => claude_usage(&output.stdout),
+        Harness::ClaudeCode => claude_usage(&stdout),
         Harness::Opencode => {
             let cost = match (spend_before, openrouter_spend()) {
                 (Some(a), Some(b)) if b >= a => Some(b - a),
@@ -401,14 +490,22 @@ fn run_agent_session(args: &Args, contender: &Contender, prompt: &str) -> Sessio
             json!({"cost_usd": cost})
         }
     };
-    let error = if output.status.success() {
+    let error = if timed_out {
+        Some(format!(
+            "agent session hit the {}s timeout and was killed; scoring whatever it built",
+            args.session_timeout
+        ))
+    } else if status.map(|s| s.success()).unwrap_or(false) {
         None
     } else {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = std::fs::read_to_string(&err_path).unwrap_or_default();
+        let stdout = String::from_utf8_lossy(&stdout);
         let mut tail = format!("{} | {}", stderr.trim(), stdout.trim());
         tail.truncate(500);
-        Some(format!("agent session failed ({}): {tail}", output.status))
+        let code = status
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| "killed".into());
+        Some(format!("agent session failed ({code}): {tail}"))
     };
     SessionResult { usage, error }
 }
@@ -552,6 +649,15 @@ fn main() -> Result<(), String> {
     println!("game server ready on port {}", args.port);
 
     let contenders: Vec<Contender> = args.models.iter().map(|s| Contender::parse(s)).collect();
+    // A previous run killed from the outside can leave an agent alive in its
+    // sandbox, still building in the park this run is about to use.
+    for sandbox in contenders
+        .iter()
+        .map(|c| c.sandbox(&args))
+        .collect::<std::collections::BTreeSet<_>>()
+    {
+        kill_stray_agents(sandbox);
+    }
     for c in &contenders {
         if !c.modalities.contains(Modalities::IMAGE) {
             println!(
@@ -610,12 +716,20 @@ fn main() -> Result<(), String> {
                 feedback.as_deref(),
                 contender.modalities,
             );
-            println!("[{model}] round {round}: agent session starting");
-            let session = run_agent_session(&args, contender, &prompt);
+            // Created up front: the session streams its logs in here while it
+            // runs, so `tail -f` works on a round in progress.
+            let round_dir = run_dir.join(&model).join(format!("round_{round}"));
+            if let Err(e) = std::fs::create_dir_all(&round_dir) {
+                return Err(format!("create {}: {e}", round_dir.display()));
+            }
+            println!(
+                "[{model}] round {round}: agent session starting (log: {})",
+                round_dir.join("session.log").display()
+            );
+            let session = run_agent_session(&args, contender, &prompt, &round_dir);
             if let Some(e) = &session.error {
                 eprintln!("[{model}] round {round}: {e}");
             }
-            let round_dir = run_dir.join(&model).join(format!("round_{round}"));
             if !session.usage.is_null() {
                 let usage = json!({
                     "harness": contender.harness.name(),
@@ -707,6 +821,19 @@ mod tests {
         assert!(multimodal
             .mcp_url(8791)
             .ends_with("/mcp?modalities=text,image"));
+    }
+
+    #[test]
+    fn each_harness_resolves_to_its_own_sandbox() {
+        let args = Args::parse_from(["coaster-bench"]);
+        let claude = Contender::parse("claude-sonnet-5");
+        let opencode = Contender {
+            harness: Harness::Opencode,
+            model: "openrouter/moonshotai/kimi-k3".into(),
+            modalities: Modalities::TEXT | Modalities::IMAGE,
+        };
+        assert_eq!(claude.sandbox(&args), "coaster-sub");
+        assert_eq!(opencode.sandbox(&args), "coaster-or");
     }
 
     #[test]
