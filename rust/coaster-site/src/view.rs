@@ -5,7 +5,7 @@
 
 use askama::Template;
 
-pub const TAGLINE: &str = "LLMs design roller coasters. RollerCoaster Tycoon 2's real physics engine builds, tests, and rates them.";
+pub const TAGLINE: &str = "A benchmark in which language models design roller coasters that RollerCoaster Tycoon 2 builds, tests, and rates.";
 
 pub const FONTS: &str = "https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@700;800&family=IBM+Plex+Mono:wght@400;600&display=swap";
 
@@ -13,10 +13,10 @@ pub const CSS: &str = include_str!("../static/site.css");
 pub const JS: &str = include_str!("../static/site.js");
 
 pub const MODE_TAGLINES: [(&str, &str); 2] = [
-    ("design", "design mode — models design from scratch"),
+    ("design", "design mode — models build from scratch"),
     (
         "library",
-        "library mode — models may search the stock track design library; tests retrieval and adaptation, copies score zero",
+        "library mode — models may search the stock track design library, which measures retrieval and adaptation; copies score zero",
     ),
 ];
 

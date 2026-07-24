@@ -1,8 +1,8 @@
 {% extends "base.html" %}
 {% block body %}
 <details class="explainer">
-  <summary>Each round a model submits a track program; real OpenRCT2 builds it, tests it, and hands
-  back ratings plus a screenshot. <b>Excitement is the score.</b></summary>
+  <summary>Each round a model submits a track program. OpenRCT2 builds it, runs a test train, and
+  returns ratings and a screenshot; the reported score is <b>excitement</b>.</summary>
   <div class="explainer-body">
     <div class="mermaid">
 flowchart LR
@@ -12,10 +12,10 @@ flowchart LR
   R --> M
   B -. rejected piece .-> M
     </div>
-    <p>Pieces go in through the same validated action path a player clicks, so an impossible curve
-    or an open circuit fails exactly as it would in the game. Intensity over 10 tanks the ride,
-    crashes disqualify it, and copies of stock designs scale toward zero. The engine judges, not an
-    LLM. Modes: {% for (mode, tagline) in mode_taglines %}{% if !loop.first %} {% endif %}<b>{{ mode }}</b> — {{ tagline }}.{% endfor %}</p>
+    <p>Pieces are placed through the same validated action path the game uses for player input, so
+    an impossible curve or an open circuit fails as it would in-game. Intensity above 10 suppresses
+    excitement, a crash disqualifies the ride, and designs close to the stock library scale toward
+    zero. Ratings come from the game, not from a model. Modes: {% for (mode, tagline) in mode_taglines %}{% if !loop.first %} {% endif %}<b>{{ mode }}</b> — {{ tagline }}.{% endfor %}</p>
   </div>
 </details>
 
@@ -59,7 +59,7 @@ flowchart LR
           {%- when Some(thumb) %}
             <a href="{{ row.model_href }}"><img class="run-thumb" src="{{ thumb }}" alt="best coaster of {{ row.model }} in {{ row.run_name }}" loading="lazy"></a>
           {%- when None %}
-            <div class="no-preview">no shot</div>
+            <div class="no-preview">no image</div>
           {%- endmatch %}
           </td>
           <td class="run-cell"><a href="{{ row.run_href }}">{{ row.run_name }}</a><span class="dim">{{ row.date }}</span></td>
@@ -79,7 +79,7 @@ flowchart LR
       </tbody>
     </table>
     {%- if !skipped.is_empty() %}
-    <p class="dim footnote">not shown, still in flight or never finished:
+    <p class="dim footnote">not shown, incomplete or still running:
     {% for run in skipped %}{% if !loop.first %}, {% endif %}{{ run }}{% endfor %}</p>
     {%- endif %}
   {%- endif %}
