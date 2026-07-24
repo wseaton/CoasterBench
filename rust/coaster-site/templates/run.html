@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% import "macros.html" as macros %}
+{% block body %}
+<div class="window">
+  <div class="titlebar"><span>Standings</span><span class="btn"></span></div>
+  <div class="body">
+    <p class="dim">{{ mode_tagline }}</p>
+    <table>
+      <tr><th></th><th>model</th><th>score</th><th>intensity</th><th>nausea</th>
+          <th>similarity</th><th>best</th><th>tokens / cost</th></tr>
+      {%- for row in standings %}
+      <tr{% if row.is_winner %} class="winner"{% endif %}>
+        <td class="medal">{{ row.place }}</td>
+        <td>{{ row.model }}</td>
+        {%- match row.score %}
+        {%- when Some(score) %}
+        <td class="rating-excitement">{{ score }}</td>
+        <td class="rating-intensity">{{ row.intensity }}</td>
+        <td class="rating-nausea">{{ row.nausea }}</td>
+        <td class="dim">{{ row.similarity }}</td>
+        <td>{{ row.best_round }}</td>
+        {%- when None %}
+        <td colspan="5" class="fail">no successful coaster</td>
+        {%- endmatch %}
+        <td class="dim">{{ row.usage }}</td>
+      </tr>
+      {%- endfor %}
+    </table>
+    <p class="dim" style="margin-top:.5rem;font-size:.75rem">score = excitement, scaled down when
+    similarity to a stock library design exceeds {{ grace }} (an exact or mirrored copy scores 0)</p>
+  </div>
+</div>
+
+<div class="model-grid">
+{%- for model in models %}
+  <div class="window">
+    <div class="titlebar"><span>{{ model.model }}</span><span class="btn"></span></div>
+    <div class="body">
+    {%- if !model.studied.is_empty() %}
+      <h2>studied {{ model.studied.len() }} library design(s)</h2>
+      <div class="strip">
+        <button class="strip-btn strip-prev" aria-label="scroll studied designs left">&#9664;</button>
+        {% call macros::gallery(model.studied.as_slice()) %}{% endcall %}
+        <button class="strip-btn strip-next" aria-label="scroll studied designs right">&#9654;</button>
+      </div>
+      <div style="height:1rem"></div>
+    {%- endif %}
+      {{ model.chart_svg|safe }}
+    {%- for round in model.rounds %}
+      <div class="round">
+        <h3>Round {{ round.number }}</h3>
+        {%- match round.build_error %}
+        {%- when Some(error) %}
+        <p class="fail">{{ error }}</p>
+        {%- when None %}
+        {%- endmatch %}
+        {%- match round.stats %}
+        {%- when Some(stats) %}
+        <div class="stats">
+          <span class="rating-excitement">excitement {{ stats.excitement }}</span>
+          <span class="rating-intensity">intensity {{ stats.intensity }}</span>
+          <span class="rating-nausea">nausea {{ stats.nausea }}</span>
+          <span>length {{ stats.ride_length }}</span>
+          <span>drops {{ stats.num_drops }}</span>
+          <span>airtime {{ stats.total_air_time }}</span>
+          <span>{% if stats.crashed %}CRASHED{% else %}tested ok{% endif %}</span>
+          {%- match stats.similarity %}
+          {%- when Some(similarity) %}
+          <span class="dim">{{ similarity }}</span>
+          {%- when None %}
+          {%- endmatch %}
+          {%- match stats.penalized %}
+          {%- when Some(penalized) %}
+          <span class="fail">{{ penalized }}</span>
+          {%- when None %}
+          {%- endmatch %}
+        </div>
+        {%- when None %}
+        {%- if round.unrated_note %}
+        <p class="dim">built, but the ride was never rated</p>
+        {%- endif %}
+        {%- endmatch %}
+        {%- match round.lookups %}
+        {%- when Some(lookups) %}
+        <p class="dim" style="font-size:.75rem;margin-top:.4rem">{{ lookups }}</p>
+        {%- when None %}
+        {%- endmatch %}
+        {%- match round.program_json %}
+        {%- when Some(program) %}
+        <details><summary>track program ({{ round.program_pieces }} pieces)</summary><pre>{{ program }}</pre></details>
+        {%- when None %}
+        {%- endmatch %}
+        {%- if round.shots.len() > 1 %}
+        <div class="rotator" data-shots="{{ round.shots_json }}" data-labels="{{ round.labels_json }}" data-i="0">
+          <img src="{{ round.shots[0].src }}" alt="park screenshot, {{ model.model }} round {{ round.number }}" loading="lazy">
+          <button class="rot-btn rot-prev" aria-label="rotate view left">&#9664;</button>
+          <span class="rot-count">{{ round.shots[0].label }}</span>
+          <button class="rot-btn rot-next" aria-label="rotate view right">&#9654;</button>
+        </div>
+        {%- else if round.shots.len() == 1 %}
+        <img src="{{ round.shots[0].src }}" alt="park screenshot, {{ model.model }} round {{ round.number }}" loading="lazy">
+        {%- endif %}
+      </div>
+    {%- endfor %}
+    </div>
+  </div>
+{%- endfor %}
+</div>
+<p class="backlink"><a href="index.html">&larr; all runs</a></p>
+{% endblock %}

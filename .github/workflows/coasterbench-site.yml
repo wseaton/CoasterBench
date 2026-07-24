@@ -4,6 +4,7 @@ on:
     branches: [eval]
     paths:
       - 'evals/**'
+      - 'rust/coaster-site/**'
       - '.github/workflows/coasterbench-site.yml'
   workflow_dispatch:
 
@@ -24,9 +25,12 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust/coaster-site
       - name: Build site
-        run: uv run evals/site.py
+        run: cargo run --release --manifest-path rust/coaster-site/Cargo.toml
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

@@ -1,0 +1,15 @@
+[package]
+name = "coaster-site"
+version = "0.1.0"
+edition = "2024"
+description = "Static site generator for CoasterBench eval runs"
+
+[dependencies]
+anyhow = "1"
+askama = "0.16"
+clap = { version = "4", features = ["derive"] }
+# Only the formats the site actually touches: PNG in, PNG + ICO out.
+image = { version = "0.25", default-features = false, features = ["png", "ico"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ureq = "3"

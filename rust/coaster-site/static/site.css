@@ -1,0 +1,236 @@
+:root {
+  --sky: #10202e;
+  --sky-hi: #1c3a50;
+  --panel: #c2b280;
+  --panel-dark: #a8956a;
+  --panel-deep: #8c7a52;
+  --titlebar: #5c3a24;
+  --titlebar-text: #f5e6c8;
+  --ink: #2a2015;
+  --ink-soft: #55462e;
+  --excitement: #124a26;
+  --intensity: #6b2807;
+  --nausea: #6d2255;
+  --fail: #701818;
+  --excitement-mark: #24824a;
+  --intensity-mark: #96420f;
+  --gold: #d9a520;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: "IBM Plex Mono", monospace;
+  color: var(--ink);
+  background:
+    repeating-linear-gradient(45deg, transparent 0 22px, rgba(255,255,255,.015) 22px 44px),
+    linear-gradient(180deg, var(--sky-hi), var(--sky) 60%);
+  min-height: 100vh;
+  padding: 2.5rem 1.25rem 5rem;
+}
+.wrap { max-width: 960px; margin: 0 auto; }
+.wrap-wide { max-width: min(1960px, 96vw); }
+
+/* Run pages: stack model windows side by side when the viewport allows,
+   so comparing rounds across models doesn't mean scrolling one full model
+   at a time. The standings window above the grid keeps full width. */
+.model-grid { display: grid; grid-template-columns: 1fr; gap: 0 1.5rem; align-items: start; }
+@media (min-width: 1200px) {
+  .model-grid { grid-template-columns: repeat(auto-fit, minmax(560px, 1fr)); }
+}
+
+/* RCT-style window: beveled panel with a title bar */
+.window {
+  background: var(--panel);
+  border: 2px solid var(--ink);
+  box-shadow:
+    inset 2px 2px 0 rgba(255,255,255,.45),
+    inset -2px -2px 0 rgba(0,0,0,.3),
+    6px 6px 0 rgba(0,0,0,.35);
+  margin-bottom: 2rem;
+}
+.titlebar {
+  background: linear-gradient(180deg, #6f4a2e, var(--titlebar));
+  color: var(--titlebar-text);
+  font-family: "JetBrains Mono", monospace;
+  font-weight: 700;
+  font-size: .85rem;
+  letter-spacing: .04em;
+  padding: .45rem .75rem;
+  border-bottom: 2px solid var(--ink);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  box-shadow: inset 2px 2px 0 rgba(255,255,255,.18);
+}
+.titlebar .btn {
+  width: 14px; height: 14px;
+  background: var(--panel);
+  border: 1px solid var(--ink);
+  box-shadow: inset 1px 1px 0 rgba(255,255,255,.5), inset -1px -1px 0 rgba(0,0,0,.35);
+}
+.body { padding: 1rem 1.1rem 1.2rem; }
+
+h1 {
+  font-family: "JetBrains Mono", monospace;
+  font-weight: 700;
+  color: var(--titlebar-text);
+  font-size: clamp(1.3rem, 4vw, 2.1rem);
+  text-shadow: 3px 3px 0 rgba(0,0,0,.6);
+  margin-bottom: .4rem;
+}
+.tagline { color: #9db4c4; margin-bottom: 2rem; font-size: .9rem; }
+h2 {
+  font-family: "JetBrains Mono", monospace;
+  font-weight: 700;
+  font-size: 1rem;
+  margin-bottom: .6rem;
+}
+p { line-height: 1.55; margin-bottom: .7rem; }
+a { color: inherit; }
+pre {
+  background: var(--sky);
+  color: #cfe3d2;
+  padding: .9rem 1rem;
+  overflow-x: auto;
+  border: 2px solid var(--ink);
+  box-shadow: inset 2px 2px 0 rgba(0,0,0,.5);
+  font-size: .78rem;
+  line-height: 1.45;
+}
+
+table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+th {
+  font-family: "JetBrains Mono", monospace;
+  font-weight: 700;
+  font-size: .68rem;
+  text-align: left;
+  color: var(--ink-soft);
+  border-bottom: 2px solid var(--ink);
+  padding: .35rem .5rem;
+}
+td { padding: .45rem .5rem; border-bottom: 1px solid var(--panel-deep); vertical-align: top; }
+tr:last-child td { border-bottom: none; }
+tr.winner td { background: rgba(217,165,32,.25); }
+
+.medal { font-family: "JetBrains Mono", monospace;
+  font-weight: 700; }
+.rating-excitement { color: var(--excitement); font-weight: 600; }
+.rating-intensity { color: var(--intensity); font-weight: 600; }
+.rating-nausea { color: var(--nausea); font-weight: 600; }
+.fail { color: var(--fail); font-weight: 600; }
+.dim { color: var(--ink-soft); }
+
+.round { border: 2px solid var(--ink); background: var(--panel-dark);
+  box-shadow: inset 2px 2px 0 rgba(255,255,255,.3), inset -2px -2px 0 rgba(0,0,0,.25);
+  padding: .8rem .9rem; margin-bottom: 1rem; }
+.round h3 { font-family: "JetBrains Mono", monospace;
+  font-weight: 700; font-size: .8rem; margin-bottom: .5rem; }
+.round img {
+  display: block; max-width: 100%; margin-top: .7rem;
+  border: 2px solid var(--ink);
+  box-shadow: 3px 3px 0 rgba(0,0,0,.3);
+}
+.stats { display: flex; flex-wrap: wrap; gap: .3rem 1.4rem; font-size: .85rem; }
+
+/* Track design preview gallery (library mode) */
+.gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(185px, 1fr));
+  gap: .6rem; margin-top: .7rem; }
+.gallery figure { border: 2px solid var(--ink); background: var(--sky);
+  box-shadow: 2px 2px 0 rgba(0,0,0,.3); margin: 0;
+  display: flex; flex-direction: column; }
+.gallery img, .gallery .no-preview {
+  display: block; width: 100%; aspect-ratio: 370 / 217; object-fit: cover;
+  image-rendering: pixelated; }
+.gallery .no-preview { display: flex; align-items: center; justify-content: center;
+  color: var(--ink-soft); font-size: .65rem; }
+.gallery figcaption { font-family: "JetBrains Mono", monospace; font-weight: 700;
+  font-size: .62rem; padding: .3rem .4rem; color: var(--titlebar-text);
+  background: linear-gradient(180deg, #6f4a2e, var(--titlebar));
+  border-top: 2px solid var(--ink); overflow-wrap: anywhere;
+  /* Uniform two-line caption well so every card is the same height and the
+     grid rows (and the model columns above them) stay aligned. */
+  margin-top: auto; min-height: 2.55em; display: flex; align-items: center;
+  overflow: hidden; }
+
+/* Studied designs: a single row that scrolls sideways, so a model that read
+   twenty designs doesn't push its rounds off the screen. Native scrolling
+   with snap points; the arrows are a nicety on top of it. */
+.strip { position: relative; margin-top: .7rem; }
+.strip .gallery {
+  display: flex; gap: .6rem; margin-top: 0;
+  overflow-x: auto; scroll-snap-type: x proximity; scroll-behavior: smooth;
+  padding-bottom: .4rem; scrollbar-width: thin;
+}
+.strip .gallery figure { flex: 0 0 185px; scroll-snap-align: start; }
+.strip .strip-btn {
+  position: absolute; top: calc(50% - 26px); width: 26px; height: 40px;
+  font-family: "JetBrains Mono", monospace; font-size: .7rem; cursor: pointer;
+  color: var(--ink); background: var(--panel);
+  border: 2px solid var(--ink);
+  box-shadow: inset 1px 1px 0 rgba(255,255,255,.5), inset -1px -1px 0 rgba(0,0,0,.35);
+}
+.strip .strip-btn:active { box-shadow: inset -1px -1px 0 rgba(255,255,255,.5), inset 1px 1px 0 rgba(0,0,0,.35); }
+.strip .strip-prev { left: -6px; }
+.strip .strip-next { right: -6px; }
+/* Nothing to scroll: the arrows would just be decoration. */
+.strip[data-scrollable="false"] .strip-btn { display: none; }
+
+/* Mermaid renders into this box; until it does, the source text would flash,
+   so it stays hidden until the [data-processed] attribute lands. */
+.mermaid { margin: .4rem 0 .6rem; text-align: center; visibility: hidden; }
+.mermaid[data-processed] { visibility: visible; }
+.mermaid svg { max-width: min(100%, 680px); height: auto; }
+
+/* The explainer sits above the leaderboard, so it stays one line until asked. */
+.lede { font-size: .85rem; margin-bottom: .3rem; }
+.explainer { margin-top: 0; }
+.explainer summary { color: var(--ink-soft); }
+.explainer p { font-size: .78rem; margin: 0; }
+
+.chart { margin-bottom: 1rem; }
+.chart svg { display: block; width: 100%; height: auto; }
+.chart-legend { display: flex; gap: 1.2rem; font-size: .75rem; margin-bottom: .2rem; }
+.chart-legend .chip { display: inline-block; width: 10px; height: 10px; margin-right: .35rem; }
+
+.run-table { width: 100%; border-collapse: collapse; margin-top: .6rem; }
+.run-table th { text-align: left; font-size: .7rem; text-transform: uppercase; letter-spacing: .06em;
+  padding: .3rem .5rem; border-bottom: 2px solid #2a2015; }
+.run-table td { padding: .45rem .5rem; border-bottom: 1px solid #cbbd93; vertical-align: middle; font-size: .85rem; }
+/* One row per model, grouped by run: a heavier rule starts each new run. */
+.run-table tr.run-start td { border-top: 2px solid var(--ink); }
+.run-table .run-thumb { width: 140px; display: block; image-rendering: pixelated;
+  border: 2px solid #2a2015; background: #10202e; }
+.run-table .model { font-weight: 600; overflow-wrap: anywhere; }
+.run-table .score { font-family: "JetBrains Mono", monospace; font-weight: 700; }
+
+.facets { display: flex; flex-wrap: wrap; gap: .8rem; margin-top: .6rem; }
+.facet-group { display: inline-flex; align-items: center; gap: .25rem; flex-wrap: wrap; }
+.facet-label { font-size: .7rem; text-transform: uppercase; letter-spacing: .06em; margin-right: .15rem; }
+.facet-btn { font: inherit; font-size: .75rem; padding: .15rem .5rem; cursor: pointer;
+  background: #c2b280; border: 2px solid #2a2015;
+  box-shadow: inset -1px -1px 0 rgba(0,0,0,.35), inset 1px 1px 0 rgba(255,255,255,.5); }
+.facet-btn.active { background: #5c3a24; color: #f0e6c8;
+  box-shadow: inset -1px -1px 0 rgba(255,255,255,.35), inset 1px 1px 0 rgba(0,0,0,.5); }
+
+.rotator { position: relative; }
+.rotator .rot-btn {
+  position: absolute; bottom: 10px; width: 30px; height: 26px;
+  font-family: "JetBrains Mono", monospace; font-size: .7rem; cursor: pointer;
+  color: var(--ink); background: var(--panel);
+  border: 2px solid var(--ink);
+  box-shadow: inset 1px 1px 0 rgba(255,255,255,.5), inset -1px -1px 0 rgba(0,0,0,.35);
+}
+.rotator .rot-btn:active { box-shadow: inset -1px -1px 0 rgba(255,255,255,.5), inset 1px 1px 0 rgba(0,0,0,.35); }
+.rotator .rot-prev { right: 78px; }
+.rotator .rot-next { right: 10px; }
+.rotator .rot-count {
+  position: absolute; bottom: 12px; right: 44px; width: 30px; text-align: center;
+  font-family: "JetBrains Mono", monospace; font-size: .65rem; font-weight: 700;
+  color: var(--titlebar-text); text-shadow: 1px 1px 0 rgba(0,0,0,.7);
+}
+details { margin-top: .7rem; font-size: .8rem; }
+summary { cursor: pointer; font-family: "JetBrains Mono", monospace;
+  font-weight: 700; font-size: .7rem; }
+.footer { color: #6c8394; font-size: .75rem; text-align: center; margin-top: 3rem; }
+.footer a { color: #9db4c4; }
+.backlink a { color: #9db4c4; font-family: "JetBrains Mono", monospace;
+  font-weight: 700; font-size: .8rem; }

@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="window">
+  <div class="titlebar"><span>How the harness works</span><span class="btn"></span></div>
+  <div class="body">
+    <p class="lede">Each round a model submits a track program (start tile, heading, piece list).
+    Real OpenRCT2 builds it, tests it, and hands back ratings plus a screenshot for the next round.
+    <b>Excitement is the score.</b></p>
+    <details class="explainer">
+      <summary>the whole loop</summary>
+      <div class="mermaid">
+flowchart LR
+  M["model<br/>track program"] --> B["build + validate"]
+  B --> T["test train"]
+  T --> R["ratings + screenshot"]
+  R --> M
+  B -. rejected piece .-> M
+      </div>
+      <p class="dim">Pieces go in through the same validated action path a player clicks, so an
+      impossible curve or an open circuit fails exactly as it would in the game. Intensity over 10
+      tanks the ride, crashes disqualify it, and copies of stock designs scale toward zero. The
+      engine judges, not an LLM.</p>
+    </details>
+  </div>
+</div>
+
+<div class="window">
+  <div class="titlebar"><span>{% if rows.is_empty() %}No runs yet{% else %}All runs{% endif %}</span><span class="btn"></span></div>
+  <div class="body">
+  {%- if rows.is_empty() %}
+    <p>Run <code>uv run evals/driver.py</code> to generate one.</p>
+  {%- else %}
+    <p>{% for (mode, tagline) in mode_taglines %}{% if !loop.first %} &middot; {% endif %}<b>{{ mode }}</b>: {{ tagline }}{% endfor %}</p>
+    {%- if have_previews %}
+    <p style="margin-top:.4rem"><a href="library.html">browse the full track design library &rarr;</a></p>
+    {%- endif %}
+    <div class="facets">
+    {%- for facet in facets %}
+      <span class="facet-group"><span class="facet-label">{{ facet.name }}:</span>
+        <button class="facet-btn active" data-facet="{{ facet.name }}" data-value="">all</button>
+      {%- for value in facet.values %}
+        <button class="facet-btn" data-facet="{{ facet.name }}" data-value="{{ value }}">{{ value }}</button>
+      {%- endfor %}
+      </span>
+    {%- endfor %}
+    </div>
+    <table class="run-table">
+      <thead><tr>
+        <th></th><th>run</th><th>mode</th><th>coaster</th><th>harness</th>
+        <th>model</th><th>score</th><th>intensity</th><th>nausea</th><th>best</th><th>tokens / cost</th>
+      </tr></thead>
+      <tbody>
+      {%- for row in rows %}
+        <tr class="{% if row.starts_run %}run-start {% endif %}{% if row.is_winner %}winner{% endif %}"
+            data-run="{{ row.run_name }}" data-mode="{{ row.mode }}" data-coaster="{{ row.coaster }}"
+            data-harness="{{ row.harness }}" data-model="{{ row.model }}">
+          <td>
+          {%- match row.thumb %}
+          {%- when Some(thumb) %}
+            <a href="{{ row.run_href }}"><img class="run-thumb" src="{{ thumb }}" alt="best coaster of {{ row.model }} in {{ row.run_name }}" loading="lazy"></a>
+          {%- when None %}
+            <div class="no-preview">no shot</div>
+          {%- endmatch %}
+          </td>
+          <td><a href="{{ row.run_href }}">{{ row.run_name }}</a><br><span class="dim">{{ row.date }}</span></td>
+          <td>{{ row.mode }}</td>
+          <td>{{ row.coaster }}</td>
+          <td>{{ row.harness }}</td>
+          <td class="model"><span class="medal dim">{{ row.place }}</span> {{ row.model }}</td>
+          {%- match row.score %}
+          {%- when Some(score) %}
+          <td class="score rating-excitement">{{ score }}</td>
+          <td class="rating-intensity">{{ row.intensity }}</td>
+          <td class="rating-nausea">{{ row.nausea }}</td>
+          <td>{{ row.best_round }}</td>
+          {%- when None %}
+          <td colspan="4" class="fail">no successful coaster</td>
+          {%- endmatch %}
+          <td class="dim">{{ row.usage }}</td>
+        </tr>
+      {%- endfor %}
+      </tbody>
+    </table>
+    {%- if !skipped.is_empty() %}
+    <p class="dim" style="margin-top:.6rem;font-size:.75rem">not shown, still in flight or never finished:
+    {% for run in skipped %}{% if !loop.first %}, {% endif %}{{ run }}{% endfor %}</p>
+    {%- endif %}
+  {%- endif %}
+  </div>
+</div>
+{% endblock %}

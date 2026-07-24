@@ -120,8 +120,23 @@ Non-bundled binaries look for `data/` next to the exe. One-time setup:
   R2 bucket `coasterbench` (public at https://artifacts.wseaton.com) through
   the local `wrangler login` OAuth session (no static keys anywhere) and
   records manifests (`runs/<run>/artifacts.json`, `evals/library-previews.json`).
-  site.py prefers local files, falls back to manifest URLs, so the GitHub
-  Pages CI build works from JSON alone.
+  The SSG prefers local files, falls back to manifest URLs, so the GitHub
+  Pages CI build works from JSON alone. **Both must be committed and pushed**
+  or the deployed site renders with no images at all.
+
+## Site generator (rust/coaster-site)
+
+- `cargo run --manifest-path rust/coaster-site/Cargo.toml` writes `evals/site/`
+  (own crate, askama templates in `templates/`, CSS/JS in `static/`, raster
+  work — index thumbnails, og-card, favicon — via the `image` crate). This is
+  what the Pages workflow builds; `evals/site.py` is the superseded Python
+  version, kept until the Rust output has a few deploys behind it.
+- Index table is one row per model per run (runs pivoted), grouped by run and
+  faceted by mode/coaster/harness/model.
+- Runs that never finished are skipped, with the reason on stderr and a note
+  on the page: any model short of run.json's promised `models`/`rounds` (or,
+  for runs from before run.json recorded them, short of the run's own best
+  round count). `--include-partial` renders them anyway.
 
 ## MCP server (interactive per-piece building)
 

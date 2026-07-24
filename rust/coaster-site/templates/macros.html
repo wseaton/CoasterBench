@@ -1,0 +1,15 @@
+{% macro gallery(figures) %}
+<div class="gallery">
+{%- for figure in figures %}
+  <figure>
+  {%- match figure.src %}
+  {%- when Some(src) %}
+    <img src="{{ src }}" alt="track design preview: {{ figure.name }}" loading="lazy">
+  {%- when None %}
+    <div class="no-preview">no preview</div>
+  {%- endmatch %}
+    <figcaption>{{ figure.caption }}</figcaption>
+  </figure>
+{%- endfor %}
+</div>
+{% endmacro %}

@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% import "macros.html" as macros %}
+{% block body %}
+<div class="window">
+  <div class="titlebar"><span>Track design library ({{ figures.len() }} designs)</span><span class="btn"></span></div>
+  <div class="body">
+    <p>The stock RCT2 designs models can search in library mode. Previews are rendered by the game's
+    own track-preview pipeline.</p>
+    {% call macros::gallery(figures.as_slice()) %}{% endcall %}
+  </div>
+</div>
+<p class="backlink"><a href="index.html">&larr; all runs</a></p>
+{% endblock %}
