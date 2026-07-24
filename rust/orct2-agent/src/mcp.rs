@@ -148,6 +148,27 @@ struct Placed {
     track_type: u16,
     origin: host::TrackCursor,
     cost: i64,
+    /// Whether this piece carries the chain lift. Stored so placed_pieces (and
+    /// the program.json rebuilt from it) can round-trip the lift hills — a
+    /// name-only piece list rebuilds the shape but not a working ride.
+    chain: bool,
+}
+
+/// The piece list in program form: a bare name when the piece is plain, or a
+/// {"t": name, "chain": true} object when it carries the lift (the format
+/// program.rs already parses). Feeds get_state and the best-test snapshot, so a
+/// program rebuilt from it replays to the same ride, not just the same shape.
+fn placed_pieces_json(placed: &[Placed]) -> Vec<Value> {
+    placed
+        .iter()
+        .map(|p| {
+            if p.chain {
+                json!({"t": p.name, "chain": true})
+            } else {
+                json!(p.name)
+            }
+        })
+        .collect()
 }
 
 /// Build state for the ride currently under construction.
@@ -584,6 +605,7 @@ fn call_tool(name: &str, args: &Value, session: &mut Session) -> Result<Vec<Valu
                 track_type,
                 origin,
                 cost,
+                chain,
             });
             let closed = build.cursor == build.start;
             Ok(text_content(json!({
@@ -613,13 +635,12 @@ fn call_tool(name: &str, args: &Value, session: &mut Session) -> Result<Vec<Valu
                 .build
                 .as_ref()
                 .ok_or("no active ride; call new_ride first")?;
-            let placed: Vec<&str> = build.placed.iter().map(|p| p.name).collect();
             Ok(text_content(json!({
                 "ride_id": build.ride_id,
                 "start": cursor_json(&build.start),
                 "cursor": cursor_json(&build.cursor),
                 "pieces_placed": build.placed.len(),
-                "placed_pieces": placed,
+                "placed_pieces": placed_pieces_json(&build.placed),
                 "total_cost": build.total_cost(),
                 "circuit_closed": build.cursor == build.start,
                 "finalized": build.finalized,
@@ -660,8 +681,10 @@ fn call_tool(name: &str, args: &Value, session: &mut Session) -> Result<Vec<Valu
             // harness can rebuild program.json for the scored coaster rather
             // than for whatever currently stands in the park.
             if let Some(obj) = report.as_object_mut() {
-                let names: Vec<&str> = build.placed.iter().map(|p| p.name).collect();
-                obj.insert("placed_pieces".into(), json!(names));
+                obj.insert(
+                    "placed_pieces".into(),
+                    json!(placed_pieces_json(&build.placed)),
+                );
                 obj.insert("start".into(), cursor_json(&build.start));
             }
             // Remember the best rated test this round, so demolishing a good
@@ -832,6 +855,7 @@ fn call_tool(name: &str, args: &Value, session: &mut Session) -> Result<Vec<Valu
                             track_type,
                             origin,
                             cost,
+                            chain,
                         });
                         placed_this_call += 1;
                     }
@@ -889,6 +913,39 @@ mod tests {
             Some("2025-03-26")
         );
         assert!(resp.pointer("/result/capabilities/tools").is_some());
+    }
+
+    #[test]
+    fn placed_pieces_keep_chain_in_program_form() {
+        let cursor = host::TrackCursor {
+            x: 0,
+            y: 0,
+            z: 0,
+            direction: 0,
+            bank: 0,
+            slope: 0,
+        };
+        let placed = vec![
+            Placed {
+                name: "begin_station",
+                track_type: 1,
+                origin: cursor,
+                cost: 0,
+                chain: false,
+            },
+            Placed {
+                name: "up_25",
+                track_type: 5,
+                origin: cursor,
+                cost: 0,
+                chain: true,
+            },
+        ];
+        let out = placed_pieces_json(&placed);
+        // Plain pieces stay bare names; a chain piece becomes the {"t",chain}
+        // object program.rs parses, so program.json round-trips the lift hill.
+        assert_eq!(out[0], json!("begin_station"));
+        assert_eq!(out[1], json!({"t": "up_25", "chain": true}));
     }
 
     #[test]
