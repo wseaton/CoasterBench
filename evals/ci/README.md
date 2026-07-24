@@ -12,8 +12,10 @@ runs — `run.json` records `no_graphics: true`).
 ## Pieces
 
 - `Dockerfile` — CPU-only game image (headless `openrct2-cli`, Rust agent,
-  bundled objects, checked-in scenario). Build once, push, pin the digest.
-  Draft: authored on macOS, not yet exercised on a Linux builder.
+  bundled objects, checked-in scenario; ~240 MB). Build once, push, pin the
+  digest. Verified on Linux arm64 (podman): the containerized MCP server
+  builds, tests, and rates a coaster with ratings identical to the macOS
+  build. x86_64 not yet exercised.
 - `check_run.py` — pass/fail gate: every model needs ≥1 round that built and
   completed a test circuit. Scores are metrics, not assertions (models are
   nondeterministic; don't gate merges on excitement).
