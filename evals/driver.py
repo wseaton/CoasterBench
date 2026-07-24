@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["anthropic[vertex]>=0.40", "openai>=1.40"]
+# dependencies = ["anthropic[vertex]>=0.40", "openai>=1.40", "pillow>=10"]
 # ///
 """Coaster design head-to-head: two Claude models iteratively design a coaster.
 
@@ -80,6 +80,11 @@ MAP_LINES = {
 # Set from --no-graphics in main(): the game loads no sprite data, so no RCT2
 # assets are needed and nothing can render (no screenshots, no previews).
 NO_GRAPHICS = False
+
+# Set from --schematic-feedback: attach the schematic track diagram (rendered
+# from the report's cursor trace, no assets needed) to round feedback, for
+# multimodal contenders in no-graphics runs.
+SCHEMATIC_FEEDBACK = False
 
 
 def rct2_args() -> list[str]:
@@ -325,6 +330,72 @@ class Contender:
         return max(rated, key=lambda a: a.excitement) if rated else None
 
 
+STATION_PIECES = {"begin_station", "middle_station", "end_station"}
+
+
+def render_schematic(trace: list[dict], out_path: Path) -> Path | None:
+    """Draws the placed track as a two-panel PNG (top-down + isometric) from
+    the report's cursor trace — no game assets involved. Stations are green,
+    chain lift red, everything else shaded by height; an open circuit gets a
+    dashed gap line from track end back to the start."""
+    if len(trace) < 2:
+        return None
+    from PIL import Image, ImageDraw
+
+    pts = [(p["x"], p["y"], p["z"]) for p in trace]
+    zs = [z for _, _, z in pts]
+    z0, z1 = min(zs), max(zs)
+
+    def color(i: int) -> tuple[int, int, int]:
+        piece = trace[i]["piece"]
+        if piece in STATION_PIECES:
+            return (46, 160, 67)
+        if trace[i].get("chain"):
+            return (220, 68, 61)
+        t = (pts[i][2] - z0) / (z1 - z0) if z1 > z0 else 0.0
+        return (int(60 + 195 * t), int(120 - 40 * t), int(220 - 160 * t))
+
+    panels = {
+        "top": lambda x, y, z: (x, y),
+        "iso": lambda x, y, z: (x - y, (x + y) * 0.5 - z / 24),
+    }
+    size, margin = 640, 40
+    img = Image.new("RGB", (size * 2, size), (250, 250, 248))
+    draw = ImageDraw.Draw(img)
+
+    closed = pts[0][:2] == pts[-1][:2] and trace[0]["z"] == trace[-1]["z"]
+    for panel, (name, proj) in enumerate(panels.items()):
+        proj_pts = [proj(*p) for p in pts]
+        xs = [u for u, _ in proj_pts]
+        ys = [v for _, v in proj_pts]
+        span = max(max(xs) - min(xs), max(ys) - min(ys)) or 1.0
+        scale = (size - 2 * margin) / span
+
+        def to_px(uv, panel=panel, xs=xs, ys=ys, scale=scale):
+            return (
+                panel * size + margin + (uv[0] - min(xs)) * scale,
+                margin + (uv[1] - min(ys)) * scale,
+            )
+
+        px = [to_px(p) for p in proj_pts]
+        for i in range(1, len(px)):
+            draw.line([px[i - 1], px[i]], fill=color(i), width=4)
+        if not closed:
+            draw.line([px[-1], px[0]], fill=(150, 150, 150), width=2)
+        sx, sy = px[0]
+        draw.ellipse([sx - 5, sy - 5, sx + 5, sy + 5], outline=(0, 0, 0), width=2)
+        draw.text((panel * size + margin, size - margin + 8), name, fill=(90, 90, 90))
+
+    if not closed:
+        dx = pts[0][0] - pts[-1][0]
+        dy = pts[0][1] - pts[-1][1]
+        dz = trace[0]["z"] - trace[-1]["z"]
+        draw.text((margin, 8), f"OPEN CIRCUIT: gap to start  dx={dx}  dy={dy}  dz={dz}", fill=(180, 30, 30))
+    draw.text((size + margin, 8), "green=station  red=chain-lift  blue->orange=height", fill=(90, 90, 90))
+    img.save(out_path)
+    return out_path
+
+
 def run_eval(program: dict, scenario: Path, workdir: Path, ticks: int) -> tuple[dict, Path | None]:
     workdir.mkdir(parents=True, exist_ok=True)
     program_path = workdir / "program.json"
@@ -346,7 +417,14 @@ def run_eval(program: dict, scenario: Path, workdir: Path, ticks: int) -> tuple[
         return {"program": {"ok": False, "error": {"message": f"eval crashed: {proc.stderr[-500:]}"}}}, None
 
     report = json.loads(report_path.read_text())
-    shot = None
+    trace = (report.get("program") or {}).get("trace") or []
+    schematic = None
+    if trace:
+        try:
+            schematic = render_schematic(trace, workdir / "track.png")
+        except Exception as e:  # a diagram must never sink the round
+            print(f"  schematic render failed: {e}", file=sys.stderr)
+    shot = schematic if SCHEMATIC_FEEDBACK else None
     if capture_path.exists():
         small = workdir / "park_small.png"
         # The API rejects images over 5 MB of base64 (~3.7 MB raw); tall parks
@@ -830,6 +908,12 @@ def main() -> int:
         "auth from $OPENAI_API_KEY, defaulting to 'EMPTY' for local servers",
     )
     parser.add_argument(
+        "--schematic-feedback",
+        action="store_true",
+        help="attach the asset-free schematic track diagram to round feedback "
+        "(multimodal contenders only; text-only models will reject image content)",
+    )
+    parser.add_argument(
         "--chat-template-kwargs",
         help="JSON merged into each request as vLLM chat_template_kwargs "
         "(OpenAI lane only), e.g. '{\"enable_thinking\": false}'",
@@ -866,6 +950,9 @@ def main() -> int:
             return 1
         global NO_GRAPHICS
         NO_GRAPHICS = True
+        if args.schematic_feedback:
+            global SCHEMATIC_FEEDBACK
+            SCHEMATIC_FEEDBACK = True
         if args.scenario == DEFAULT_SCENARIO:
             # The graphics-lane default lives in the RCT2 install; assetless
             # runs default to the checked-in test park instead.
