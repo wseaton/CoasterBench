@@ -1,0 +1,18 @@
+{
+  "harness": "claude-code",
+  "harnesses": {
+    "claude-opus-5": "claude-code"
+  },
+  "modalities": {
+    "claude-opus-5": "text,image"
+  },
+  "mode": "design",
+  "models": [
+    "claude-opus-5"
+  ],
+  "orchestrator": "coaster-bench",
+  "ride_type": 51,
+  "rounds": 6,
+  "similarity_grace": 0.5,
+  "ticks": 25000
+}
