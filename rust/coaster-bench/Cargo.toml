@@ -2,6 +2,8 @@
 name = "coaster-bench"
 version = "0.1.0"
 edition = "2021"
+license = "GPL-3.0-or-later"
+publish = false
 description = "Orchestrates CoasterBench runs: game MCP server + sandboxed Claude Code per round"
 
 [dependencies]

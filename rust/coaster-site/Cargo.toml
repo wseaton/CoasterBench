@@ -2,6 +2,8 @@
 name = "coaster-site"
 version = "0.1.0"
 edition = "2024"
+license = "GPL-3.0-or-later"
+publish = false
 description = "Static site generator for CoasterBench eval runs"
 
 [dependencies]

@@ -5,7 +5,7 @@
 //!   coaster-bench --models claude-fable-5 claude-sonnet-5 --rounds 4 \
 //!       --ride-type 51 --name sub-twister-1
 //!
-//! The game server is spawned as a child (openrct2-cli eval --serve) and the
+//! The game server is spawned as a child (coasterbench-cli eval --serve) and the
 //! orchestrator collects per-round artifacts (report.json, program.json,
 //! park.png) in the same evals/runs/<name>/ layout driver.py produces, so
 //! site.py needs no changes.
@@ -105,7 +105,7 @@ struct GameServer {
 
 impl GameServer {
     fn spawn(args: &Args, root: &Path) -> Result<GameServer, String> {
-        let cli = root.join("build/openrct2-cli");
+        let cli = root.join("build/coasterbench-cli");
         if !cli.is_file() {
             return Err(format!("{} not built", cli.display()));
         }

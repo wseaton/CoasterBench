@@ -191,7 +191,7 @@ pub unsafe extern "C" fn orct2_agent_dump_library(out_path: *const c_char) -> i3
     0
 }
 
-/// Called by `openrct2-cli eval` after the tick loop: logs a per-ride summary
+/// Called by `coasterbench-cli eval` after the tick loop: logs a per-ride summary
 /// through the host so results land in the game's console output.
 #[no_mangle]
 pub extern "C" fn orct2_agent_eval_summary() {

@@ -371,7 +371,7 @@ pub fn track_mirror(track_type: u16) -> u16 {
 // Link stubs for `cargo test`: the C++ host only exists inside the game
 // binary, so the unit-test binary needs these symbols to link. Unit tests
 // cover pure logic only (parsing, protocol, formatting); anything that
-// touches game state is exercised end-to-end through openrct2-cli.
+// touches game state is exercised end-to-end through coasterbench-cli.
 #[cfg(test)]
 mod test_stubs {
     #![allow(clippy::missing_safety_doc)]
