@@ -110,25 +110,51 @@ document.querySelectorAll('[data-trace-filter]').forEach(function (btn) {
   var selects = { a: root.querySelector('[data-side="a"]'), b: root.querySelector('[data-side="b"]') };
   var result = document.getElementById('vs-result');
 
-  // Group options by coaster so the dropdown reads scenario by scenario.
-  function fillSelect(sel) {
+  // Only same-scenario contenders may fight: comparing library vs design, or
+  // wooden vs twister, is apples to oranges (different tasks, different rating
+  // scales). A scenario is the coaster and the mode together.
+  var scenarioOf = function (c) { return c.coaster + ' · ' + c.mode; };
+
+  function option(c) {
+    var o = document.createElement('option');
+    o.value = c.id;
+    var score = c.score == null ? 'no score' : c.score.toFixed(2);
+    o.textContent = c.model + ' · ' + c.run + ' (' + score + ')';
+    return o;
+  }
+
+  // Side A picks from everything, grouped by scenario.
+  function fillAnchor() {
     var groups = {};
-    data.forEach(function (c) { (groups[c.coaster] = groups[c.coaster] || []).push(c); });
-    Object.keys(groups).sort().forEach(function (coaster) {
+    data.forEach(function (c) { (groups[scenarioOf(c)] = groups[scenarioOf(c)] || []).push(c); });
+    Object.keys(groups).sort().forEach(function (scenario) {
       var og = document.createElement('optgroup');
-      og.label = coaster;
-      groups[coaster].forEach(function (c) {
-        var o = document.createElement('option');
-        o.value = c.id;
-        var score = c.score == null ? 'no score' : c.score.toFixed(2);
-        o.textContent = c.model + ' · ' + c.run + ' (' + score + ')';
-        og.appendChild(o);
-      });
-      sel.appendChild(og);
+      og.label = scenario;
+      groups[scenario].forEach(function (c) { og.appendChild(option(c)); });
+      selects.a.appendChild(og);
     });
   }
-  fillSelect(selects.a);
-  fillSelect(selects.b);
+
+  // Side B is constrained to A's scenario, so a mismatch can't be selected.
+  // Keeps B's current pick when it is still in-scenario, else picks the best
+  // opponent that is not A itself.
+  function fillOpponents() {
+    var anchor = byId[selects.a.value];
+    var want = selects.b.value;
+    selects.b.innerHTML = '';
+    var pool = data.filter(function (c) {
+      return anchor && scenarioOf(c) === scenarioOf(anchor);
+    });
+    pool.forEach(function (c) { selects.b.appendChild(option(c)); });
+    var keep = pool.some(function (c) { return c.id === want && c.id !== selects.a.value; });
+    if (keep) {
+      selects.b.value = want;
+    } else {
+      var other = pool.find(function (c) { return c.id !== selects.a.value; });
+      selects.b.value = other ? other.id : selects.a.value;
+    }
+  }
+  fillAnchor();
 
   var num = function (n) { return n == null ? '—' : (+n).toFixed(2); };
   var intFmt = function (n) { return n == null ? '—' : String(n); };
@@ -229,15 +255,9 @@ document.querySelectorAll('[data-trace-filter]').forEach(function (btn) {
 
   function render() {
     var a = byId[selects.a.value], b = byId[selects.b.value];
-    if (!a || !b) { result.innerHTML = ''; return; }
-    var mismatch = a.coaster !== b.coaster
-      ? '<p class="vs-warn">Different coasters (' + a.coaster + ' vs ' + b.coaster
-        + ') — ratings are not directly comparable across ride types.</p>'
-      : (a.mode !== b.mode
-        ? '<p class="vs-warn">Different modes (' + a.mode + ' vs ' + b.mode + ').</p>' : '');
+    if (!a || !b || a.id === b.id) { result.innerHTML = ''; return; }
     result.innerHTML =
       '<div class="vs-cards">' + card(a, 'a') + '<div class="vs-mid">vs</div>' + card(b, 'b') + '</div>'
-      + mismatch
       + '<p class="vs-verdict">' + verdict(a, b) + '</p>'
       + '<div class="vs-metrics">' + METRICS.map(function (m) { return bar(m, a, b); }).join('') + '</div>'
       + '<div class="vs-spark-wrap"><span class="dim">excitement per round</span>' + spark(a, b) + '</div>';
@@ -247,19 +267,29 @@ document.querySelectorAll('[data-trace-filter]').forEach(function (btn) {
     history.replaceState(null, '', url);
   }
 
-  function pick(side, id) { if (byId[id]) selects[side].value = id; }
+  // Reflect A's pick, refill B to A's scenario, then render.
+  function update() { fillOpponents(); render(); }
+
   var params = new URLSearchParams(window.location.search);
-  pick('a', params.get('a') || root.dataset.defaultA);
-  pick('b', params.get('b') || root.dataset.defaultB);
-  if (selects.a.value === selects.b.value && data.length > 1) {
-    // Avoid opening on a model against itself.
-    selects.b.selectedIndex = selects.a.selectedIndex === 0 ? 1 : 0;
+  var wantA = params.get('a') || root.dataset.defaultA;
+  var wantB = params.get('b') || root.dataset.defaultB;
+  if (byId[wantA]) selects.a.value = wantA;
+  fillOpponents();
+  // Honour B's deep-link only when it shares A's scenario; otherwise
+  // fillOpponents already left B on the best in-scenario opponent.
+  if (byId[wantB] && scenarioOf(byId[wantB]) === scenarioOf(byId[selects.a.value])
+      && wantB !== selects.a.value) {
+    selects.b.value = wantB;
   }
 
-  selects.a.addEventListener('change', render);
+  selects.a.addEventListener('change', update);
   selects.b.addEventListener('change', render);
   document.getElementById('vs-swap').addEventListener('click', function () {
-    var tmp = selects.a.value; selects.a.value = selects.b.value; selects.b.value = tmp; render();
+    // Both sides share a scenario, so a straight swap stays valid.
+    var tmp = selects.a.value; selects.a.value = selects.b.value;
+    fillOpponents();
+    selects.b.value = tmp;
+    render();
   });
   render();
 })();

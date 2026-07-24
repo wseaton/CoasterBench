@@ -357,7 +357,6 @@ summary { cursor: pointer; font-family: "JetBrains Mono", monospace;
 .vs-mid { font-family: "JetBrains Mono", monospace; font-weight: 800; color: var(--ink-soft);
   align-self: center; }
 
-.vs-warn { font-size: .75rem; color: var(--intensity); margin: 0 0 .6rem; }
 .vs-verdict { font-family: "JetBrains Mono", monospace; font-weight: 700; font-size: .95rem;
   text-align: center; margin: .2rem 0 1rem; }
 

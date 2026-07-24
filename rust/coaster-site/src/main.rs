@@ -660,20 +660,24 @@ fn contenders(runs: &[EvalRun], store: &ArtStore, out: &Path) -> Result<Vec<view
     Ok(contenders)
 }
 
-/// Default matchup: the top two contenders of the most-contested coaster, so
-/// the page opens on a real fight rather than an empty picker.
+/// Default matchup: the top two contenders of the most-contested scenario, so
+/// the page opens on a real fight rather than an empty picker. A scenario is a
+/// (coaster, mode) pair, matching the picker's same-scenario rule.
 fn default_pair(contenders: &[view::Contender]) -> (String, String) {
-    let mut by_coaster: std::collections::HashMap<&str, Vec<&view::Contender>> =
+    let mut by_scenario: std::collections::HashMap<(&str, &str), Vec<&view::Contender>> =
         std::collections::HashMap::new();
     for c in contenders {
-        by_coaster.entry(&c.coaster).or_default().push(c);
+        by_scenario
+            .entry((&c.coaster, &c.mode))
+            .or_default()
+            .push(c);
     }
-    let best = by_coaster
+    let best = by_scenario
         .values()
         .filter(|group| group.len() >= 2)
         .max_by_key(|group| group.len());
     match best {
-        // Groups are already score-sorted within a coaster by contenders().
+        // Groups are already score-sorted within a scenario by contenders().
         Some(group) => (group[0].id.clone(), group[1].id.clone()),
         None => {
             let id = |i: usize| contenders.get(i).map(|c| c.id.clone()).unwrap_or_default();
