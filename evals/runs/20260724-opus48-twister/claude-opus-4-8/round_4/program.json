@@ -1,4 +1,10 @@
 {
+  "ride_type": 51,
+  "start": {
+    "x": 40,
+    "y": 55,
+    "dir": 2
+  },
   "pieces": [
     "begin_station",
     "middle_station",
@@ -58,11 +64,5 @@
     "brakes",
     "brakes",
     "brakes"
-  ],
-  "ride_type": 51,
-  "start": {
-    "dir": 2,
-    "x": 1,
-    "y": 1
-  }
+  ]
 }
