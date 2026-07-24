@@ -905,7 +905,7 @@ def main() -> int:
         default="design",
         help="design = from scratch; library = with track design library search (retrieval eval)",
     )
-    parser.add_argument("--rounds", type=int, default=4)
+    parser.add_argument("--rounds", type=int, default=6)
     parser.add_argument(
         "--ride-type",
         type=int,
