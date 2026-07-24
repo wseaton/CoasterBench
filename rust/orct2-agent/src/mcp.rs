@@ -524,7 +524,7 @@ fn call_tool(name: &str, args: &Value, session: &mut Session) -> Result<Vec<Valu
             let cost = host::track_place(build.ride_id, track_type, chain, &mut build.cursor)
                 .map_err(|e| {
                     format!(
-                        "rejected: {e} (cursor unchanged: {})",
+                        "'{name}' rejected: {e} (cursor unchanged: {})",
                         cursor_json(&build.cursor)
                     )
                 })?;

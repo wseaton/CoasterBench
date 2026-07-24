@@ -73,6 +73,20 @@ fn describe(track_type: u16) -> String {
     }
 }
 
+/// Rejection text for a piece the game refused. Names the piece as well as the
+/// cursor: a program is a long list of pieces, and a bare cursor leaves the
+/// model to work out which entry the game meant.
+fn rejection_message(track_type: u16, cursor: &host::TrackCursor, error: &str) -> String {
+    format!(
+        "piece '{}' rejected at cursor (x={}, y={}, z={}, dir={}): {error}",
+        describe(track_type),
+        cursor.x / 32,
+        cursor.y / 32,
+        cursor.z,
+        cursor.direction
+    )
+}
+
 /// Result of executing a track program, later folded into the eval report.
 #[derive(Debug, Serialize, Default)]
 pub struct ProgramOutcome {
@@ -217,13 +231,7 @@ pub fn run(json: &str) -> ProgramOutcome {
                 outcome.error = Some(ProgramError {
                     piece_index: Some(index),
                     piece: Some(describe(track_type)),
-                    message: format!(
-                        "rejected at cursor (x={}, y={}, z={}, dir={}): {message}",
-                        cursor.x / 32,
-                        cursor.y / 32,
-                        cursor.z,
-                        cursor.direction
-                    ),
+                    message: rejection_message(track_type, &cursor, &message),
                 });
                 return outcome;
             }
@@ -268,6 +276,27 @@ pub fn run(json: &str) -> ProgramOutcome {
 #[cfg(test)]
 mod tests {
     use crate::program::*;
+
+    #[test]
+    fn rejection_names_the_piece_and_the_tile() {
+        let cursor = host::TrackCursor {
+            x: 64,
+            y: 96,
+            z: 112,
+            direction: 2,
+            bank: 0,
+            slope: 0,
+        };
+        // flat_to_up_60: the piece a wooden coaster builds but cannot draw.
+        let message = rejection_message(62, &cursor, "ride type 52 has no artwork for this piece");
+        assert_eq!(
+            message,
+            "piece 'flat_to_up_60' rejected at cursor (x=2, y=3, z=112, dir=2): \
+             ride type 52 has no artwork for this piece"
+        );
+        // Pieces outside the catalog still identify themselves by raw id.
+        assert!(rejection_message(9999, &cursor, "nope").starts_with("piece '#9999'"));
+    }
 
     #[test]
     fn parses_name_and_raw_and_chain_pieces() {

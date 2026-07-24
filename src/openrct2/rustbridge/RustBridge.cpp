@@ -257,8 +257,9 @@ namespace
         }
         CopyError(
             err, errLen,
-            "ride type " + std::to_string(ride.type) + " has no artwork for this piece; it would build and rate "
-                "but render as nothing (invisible track)");
+            "ride type " + std::to_string(ride.type)
+                + " has no artwork for this piece: it would build and rate but render as nothing (invisible track). "
+                  "valid_next_pieces lists what this ride can draw here");
         return false;
     }
 
