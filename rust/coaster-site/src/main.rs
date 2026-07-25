@@ -494,7 +494,7 @@ fn build_model_page(
             run.mode_label(),
             run.ride_name(),
             run.harness,
-            view::mode_tagline(&run.mode)
+            view::mode_tagline(run.base_mode())
         ),
         stats: model_stats(model),
         model: view,
@@ -538,7 +538,7 @@ fn build_run_page(
     .maybe_og_card(card.as_deref());
     let page = RunPage {
         chrome,
-        mode_tagline: view::mode_tagline(&run.mode),
+        mode_tagline: view::mode_tagline(run.base_mode()),
         grace: format!("{}", run.grace),
         standings: standings(run),
         models,
@@ -631,7 +631,8 @@ fn contenders(runs: &[EvalRun], store: &ArtStore, out: &Path) -> Result<Vec<view
                 date: run.date(),
                 model: model.model.clone(),
                 coaster: run.ride_name(),
-                mode: run.mode.clone(),
+                // Half the compare scenario key: open note must not fight black box.
+                mode: run.mode_label(),
                 harness: run.harness.clone(),
                 thumb: model_thumb(model, store, out, run)?,
                 score: best.map(|r| r.excitement()),
@@ -1034,4 +1035,61 @@ fn main() -> Result<()> {
         out.display()
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn contender(id: &str, mode: &str, score: f64) -> view::Contender {
+        view::Contender {
+            id: id.to_string(),
+            href: format!("{id}.html"),
+            run: "r".to_string(),
+            date: "2026-07-25".to_string(),
+            model: id.to_string(),
+            coaster: "steel twister".to_string(),
+            mode: mode.to_string(),
+            harness: "claude-code".to_string(),
+            thumb: None,
+            score: Some(score),
+            intensity: None,
+            nausea: None,
+            similarity: None,
+            ride_length: None,
+            airtime: None,
+            drops: None,
+            best_round: None,
+            rounds: 6,
+            rated_rounds: 6,
+            tokens: 0.0,
+            cost: Some(0.0),
+            round_scores: vec![],
+        }
+    }
+
+    #[test]
+    fn open_note_never_headlines_a_fight_against_a_black_box_run() {
+        // Higher scores, but open note reads the ratings code: not a fair fight.
+        let cs = vec![
+            contender("on-a", "design + open note", 9.9),
+            contender("on-b", "design + open note", 9.8),
+            contender("bb-a", "design", 7.0),
+            contender("bb-b", "design", 6.9),
+            contender("bb-c", "design", 6.8),
+        ];
+        let (a, b) = default_pair(&cs);
+        let mode_of = |id: &String| {
+            cs.iter()
+                .find(|c| &c.id == id)
+                .map(|c| c.mode.clone())
+                .unwrap()
+        };
+        assert_eq!(
+            mode_of(&a),
+            mode_of(&b),
+            "default matchup must stay inside one scenario"
+        );
+        assert_eq!(mode_of(&a), "design", "biggest scenario wins the headline");
+    }
 }

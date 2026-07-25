@@ -181,6 +181,26 @@ struct Build {
 }
 
 impl Build {
+    /// Places one catalog piece at the cursor and records it, or hands back the
+    /// game's rejection reason. The cursor only moves when the game accepts.
+    fn place(&mut self, piece: &str, chain: bool) -> Result<i64, String> {
+        let (name, track_type) = pieces::CATALOG
+            .iter()
+            .find(|(n, _)| *n == piece)
+            .copied()
+            .ok_or_else(|| format!("unknown piece: {piece}"))?;
+        let origin = self.cursor;
+        let cost = host::track_place(self.ride_id, track_type, chain, &mut self.cursor)?;
+        self.placed.push(Placed {
+            name,
+            track_type,
+            origin,
+            cost,
+            chain,
+        });
+        Ok(cost)
+    }
+
     fn station_tiles(&self) -> Vec<(i32, i32)> {
         self.placed
             .iter()
@@ -231,7 +251,23 @@ fn report_excitement(report: &Value) -> Option<f64> {
         })
 }
 
+const NO_RIDE: &str = "no active ride; call new_ride first";
+const FINALIZED: &str = "ride already finalized; use demolish + new_ride to rebuild";
+
 impl Session {
+    fn active(&self) -> Result<&Build, String> {
+        self.build.as_ref().ok_or_else(|| NO_RIDE.to_string())
+    }
+
+    /// The build, when it is still accepting pieces.
+    fn open(&mut self) -> Result<&mut Build, String> {
+        let build = self.build.as_mut().ok_or_else(|| NO_RIDE.to_string())?;
+        if build.finalized {
+            return Err(FINALIZED.to_string());
+        }
+        Ok(build)
+    }
+
     fn library(&mut self) -> Result<&[LibraryDesign], String> {
         if self.library.is_none() {
             self.library = Some(library::load()?);
@@ -575,52 +611,28 @@ fn call_tool(name: &str, args: &Value, session: &mut Session) -> Result<Vec<Valu
             ))
         }
         "place_piece" => {
-            let build = session
-                .build
-                .as_mut()
-                .ok_or("no active ride; call new_ride first")?;
-            if build.finalized {
-                return Err("ride already finalized; use demolish + new_ride to rebuild".into());
-            }
+            let build = session.open()?;
             let piece = args
                 .get("piece")
                 .and_then(Value::as_str)
                 .ok_or("piece required")?;
             let chain = args.get("chain").and_then(Value::as_bool).unwrap_or(false);
-            let (name, track_type) = pieces::CATALOG
-                .iter()
-                .find(|(n, _)| *n == piece)
-                .copied()
-                .ok_or_else(|| format!("unknown piece: {piece}"))?;
-            let origin = build.cursor;
-            let cost = host::track_place(build.ride_id, track_type, chain, &mut build.cursor)
-                .map_err(|e| {
-                    format!(
-                        "'{name}' rejected: {e} (cursor unchanged: {})",
-                        cursor_json(&build.cursor)
-                    )
-                })?;
-            build.placed.push(Placed {
-                name,
-                track_type,
-                origin,
-                cost,
-                chain,
-            });
-            let closed = build.cursor == build.start;
+            let cost = build.place(piece, chain).map_err(|e| {
+                format!(
+                    "'{piece}' rejected: {e} (cursor unchanged: {})",
+                    cursor_json(&build.cursor)
+                )
+            })?;
             Ok(text_content(json!({
                 "placed": piece,
                 "cost": cost,
                 "cursor": cursor_json(&build.cursor),
                 "pieces_placed": build.placed.len(),
-                "circuit_closed": closed,
+                "circuit_closed": build.cursor == build.start,
             })))
         }
         "valid_next_pieces" => {
-            let build = session
-                .build
-                .as_ref()
-                .ok_or("no active ride; call new_ride first")?;
+            let build = session.active()?;
             let valid: Vec<&str> = pieces::CATALOG
                 .iter()
                 .filter(|(_, id)| host::track_query(build.ride_id, *id, &build.cursor).is_ok())
@@ -631,10 +643,7 @@ fn call_tool(name: &str, args: &Value, session: &mut Session) -> Result<Vec<Valu
             ))
         }
         "get_state" => {
-            let build = session
-                .build
-                .as_ref()
-                .ok_or("no active ride; call new_ride first")?;
+            let build = session.active()?;
             Ok(text_content(json!({
                 "ride_id": build.ride_id,
                 "start": cursor_json(&build.start),
@@ -656,9 +665,7 @@ fn call_tool(name: &str, args: &Value, session: &mut Session) -> Result<Vec<Valu
                 *library = library::load().ok();
             }
             let library = library.as_deref();
-            let build = build
-                .as_mut()
-                .ok_or("no active ride; call new_ride first")?;
+            let build = build.as_mut().ok_or_else(|| NO_RIDE.to_string())?;
             if !build.finalized {
                 program::place_entrance_and_exit(build.ride_id, &build.station_tiles())?;
                 host::ride_set_status(build.ride_id, 2).map_err(|e| {
@@ -719,10 +726,7 @@ fn call_tool(name: &str, args: &Value, session: &mut Session) -> Result<Vec<Valu
         }
         "screenshot" => Ok(image_content(capture_park_png()?)),
         "undo_piece" => {
-            let build = session.build.as_mut().ok_or("no active ride")?;
-            if build.finalized {
-                return Err("ride already finalized; use demolish + new_ride".into());
-            }
+            let build = session.open()?;
             let last = build.placed.pop().ok_or("no pieces to undo")?;
             if let Err(e) = host::track_remove(build.ride_id, last.track_type, &last.origin) {
                 // Put it back so state stays truthful.
@@ -798,13 +802,7 @@ fn call_tool(name: &str, args: &Value, session: &mut Session) -> Result<Vec<Valu
             })))
         }
         "place_pieces" => {
-            let build = session
-                .build
-                .as_mut()
-                .ok_or("no active ride; call new_ride first")?;
-            if build.finalized {
-                return Err("ride already finalized; use demolish + new_ride to rebuild".into());
-            }
+            let build = session.open()?;
             let pieces_arg = args
                 .get("pieces")
                 .and_then(Value::as_array)
@@ -835,30 +833,12 @@ fn call_tool(name: &str, args: &Value, session: &mut Session) -> Result<Vec<Valu
                     }
                     _ => {
                         return Err(format!(
-                            "piece[{index}]: expected string or object, got {}",
-                            piece_val
+                            "piece[{index}]: expected string or object, got {piece_val}"
                         ))
                     }
                 };
-
-                let (catalog_name, track_type) = pieces::CATALOG
-                    .iter()
-                    .find(|(n, _)| *n == piece_name)
-                    .copied()
-                    .ok_or_else(|| format!("piece[{index}]: unknown piece: {piece_name}"))?;
-
-                let origin = build.cursor;
-                match host::track_place(build.ride_id, track_type, chain, &mut build.cursor) {
-                    Ok(cost) => {
-                        build.placed.push(Placed {
-                            name: catalog_name,
-                            track_type,
-                            origin,
-                            cost,
-                            chain,
-                        });
-                        placed_this_call += 1;
-                    }
+                match build.place(piece_name, chain) {
+                    Ok(_) => placed_this_call += 1,
                     Err(e) => {
                         rejection = Some(json!({
                             "index": index,
@@ -870,12 +850,11 @@ fn call_tool(name: &str, args: &Value, session: &mut Session) -> Result<Vec<Valu
                 }
             }
 
-            let closed = build.cursor == build.start;
             let mut resp = json!({
                 "placed_this_call": placed_this_call,
                 "total_placed": build.placed.len(),
                 "cursor": cursor_json(&build.cursor),
-                "circuit_closed": closed,
+                "circuit_closed": build.cursor == build.start,
             });
             if let Some(rej) = rejection {
                 resp["rejection"] = rej;

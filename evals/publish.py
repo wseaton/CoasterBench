@@ -7,7 +7,7 @@ Heavy artifacts live in R2 (served at https://artifacts.wseaton.com), not in
 git; only the JSON metadata is tracked. This script uploads every artifact
 under evals/runs/ (and the library preview PNGs) via `wrangler r2 object put`
 (needs a `wrangler login` session, no static keys anywhere) and records what
-was uploaded in manifests that site.py reads:
+was uploaded in manifests that the site generator reads:
 
   evals/runs/<run>/artifacts.json   run-relative artifact paths
   evals/library-previews.json       preview file names

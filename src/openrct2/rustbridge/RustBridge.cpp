@@ -66,41 +66,37 @@ namespace
         }
     }
 
+    // Whether the action succeeded; if not, its message (falling back to the
+    // title, which is all some failures carry) goes to the caller's buffer.
+    bool CheckResult(const GameActions::Result& result, char* err, size_t errLen)
+    {
+        if (result.error == GameActions::Status::ok)
+        {
+            return true;
+        }
+        auto message = result.getErrorMessage();
+        if (message.empty())
+        {
+            message = result.getErrorTitle();
+        }
+        CopyError(err, errLen, message);
+        return false;
+    }
+
     // Runs an action with noSpend (evals are judged on reported cost, not park
     // cash) and copies any error message into the caller's buffer.
     bool ExecuteForBridge(GameActions::GameAction& action, char* err, size_t errLen, GameActions::Result& outResult)
     {
         action.SetFlags(action.GetFlags() | GameActions::CommandFlag::noSpend);
         outResult = GameActions::Execute(&action, getGameState());
-        if (outResult.error != GameActions::Status::ok)
-        {
-            auto message = outResult.getErrorMessage();
-            if (message.empty())
-            {
-                message = outResult.getErrorTitle();
-            }
-            CopyError(err, errLen, message);
-            return false;
-        }
-        return true;
+        return CheckResult(outResult, err, errLen);
     }
 
     // Query-only variant of ExecuteForBridge: validates without mutating.
     bool QueryForBridge(GameActions::GameAction& action, char* err, size_t errLen)
     {
         action.SetFlags(action.GetFlags() | GameActions::CommandFlag::noSpend);
-        auto result = GameActions::Query(&action, getGameState());
-        if (result.error != GameActions::Status::ok)
-        {
-            auto message = result.getErrorMessage();
-            if (message.empty())
-            {
-                message = result.getErrorTitle();
-            }
-            CopyError(err, errLen, message);
-            return false;
-        }
-        return true;
+        return CheckResult(GameActions::Query(&action, getGameState()), err, errLen);
     }
 
     // Scans the whole map for track elements and returns their tile bbox and
@@ -263,6 +259,38 @@ namespace
         return false;
     }
 
+    // Where the game wants a piece placed for a cursor sitting at its entry:
+    // the origin z compensates for pieces whose geometry starts above their
+    // base (mirrors TrackDesignPlaceRide, TrackDesign.cpp).
+    CoordsXYZD PieceOrigin(TrackElemType trackType, const Orct2TrackCursor& cursor)
+    {
+        const auto& coords = TrackMetadata::GetTrackElementDescriptor(trackType).coordinates;
+        return { cursor.x, cursor.y, cursor.z - coords.zBegin, static_cast<Direction>(cursor.direction & 3) };
+    }
+
+    // Advances a cursor across one piece: position, facing, and the roll/pitch
+    // the piece exits at (TrackDesign.cpp:1707). Run from a zeroed cursor it
+    // yields the piece's pure displacement for that facing.
+    void AdvanceCursor(TrackElemType trackType, Orct2TrackCursor& cursor)
+    {
+        const auto& ted = TrackMetadata::GetTrackElementDescriptor(trackType);
+        const auto& coords = ted.coordinates;
+        uint8_t rotation = cursor.direction & 3;
+        auto offset = CoordsXY{ coords.x, coords.y }.Rotate(rotation);
+        CoordsXYZ next{ cursor.x + offset.x, cursor.y + offset.y, cursor.z - coords.zBegin + coords.zEnd };
+        rotation = (rotation + coords.rotationEnd - coords.rotationBegin) & 3;
+        if ((coords.rotationEnd & (1 << 2)) == 0)
+        {
+            next += CoordsDirectionDelta[rotation];
+        }
+        cursor.x = next.x;
+        cursor.y = next.y;
+        cursor.z = next.z;
+        cursor.direction = rotation;
+        cursor.bank = static_cast<uint8_t>(ted.definition.rollEnd);
+        cursor.slope = static_cast<uint8_t>(ted.definition.pitchEnd);
+    }
+
     // First loaded ride object whose entry supports the requested ride type.
     ObjectEntryIndex FindSubtypeForRideType(ride_type_t rideType)
     {
@@ -411,9 +439,6 @@ bool orct2_host_track_place(
     }
 
     auto trackType = static_cast<TrackElemType>(track_type);
-    const auto& ted = TrackMetadata::GetTrackElementDescriptor(trackType);
-    const auto& coords = ted.coordinates;
-
     if (!CheckPieceDrawable(*ride, trackType, err, err_len)
         || !CheckEntryContinuity(trackType, *cursor, err, err_len))
     {
@@ -426,34 +451,16 @@ bool orct2_host_track_place(
         liftFlags.set(LiftHillAndInverted::liftHill);
     }
 
-    // The piece origin z compensates for pieces whose geometry starts above
-    // their base (mirrors TrackDesignPlaceRide, TrackDesign.cpp).
-    CoordsXYZD origin{ cursor->x, cursor->y, cursor->z - coords.zBegin, static_cast<Direction>(cursor->direction & 3) };
     auto action = GameActions::TrackPlaceAction(
-        rideId, trackType, ride->type, origin, 0 /*brakeSpeed*/, 0 /*colour*/, 4 /*seatRotation*/, liftFlags,
-        false /*fromTrackDesign*/);
+        rideId, trackType, ride->type, PieceOrigin(trackType, *cursor), 0 /*brakeSpeed*/, 0 /*colour*/,
+        4 /*seatRotation*/, liftFlags, false /*fromTrackDesign*/);
     GameActions::Result result;
     if (!ExecuteForBridge(action, err, err_len, result))
     {
         return false;
     }
     *out_cost = result.cost;
-
-    // Advance the cursor along the piece geometry (TrackDesign.cpp:1707).
-    uint8_t rotation = cursor->direction & 3;
-    auto offset = CoordsXY{ coords.x, coords.y }.Rotate(rotation);
-    CoordsXYZ next{ cursor->x + offset.x, cursor->y + offset.y, cursor->z - coords.zBegin + coords.zEnd };
-    rotation = (rotation + coords.rotationEnd - coords.rotationBegin) & 3;
-    if ((coords.rotationEnd & (1 << 2)) == 0)
-    {
-        next += CoordsDirectionDelta[rotation];
-    }
-    cursor->x = next.x;
-    cursor->y = next.y;
-    cursor->z = next.z;
-    cursor->direction = rotation;
-    cursor->bank = static_cast<uint8_t>(ted.definition.rollEnd);
-    cursor->slope = static_cast<uint8_t>(ted.definition.pitchEnd);
+    AdvanceCursor(trackType, *cursor);
     return true;
 }
 
@@ -517,10 +524,7 @@ bool orct2_host_track_remove(uint16_t ride_id, uint16_t track_type, const Orct2T
         return false;
     }
     auto trackType = static_cast<TrackElemType>(track_type);
-    const auto& coords = TrackMetadata::GetTrackElementDescriptor(trackType).coordinates;
-    // Same origin-z compensation as placement.
-    CoordsXYZD at{ origin->x, origin->y, origin->z - coords.zBegin, static_cast<Direction>(origin->direction & 3) };
-    auto action = GameActions::TrackRemoveAction(trackType, 0 /*sequence*/, at);
+    auto action = GameActions::TrackRemoveAction(trackType, 0 /*sequence*/, PieceOrigin(trackType, *origin));
     GameActions::Result result;
     if (!ExecuteForBridge(action, err, err_len, result))
     {
@@ -536,24 +540,9 @@ bool orct2_host_piece_delta(uint16_t track_type, uint8_t dir_in, Orct2TrackCurso
     {
         return false;
     }
-    const auto& ted = TrackMetadata::GetTrackElementDescriptor(static_cast<TrackElemType>(track_type));
-    const auto& coords = ted.coordinates;
-    // Mirror of the cursor-advance math in orct2_host_track_place, from a
-    // zero origin, so callers see the pure displacement for this facing.
-    uint8_t rotation = dir_in & 3;
-    auto offset = CoordsXY{ coords.x, coords.y }.Rotate(rotation);
-    CoordsXYZ next{ offset.x, offset.y, coords.zEnd - coords.zBegin };
-    rotation = (rotation + coords.rotationEnd - coords.rotationBegin) & 3;
-    if ((coords.rotationEnd & (1 << 2)) == 0)
-    {
-        next += CoordsDirectionDelta[rotation];
-    }
-    out->x = next.x;
-    out->y = next.y;
-    out->z = next.z;
-    out->direction = rotation;
-    out->bank = static_cast<uint8_t>(ted.definition.rollEnd);
-    out->slope = static_cast<uint8_t>(ted.definition.pitchEnd);
+    // The advance from a zeroed cursor is the piece's pure displacement.
+    *out = Orct2TrackCursor{ .x = 0, .y = 0, .z = 0, .direction = static_cast<uint8_t>(dir_in & 3), .bank = 0, .slope = 0 };
+    AdvanceCursor(static_cast<TrackElemType>(track_type), *out);
     return true;
 }
 
@@ -579,15 +568,13 @@ bool orct2_host_track_query(uint16_t ride_id, uint16_t track_type, const Orct2Tr
         return false;
     }
     auto trackType = static_cast<TrackElemType>(track_type);
-    const auto& coords = TrackMetadata::GetTrackElementDescriptor(trackType).coordinates;
     if (!CheckPieceDrawable(*ride, trackType, err, err_len)
         || !CheckEntryContinuity(trackType, *cursor, err, err_len))
     {
         return false;
     }
-    CoordsXYZD origin{ cursor->x, cursor->y, cursor->z - coords.zBegin, static_cast<Direction>(cursor->direction & 3) };
     auto action = GameActions::TrackPlaceAction(
-        rideId, trackType, ride->type, origin, 0, 0, 4, SelectedLiftAndInverted{}, false);
+        rideId, trackType, ride->type, PieceOrigin(trackType, *cursor), 0, 0, 4, SelectedLiftAndInverted{}, false);
     return QueryForBridge(action, err, err_len);
 }
 
@@ -773,7 +760,7 @@ namespace OpenRCT2::RustBridge
 
     int32_t RenderTrackLibrary(const char* outDir)
     {
-        // Same rule as evals/site.py sanitise_name(): [^A-Za-z0-9._-] -> '_'.
+        // Same rule as coaster-site's sanitise_name(): [^A-Za-z0-9._-] -> '_'.
         auto sanitise = [](const std::string& name) {
             std::string out = name;
             for (auto& c : out)
