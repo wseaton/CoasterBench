@@ -282,7 +282,9 @@ impl ModelRun {
 #[derive(Debug)]
 pub struct EvalRun {
     pub name: String,
-    pub mode: String,
+    /// Raw mode. Private: display and comparison keys must go through
+    /// `mode_label()`, which folds in modifiers like open note.
+    mode: String,
     pub grace: f64,
     pub models: Vec<ModelRun>,
     pub ride_type: i64,
@@ -353,6 +355,11 @@ impl EvalRun {
     /// Mode as shown and faceted. Open note is a modifier rather than a mode,
     /// but its scores are not comparable with black-box ones, so the label has
     /// to say so wherever a run is identified.
+    /// Mode alone, for tagline lookup. Not for display: see `mode_label()`.
+    pub fn base_mode(&self) -> &str {
+        &self.mode
+    }
+
     pub fn mode_label(&self) -> String {
         if self.open_note {
             format!("{} + open note", self.mode)
