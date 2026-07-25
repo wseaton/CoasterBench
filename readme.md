@@ -115,6 +115,11 @@ separately.
 is long-lived, and an agent's own notes (Claude Code's memory directory is
 writable even under a tool allowlist) become the next run's starting knowledge.
 
+Tool restriction is per lane: Claude Code sessions get an `--allowedTools`
+allowlist, opencode sessions get a `permission` block in their config, because
+opencode's defaults allow bash, read and grep and would otherwise leave a blind
+run on that lane not blind. Both are recorded in `run.json`.
+
 The model specification selects the harness. A bare name runs Claude Code in the
 `coaster-sub` sandbox; `opencode:openrouter/<author>/<model>` runs opencode in
 the `coaster-or` sandbox against OpenRouter. Ride type 51 is a steel twister,

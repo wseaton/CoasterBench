@@ -568,10 +568,31 @@ fn openrouter_spend() -> Option<f64> {
 
 /// Point the opencode sandbox at this contender's MCP endpoint. Written fresh
 /// per session so a mixed vision/text-only lineup can share one sandbox.
+/// opencode's tool permissions default to allow, so without this a blind run on
+/// this lane is not blind at all: it keeps bash, read and grep, while the Claude
+/// Code lane is held to MCP only by its allowlist. Named explicitly rather than
+/// with a wildcard, because a wildcard would also catch the MCP tools.
+fn opencode_permissions(args: &Args) -> Value {
+    let verdict = if args.open_note { "allow" } else { "deny" };
+    json!({
+        "bash": verdict,
+        "read": verdict,
+        "grep": verdict,
+        "glob": verdict,
+        "edit": verdict,
+        // Open note stages the source outside the project directory, which
+        // otherwise prompts and stalls a non-interactive session.
+        "external_directory": verdict,
+        "webfetch": "deny",
+        "websearch": "deny",
+    })
+}
+
 fn write_opencode_config(args: &Args, contender: &Contender, lease: &str) -> Result<(), String> {
     let config = json!({
         "$schema": "https://opencode.ai/config.json",
         "model": contender.model,
+        "permission": opencode_permissions(args),
         "mcp": {
             "coaster": {"type": "remote", "url": contender.mcp_url(args.port, lease), "enabled": true}
         }
@@ -1206,6 +1227,7 @@ fn main() -> Result<(), String> {
             "sandbox": args.sandbox,
             "opencode_sandbox": args.opencode_sandbox,
             "allowed_tools": allowed_tools(&args),
+            "opencode_permission": opencode_permissions(&args),
             "open_note_source": open_note_sha,
         }),
     )?;
@@ -1490,6 +1512,25 @@ mod tests {
             allowed.matches("Bash").count(),
             1,
             "no duplicate: {allowed}"
+        );
+    }
+
+    #[test]
+    fn opencode_blind_runs_lose_the_file_tools_and_open_note_gets_them() {
+        let mut args = Args::parse_from(["coaster-bench"]);
+        let blind = opencode_permissions(&args);
+        for tool in ["bash", "read", "grep", "glob", "edit", "external_directory"] {
+            assert_eq!(blind[tool], "deny", "{tool} must be denied on a blind run");
+        }
+
+        args.open_note = true;
+        let open = opencode_permissions(&args);
+        for tool in ["bash", "read", "grep", "glob", "external_directory"] {
+            assert_eq!(open[tool], "allow", "{tool} needed under open note");
+        }
+        assert_eq!(
+            open["webfetch"], "deny",
+            "network tools stay denied either way"
         );
     }
 }
