@@ -41,6 +41,7 @@
     #include "../ride/RideManager.hpp"
     #include "../ride/RideRatings.h"
     #include "../ride/TrackData.h"
+    #include "../ride/TrackIteration.h"
     #include "../ride/TrackStyle.h"
     #include "../ride/TrackDesign.h"
     #include "../ride/TrackDesignRepository.h"
@@ -53,6 +54,7 @@
     #include <cstdlib>
     #include <cstring>
     #include <unistd.h>
+    #include <unordered_set>
 
 using namespace OpenRCT2;
 
@@ -602,6 +604,133 @@ bool orct2_host_track_bounds(Orct2TrackBounds* out)
         return false;
     }
     return FindTrackBounds(*out);
+}
+
+// Walks a ride's circuit with the game's own iterator, the one findTrackGap
+// uses, seeded from the same station element the game starts from when it
+// checks a ride for a complete circuit. What it counts is therefore what a
+// train rides, not what was placed.
+//
+// This exists because ratings are a weak witness for "the screenshot shows a
+// real coaster": they require a closed circuit and a completed test lap, so
+// they prove the ridden loop is sound and say nothing about track sitting off
+// to one side. That leftover track still draws.
+bool orct2_host_circuit_stats(uint16_t ride_id, Orct2CircuitStats* out)
+{
+    if (out == nullptr)
+    {
+        return false;
+    }
+    *out = {};
+
+    const auto rideId = RideId::FromUnderlying(ride_id);
+    const auto* ride = GetRide(rideId);
+    if (ride == nullptr)
+    {
+        return false;
+    }
+
+    // Only sequence 0 counts. A piece spanning several tiles (a large turn)
+    // has an element on each of them, while the walk visits it once, so
+    // counting every element would invent orphans that are not there.
+    uint32_t total = 0;
+    const auto mapSize = getGameState().mapSize;
+    for (int32_t ty = 0; ty < mapSize.y; ty++)
+    {
+        for (int32_t tx = 0; tx < mapSize.x; tx++)
+        {
+            auto* element = MapGetFirstElementAt(TileCoordsXY{ tx, ty });
+            if (element == nullptr)
+            {
+                continue;
+            }
+            do
+            {
+                const auto* track = element->asTrack();
+                if (track == nullptr || track->GetRideIndex() != rideId || track->GetSequenceIndex() != 0)
+                {
+                    continue;
+                }
+                total++;
+            } while (!(element++)->isLastForTile());
+        }
+    }
+    out->total_pieces = total;
+
+    const auto stationIndex = StationIndex::FromUnderlying(0);
+    auto* origin = ride->getOriginElement(stationIndex);
+    if (origin == nullptr)
+    {
+        return false;
+    }
+    const auto startLoc = ride->getStation(stationIndex).Start;
+    CoordsXYE trackElement{ startLoc.x, startLoc.y, reinterpret_cast<TileElement*>(origin) };
+
+    // Distinct elements rather than a step count: the iterator revisits its
+    // starting piece to detect the loop, and the start element itself is only
+    // reached again if the circuit closes.
+    std::unordered_set<const TileElement*> seen;
+    seen.insert(trackElement.element);
+
+    // Same shape as findTrackGap: a half-speed iterator catches a track that
+    // cycles without ever coming back to the start (#2081), and the hard cap
+    // stops anything the tortoise misses from hanging the eval.
+    constexpr uint32_t kMaxWalk = 10000;
+    bool moveSlowIt = true;
+    TrackCircuitIterator it = {};
+    trackCircuitIteratorBegin(&it, trackElement);
+    TrackCircuitIterator slowIt = it;
+    uint32_t steps = 0;
+    while (trackCircuitIteratorNext(&it))
+    {
+        if (it.current.element != nullptr)
+        {
+            seen.insert(it.current.element);
+        }
+        if (++steps >= kMaxWalk)
+        {
+            break;
+        }
+        moveSlowIt = !moveSlowIt;
+        if (moveSlowIt)
+        {
+            trackCircuitIteratorNext(&slowIt);
+            if (trackCircuitIteratorsMatch(&it, &slowIt))
+            {
+                break;
+            }
+        }
+    }
+
+    // The walk starts at the station's departure element and only goes
+    // forward, so on a circuit that does not close, the track behind the
+    // station never gets visited: a plain station plus a straight measures 6
+    // of 8, with the two station tiles behind the start looking stranded.
+    // Sweeping backwards as well makes an orphan mean what it says, track
+    // joined to nothing, rather than track merely upstream of the start.
+    // A closed circuit is already fully covered, hence the guard.
+    if (!it.looped)
+    {
+        TrackCircuitIterator back = {};
+        trackCircuitIteratorBegin(&back, trackElement);
+        uint32_t backSteps = 0;
+        while (trackCircuitIteratorPrevious(&back) && backSteps++ < kMaxWalk)
+        {
+            if (back.current.element == nullptr)
+            {
+                break;
+            }
+            if (!seen.insert(back.current.element).second)
+            {
+                break;
+            }
+        }
+    }
+
+    out->looped = it.looped;
+    out->walked_pieces = static_cast<uint32_t>(seen.size());
+    out->orphan_pieces = total > out->walked_pieces ? total - out->walked_pieces : 0;
+    return true;
 }
 
 // Scans the same directories as the game's track design index and imports

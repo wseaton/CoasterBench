@@ -42,6 +42,10 @@ pub struct RideReport {
     pub num_drops: u8,
     pub highest_drop: u8,
     pub num_inversions: u8,
+    /// What the game's circuit walk found: how much of this ride's track a
+    /// train actually rides, and how much just stands there. None when the ride
+    /// has no station to walk from.
+    pub circuit: Option<host::CircuitStats>,
 }
 
 pub fn status_name(status: u8) -> &'static str {
@@ -146,6 +150,7 @@ pub fn build(
             num_drops: detail.num_drops,
             highest_drop: detail.highest_drop,
             num_inversions: detail.num_inversions,
+            circuit: host::circuit_stats(stats.id),
         });
     }
     EvalReport {

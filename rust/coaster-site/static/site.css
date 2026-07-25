@@ -157,6 +157,7 @@ tr.winner td { background: rgba(217,165,32,.25); }
   border: 1px solid var(--ink); }
 .badge-fail { background: var(--fail); color: #f5e6c8; }
 .badge-warn { background: var(--panel-deep); color: #f5e6c8; }
+.badge-ok { background: var(--excitement); color: #f5e6c8; }
 .stats { display: flex; flex-wrap: wrap; gap: .15rem .9rem; font-size: .78rem; }
 .footnote { font-size: .7rem; margin: .5rem 0 0; }
 

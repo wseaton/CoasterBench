@@ -66,6 +66,22 @@ pub struct Ride {
     pub total_air_time: i64,
     #[serde(default)]
     pub crashed: bool,
+    #[serde(default)]
+    pub circuit: Option<Circuit>,
+}
+
+/// The game's own walk of the ride's track. Absent from runs made before the
+/// audit existed, which is why the whole field is optional rather than zeroed.
+#[derive(Debug, Deserialize)]
+pub struct Circuit {
+    #[serde(default)]
+    pub walked_pieces: u32,
+    #[serde(default)]
+    pub total_pieces: u32,
+    #[serde(default)]
+    pub orphan_pieces: u32,
+    #[serde(default)]
+    pub looped: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -633,6 +649,7 @@ mod tests {
                 num_drops: 0,
                 total_air_time: 0,
                 crashed: false,
+                circuit: None,
             }),
             similarity: None,
             build_error: None,

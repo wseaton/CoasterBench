@@ -235,6 +235,10 @@ pub struct RoundView {
     pub trace_events: usize,
     pub trace_rejections: usize,
     pub badge: Option<Badge>,
+    /// Verdict of the circuit audit: whether every piece standing in the park
+    /// is track a train actually rides. Absent on rounds recorded before the
+    /// audit existed, which is different from a round that has no orphans.
+    pub circuit: Option<Badge>,
     /// The build failure, kept to one clamped line (full text in the tooltip).
     pub build_error: Option<String>,
     /// Rating line, absent when the round produced no rated ride.

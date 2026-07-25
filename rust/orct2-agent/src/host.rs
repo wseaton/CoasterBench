@@ -79,6 +79,25 @@ pub struct TrackBounds {
     pub max_z: i32,
 }
 
+/// What the game's own circuit walk finds for a ride, filled by
+/// `orct2_host_circuit_stats`.
+///
+/// `walked` counts the pieces a train actually rides: the walk starts at the
+/// station and follows the track the way the vehicle does. `total` counts every
+/// piece the ride owns on the map. Track that was placed but left off the
+/// ridden loop is the difference, and it is the one thing ratings cannot rule
+/// out: they require a complete circuit and a finished test lap, so they say
+/// nothing about track hanging off to one side.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize)]
+pub struct CircuitStats {
+    pub walked_pieces: u32,
+    pub total_pieces: u32,
+    pub orphan_pieces: u32,
+    /// The walk returned to its starting piece rather than dead-ending.
+    pub looped: bool,
+}
+
 #[cfg(not(test))]
 unsafe extern "C" {
     fn orct2_host_ride_count() -> u32;
@@ -146,6 +165,7 @@ unsafe extern "C" {
     fn orct2_host_track_library_json() -> *mut c_char;
     fn orct2_host_string_free(s: *mut c_char);
     fn orct2_host_track_mirror(track_type: u16) -> u16;
+    fn orct2_host_circuit_stats(ride_id: u16, out: *mut CircuitStats) -> bool;
 }
 
 #[cfg(test)]
@@ -292,6 +312,13 @@ pub fn track_bounds() -> Option<TrackBounds> {
     unsafe { orct2_host_track_bounds(&mut bounds) }.then_some(bounds)
 }
 
+/// Walks `ride_id`'s circuit the way its trains do. None when the ride has no
+/// station to start from, which is also true of a ride that was never built.
+pub fn circuit_stats(ride_id: u16) -> Option<CircuitStats> {
+    let mut stats = CircuitStats::default();
+    unsafe { orct2_host_circuit_stats(ride_id, &mut stats) }.then_some(stats)
+}
+
 /// Advances the game simulation by `n` ticks (40 ticks = 1 game second).
 pub fn run_ticks(n: u32) {
     unsafe { orct2_host_run_ticks(n) };
@@ -427,6 +454,9 @@ mod test_stubs {
         false
     }
     pub unsafe fn orct2_host_track_bounds(_o: *mut crate::host::TrackBounds) -> bool {
+        false
+    }
+    pub unsafe fn orct2_host_circuit_stats(_r: u16, _o: *mut crate::host::CircuitStats) -> bool {
         false
     }
     pub unsafe fn orct2_host_entrance_place(

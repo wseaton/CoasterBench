@@ -18,7 +18,7 @@ use askama::Template;
 use clap::Parser;
 
 use art::{Art, ArtStore};
-use model::{EvalRun, ModelRun, Round};
+use model::{Circuit, EvalRun, ModelRun, Round};
 use view::{
     Badge, Chrome, Facet, Figure, IndexPage, IndexRow, LibraryPage, ModelPage, ModelView,
     RoundStats, RoundView, RunPage, Shot, StandingRow, Stat,
@@ -161,6 +161,35 @@ fn round_badge(round: &Round, stats: Option<&RoundStats>) -> Option<Badge> {
         Some(_) => None,
         None => badge("not rated", "badge-warn"),
     }
+}
+
+/// Chip reporting the circuit audit. Ratings already prove the ridden loop is
+/// closed and completes, so what this adds is the other half: whether anything
+/// in the screenshot is track no train ever touches.
+fn circuit_badge(circuit: Option<&Circuit>) -> Option<Badge> {
+    let circuit = circuit?;
+    let badge = |text: String, class: &str| {
+        Some(Badge {
+            text,
+            class: class.to_string(),
+        })
+    };
+    if circuit.orphan_pieces > 0 {
+        return badge(
+            format!(
+                "{} of {} pieces off the circuit",
+                circuit.orphan_pieces, circuit.total_pieces
+            ),
+            "badge-warn",
+        );
+    }
+    if !circuit.looped {
+        return badge("circuit never closed".to_string(), "badge-warn");
+    }
+    badge(
+        format!("verified circuit ({} pieces)", circuit.walked_pieces),
+        "badge-ok",
+    )
 }
 
 fn lookups_line(round: &Round) -> Option<String> {
@@ -389,6 +418,7 @@ fn build_model_view(
             trace_events: round.trace.len(),
             trace_rejections: round.trace.iter().filter(|e| e.is_rejection()).count(),
             badge: round_badge(round, stats.as_ref()),
+            circuit: circuit_badge(round.ride.as_ref().and_then(|r| r.circuit.as_ref())),
             build_error: round.build_error.clone(),
             unrated_note: stats.is_none() && round.build_error.is_none(),
             stats,
@@ -1091,5 +1121,34 @@ mod tests {
             "default matchup must stay inside one scenario"
         );
         assert_eq!(mode_of(&a), "design", "biggest scenario wins the headline");
+    }
+
+    #[test]
+    fn circuit_badge_separates_clean_stranded_and_unclosed_track() {
+        let circuit = |walked, total, orphans, looped| Circuit {
+            walked_pieces: walked,
+            total_pieces: total,
+            orphan_pieces: orphans,
+            looped,
+        };
+
+        let clean = circuit_badge(Some(&circuit(48, 48, 0, true))).expect("a verdict");
+        assert_eq!(clean.class, "badge-ok");
+        assert!(clean.text.contains("48"), "{}", clean.text);
+
+        // The case the audit exists for: a rated ride whose screenshot also
+        // shows track no train touches.
+        let stranded = circuit_badge(Some(&circuit(40, 48, 8, true))).expect("a verdict");
+        assert_eq!(stranded.class, "badge-warn");
+        assert!(stranded.text.contains("8 of 48"), "{}", stranded.text);
+
+        let unclosed = circuit_badge(Some(&circuit(14, 14, 0, false))).expect("a verdict");
+        assert_eq!(unclosed.class, "badge-warn");
+        assert!(unclosed.text.contains("never closed"), "{}", unclosed.text);
+
+        assert!(
+            circuit_badge(None).is_none(),
+            "runs predating the audit claim nothing either way"
+        );
     }
 }

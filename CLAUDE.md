@@ -86,6 +86,22 @@ Non-bundled binaries look for `data/` next to the exe. One-time setup:
   See issue #1 and the readme implementation notes.
 - Stalls never get ratings (RatingsCalculationType::Stall); tracked rides need
   a completed test circuit (RideFlag::tested) before ratings compute.
+- Circuit audit: `orct2_host_circuit_stats` walks a ride with the game's own
+  TrackCircuitIterator (what findTrackGap uses), seeded from the station origin
+  element, and report.json gains per-ride
+  `circuit: {walked_pieces, total_pieces, orphan_pieces, looped}`. Ratings only
+  witness that the ridden loop closes and completes, so orphans (track placed
+  but joined to nothing) are the gap this closes; the site shows a green
+  "verified circuit" chip at 0 orphans, amber otherwise.
+  - Only sequence-0 elements count on both sides. A multi-tile piece has an
+    element per tile but the walk visits it once, so counting raw elements
+    invents orphans.
+  - The walk starts at the station's *departure* element and runs forward, so
+    an unclosed track needs the backward sweep too, otherwise the pieces behind
+    the station read as stranded (a plain station + straight measured 6 of 8).
+  - Verified live: closed oval 16/16/0 looped, open track 14/14/0 not looped,
+    station+straight 8/8/0. The orphan>0 path has no live repro (the executor
+    no longer strands track), only unit coverage in coaster-site.
 - Head-to-head driver: `uv run evals/driver.py` (needs ANTHROPIC_API_KEY, or
   `--vertex` with GCP ADC; project defaults from $ANTHROPIC_VERTEX_PROJECT_ID);
   results under `evals/runs/<timestamp>/`. Models get a validate_track_program

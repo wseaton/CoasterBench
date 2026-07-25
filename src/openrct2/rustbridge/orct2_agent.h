@@ -63,6 +63,11 @@ typedef struct Orct2RideDetail {
   int16_t nausea;
   int32_t max_speed;
   int32_t average_speed;
+  /**
+   * Raw total length summed over stations, as 16.16 fixed-point metres
+   * (`Ride::getTotalLength()`). Divide by 2^16 for the human-readable metres
+   * the game shows; see `report::ride_length_metres`.
+   */
   int32_t ride_length;
   int16_t max_positive_g;
   int16_t max_negative_g;
@@ -85,6 +90,27 @@ typedef struct Orct2TrackBounds {
   int32_t min_z;
   int32_t max_z;
 } Orct2TrackBounds;
+
+/**
+ * What the game's own circuit walk finds for a ride, filled by
+ * `orct2_host_circuit_stats`.
+ *
+ * `walked` counts the pieces a train actually rides: the walk starts at the
+ * station and follows the track the way the vehicle does. `total` counts every
+ * piece the ride owns on the map. Track that was placed but left off the
+ * ridden loop is the difference, and it is the one thing ratings cannot rule
+ * out: they require a complete circuit and a finished test lap, so they say
+ * nothing about track hanging off to one side.
+ */
+typedef struct Orct2CircuitStats {
+  uint32_t walked_pieces;
+  uint32_t total_pieces;
+  uint32_t orphan_pieces;
+  /**
+   * The walk returned to its starting piece rather than dead-ending.
+   */
+  bool looped;
+} Orct2CircuitStats;
 
 #ifdef __cplusplus
 extern "C" {
@@ -238,6 +264,8 @@ extern char *orct2_host_track_library_json(void);
 extern void orct2_host_string_free(char *s);
 
 extern uint16_t orct2_host_track_mirror(uint16_t track_type);
+
+extern bool orct2_host_circuit_stats(uint16_t ride_id, struct Orct2CircuitStats *out);
 
 #ifdef __cplusplus
 }  // extern "C"
