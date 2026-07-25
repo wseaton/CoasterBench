@@ -727,7 +727,9 @@ class OpenAICompat:
     def __init__(self, base_url: str, api_key: str, extra_body: dict | None = None):
         import openai
 
-        self._client = openai.OpenAI(base_url=base_url, api_key=api_key)
+        # A thinking model can legitimately generate for well over the SDK's
+        # 10-minute default timeout (131k tokens at ~140 tok/s is ~15 min).
+        self._client = openai.OpenAI(base_url=base_url, api_key=api_key, timeout=3600)
         # Endpoint-specific request extras, e.g. vLLM's chat_template_kwargs
         # ({"enable_thinking": false} tames reasoning models whose thinking
         # would otherwise exhaust any completion budget on this task).
