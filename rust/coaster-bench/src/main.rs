@@ -426,6 +426,31 @@ fn kill_stray_agents(sandbox: &str) {
         .status();
 }
 
+/// Wipes what a session can leave behind for the next one. The sandbox is
+/// long-lived, and Claude Code's memory directory is writable even under a
+/// tools allowlist, so without this a run inherits the previous run's playbook
+/// (observed: a distilled tactics file naming the score to beat). Credentials
+/// are injected by the provider at exec time, not stored here, so ~/.claude
+/// goes in full.
+fn reset_agent_state(sandbox: &str) -> Result<(), String> {
+    let script = "rm -rf /home/sandbox/.claude/projects /home/sandbox/.claude/sessions \
+                  /home/sandbox/.claude/shell-snapshots /home/sandbox/.claude/backups \
+                  /home/sandbox/.claude/session-env /home/sandbox/.claude/todos; \
+                  chmod -R u+w /workspace /tmp 2>/dev/null; \
+                  rm -rf /workspace/* /workspace/.* /tmp/* 2>/dev/null; true";
+    let status = Command::new("openshell")
+        .args(["sandbox", "exec", "-n", sandbox, "--"])
+        .args(["sh", "-c", script])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map_err(|e| format!("reset {sandbox}: {e}"))?;
+    if !status.success() {
+        return Err(format!("reset {sandbox} failed: {status}"));
+    }
+    Ok(())
+}
+
 /// The revision of upstream OpenRCT2 this fork is based on. That tree is the
 /// engine we build and score with, minus the harness, so it is what open note
 /// hands to the agents.
@@ -538,6 +563,17 @@ fn stage_open_note(root: &Path, sandbox: &str, sha: &str) -> Result<(), String> 
     Ok(())
 }
 
+/// Tools a session may call without a prompt. MCP only by default; open note
+/// adds the file tools, without which the staged source is unreadable and the
+/// prompt describing it is a lie (observed: every Read denied, turns burnt).
+fn allowed_tools(args: &Args) -> String {
+    if args.open_note {
+        "mcp__coaster__*,Read,Grep,Glob,Bash".to_string()
+    } else {
+        "mcp__coaster__*".to_string()
+    }
+}
+
 /// One agent session in the harness's sandbox. Success is judged by game
 /// state, not the transcript; usage is captured best-effort either way.
 ///
@@ -568,7 +604,7 @@ fn run_agent_session(
             cmd.args(["sandbox", "exec", "-n", &args.sandbox, "--"])
                 .args(["claude", "--model", &contender.model, "-p", prompt])
                 .args(["--mcp-config", &mcp_config.to_string()])
-                .args(["--allowedTools", "mcp__coaster__*"])
+                .args(["--allowedTools", &allowed_tools(args)])
                 .args(["--max-turns", &args.max_turns.to_string()])
                 // Event stream, not a summary: the round's trace is built from it.
                 .args(["--output-format", "stream-json", "--verbose"]);
@@ -858,6 +894,14 @@ fn main() -> Result<(), String> {
     for sandbox in &sandboxes {
         kill_stray_agents(sandbox);
     }
+    for sandbox in contenders
+        .iter()
+        .map(|c| c.sandbox(&args))
+        .collect::<std::collections::BTreeSet<_>>()
+    {
+        reset_agent_state(sandbox)?;
+        println!("reset agent state in {sandbox}");
+    }
     let open_note_sha = if args.open_note {
         let sha = upstream_merge_base(&root)?;
         for sandbox in &sandboxes {
@@ -912,6 +956,8 @@ fn main() -> Result<(), String> {
             "ride_type": args.ride_type,
             "similarity_grace": 0.5,
             "open_note": args.open_note,
+            "agent_state": "reset-per-run",
+            "allowed_tools": allowed_tools(&args),
             "open_note_source": open_note_sha,
         }),
     )?;
@@ -1117,6 +1163,20 @@ mod tests {
                 std::thread::sleep(Duration::from_millis(10));
             }
             assert!(seen, "signal {signal} did not set the shutdown flag");
+        }
+    }
+
+    #[test]
+    fn open_note_grants_the_file_tools_and_plain_runs_do_not() {
+        let mut args = Args::parse_from(["coaster-bench"]);
+        assert_eq!(allowed_tools(&args), "mcp__coaster__*");
+        args.open_note = true;
+        let allowed = allowed_tools(&args);
+        for tool in ["Read", "Grep", "Glob", "Bash", "mcp__coaster__*"] {
+            assert!(
+                allowed.contains(tool),
+                "{tool} must be allowed under open note"
+            );
         }
     }
 }
