@@ -97,6 +97,18 @@ struct Args {
     #[arg(long, default_value = "claude-sub")]
     sandbox_provider: String,
 
+    #[arg(long, default_value = "localhost/coaster-or")]
+    opencode_sandbox_image: String,
+
+    #[arg(
+        long,
+        default_value = "rust/coaster-bench/sandbox/opencode-policy.yaml"
+    )]
+    opencode_sandbox_policy: String,
+
+    #[arg(long, default_value = "openrouter")]
+    opencode_sandbox_provider: String,
+
     /// Open note: stage a read-only checkout of the engine source the agents
     /// are scored by into their sandbox. Upstream OpenRCT2 at this fork's
     /// merge-base, so the harness and its scoring are not in it.
@@ -161,12 +173,23 @@ fn policy_with_port(policy: &str, port: u16) -> String {
         .join("\n")
 }
 
-fn create_sandbox(args: &Args, root: &Path, name: &str) -> Result<EphemeralSandbox, String> {
-    let policy_path = root.join(&args.sandbox_policy);
+struct SandboxRecipe<'a> {
+    image: &'a str,
+    policy: &'a str,
+    provider: &'a str,
+}
+
+fn create_sandbox(
+    recipe: &SandboxRecipe,
+    port: u16,
+    root: &Path,
+    name: &str,
+) -> Result<EphemeralSandbox, String> {
+    let policy_path = root.join(recipe.policy);
     let policy = std::fs::read_to_string(&policy_path)
         .map_err(|e| format!("read {}: {e}", policy_path.display()))?;
     let staged = std::env::temp_dir().join(format!("coaster-policy-{name}.yaml"));
-    std::fs::write(&staged, policy_with_port(&policy, args.port))
+    std::fs::write(&staged, policy_with_port(&policy, port))
         .map_err(|e| format!("write {}: {e}", staged.display()))?;
 
     // `sandbox create` attaches and never returns, but the sandbox is up long
@@ -174,10 +197,10 @@ fn create_sandbox(args: &Args, root: &Path, name: &str) -> Result<EphemeralSandb
     // answer, then drop the client.
     let mut child = Command::new("openshell")
         .args(["sandbox", "create", "--name", name])
-        .args(["--from", &args.sandbox_image])
+        .args(["--from", recipe.image])
         .arg("--policy")
         .arg(&staged)
-        .args(["--provider", &args.sandbox_provider])
+        .args(["--provider", recipe.provider])
         .arg("--no-tty")
         .args(["--", "sleep", "infinity"])
         .stdin(Stdio::null())
@@ -576,7 +599,9 @@ fn kill_stray_agents(sandbox: &str) {
 /// are injected by the provider at exec time, not stored here, so ~/.claude
 /// goes in full.
 fn reset_agent_state(sandbox: &str) -> Result<(), String> {
-    let script = "rm -rf /home/sandbox/.claude/projects /home/sandbox/.claude/sessions \
+    let script = "rm -rf /home/sandbox/.local/share/opencode /home/sandbox/.config/opencode \
+                  /home/sandbox/.local/state/opencode /home/sandbox/.cache \
+                  /home/sandbox/.claude/projects /home/sandbox/.claude/sessions \
                   /home/sandbox/.claude/shell-snapshots /home/sandbox/.claude/backups \
                   /home/sandbox/.claude/session-env /home/sandbox/.claude/todos; \
                   chmod -R u+w /workspace /tmp 2>/dev/null; \
@@ -1030,18 +1055,45 @@ fn main() -> Result<(), String> {
     println!("game server ready on port {}", args.port);
 
     let contenders: Vec<Contender> = args.models.iter().map(|s| Contender::parse(s)).collect();
-    let _ephemeral = if args.fresh_sandbox {
-        if contenders.iter().any(|c| c.harness == Harness::Opencode) {
-            return Err("--fresh-sandbox has no recipe for the opencode lane yet".into());
+    let mut _ephemeral: Vec<EphemeralSandbox> = Vec::new();
+    if args.fresh_sandbox {
+        let lanes = [
+            (
+                Harness::ClaudeCode,
+                SandboxRecipe {
+                    image: &args.sandbox_image,
+                    policy: &args.sandbox_policy,
+                    provider: &args.sandbox_provider,
+                },
+                args.sandbox.clone(),
+            ),
+            (
+                Harness::Opencode,
+                SandboxRecipe {
+                    image: &args.opencode_sandbox_image,
+                    policy: &args.opencode_sandbox_policy,
+                    provider: &args.opencode_sandbox_provider,
+                },
+                args.opencode_sandbox.clone(),
+            ),
+        ];
+        let mut renamed: Vec<(Harness, String)> = Vec::new();
+        for (harness, recipe, base) in &lanes {
+            if !contenders.iter().any(|c| c.harness == *harness) {
+                continue;
+            }
+            let name = ephemeral_sandbox_name(base, epoch_secs());
+            println!("creating sandbox {name} from {}", recipe.image);
+            _ephemeral.push(create_sandbox(recipe, args.port, &root, &name)?);
+            renamed.push((*harness, name));
         }
-        let name = ephemeral_sandbox_name(&args.sandbox, epoch_secs());
-        println!("creating sandbox {name} from {}", args.sandbox_image);
-        let guard = create_sandbox(&args, &root, &name)?;
-        args.sandbox = name;
-        Some(guard)
-    } else {
-        None
-    };
+        for (harness, name) in renamed {
+            match harness {
+                Harness::ClaudeCode => args.sandbox = name,
+                Harness::Opencode => args.opencode_sandbox = name,
+            }
+        }
+    }
     // Contenders share sandboxes, so per-sandbox setup runs once each.
     let sandboxes: BTreeSet<&str> = contenders.iter().map(|c| c.sandbox(&args)).collect();
     // A previous run killed from the outside can leave an agent alive in its
@@ -1113,6 +1165,7 @@ fn main() -> Result<(), String> {
             "open_note": args.open_note,
             "agent_state": if args.fresh_sandbox { "fresh-sandbox" } else { "reset-per-run" },
             "sandbox": args.sandbox,
+            "opencode_sandbox": args.opencode_sandbox,
             "allowed_tools": allowed_tools(&args),
             "open_note_source": open_note_sha,
         }),
