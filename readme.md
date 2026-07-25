@@ -100,10 +100,13 @@ cd rust/orct2-agent && cargo fmt && cargo clippy --all-targets && cargo test
   --rounds 6 --ride-type 51 --name my-run
 ```
 
-`--open-note` additionally stages a read-only checkout of the engine source into
-the agent's sandbox: upstream OpenRCT2 at this fork's merge-base, so the harness
-and its scoring are absent, but `RideRatings.cpp` is byte-identical to the code
-that rates the ride. It is a modifier on either mode, and its scores are not
+`--open-note` grants the white-box condition: a read-only checkout of the engine
+source in the agent's sandbox (upstream OpenRCT2 at this fork's merge-base, so
+the harness and its scoring are absent, but `RideRatings.cpp` is byte-identical
+to the code that rates the ride), the file tools to read it, and `python3` for
+working out geometry offline. Python has no network and cannot reach the game, so
+park state stays knowable only through the MCP tools; `run.json` records the
+granted `capabilities`. It is a modifier on either mode, and its scores are not
 comparable with black-box ones, so the site labels and facets those runs
 separately.
 

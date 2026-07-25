@@ -1195,6 +1195,13 @@ fn main() -> Result<(), String> {
             "ride_type": args.ride_type,
             "similarity_grace": 0.5,
             "open_note": args.open_note,
+            // What the condition actually granted, so a run explains itself
+            // without cross-referencing the harness version.
+            "capabilities": if args.open_note {
+                json!(["engine_source", "file_tools", "python3"])
+            } else {
+                json!([])
+            },
             "agent_state": if args.fresh_sandbox { "fresh-sandbox" } else { "reset-per-run" },
             "sandbox": args.sandbox,
             "opencode_sandbox": args.opencode_sandbox,

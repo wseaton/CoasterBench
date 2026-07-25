@@ -49,7 +49,10 @@ pub fn round_prompt(
              It is the upstream OpenRCT2 revision this build is based on; the benchmark harness\n\
              itself is not in it. Your excitement rating is computed by that C++ code, so you can\n\
              read it to find out what excitement actually rewards instead of guessing. Use your own\n\
-             file and search tools for this; the coaster MCP tools do not read files.\n"
+             file and search tools for this; the coaster MCP tools do not read files.\n\
+             python3 is available for working out geometry offline before you place it.\n\
+             It has no network access and cannot reach the game, so the park state\n\
+             (which tiles are already occupied) is only knowable through the MCP tools.\n"
         ),
         None => String::new(),
     };
@@ -144,6 +147,15 @@ mod tests {
     fn without_open_note_no_source_is_mentioned() {
         let p = round_prompt(51, 1, 6, None, both(), 1800, None);
         assert!(!p.contains("Engine source"));
+        assert!(!p.contains("python3"), "python is an open-note capability");
+    }
+
+    #[test]
+    fn open_note_offers_python_and_says_what_it_cannot_do() {
+        let p = round_prompt(51, 1, 6, None, both(), 1800, Some("/tmp/openrct2-src"));
+        assert!(p.contains("python3"));
+        assert!(p.contains("no network access"), "isolation stated");
+        assert!(p.contains("occupied"), "collision blind spot called out");
     }
 
     #[test]
