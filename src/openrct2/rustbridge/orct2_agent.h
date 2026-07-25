@@ -267,6 +267,8 @@ extern uint16_t orct2_host_track_mirror(uint16_t track_type);
 
 extern bool orct2_host_circuit_stats(uint16_t ride_id, struct Orct2CircuitStats *out);
 
+extern bool orct2_host_save_park(const char *path);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus

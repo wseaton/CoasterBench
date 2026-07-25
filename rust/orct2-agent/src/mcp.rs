@@ -298,6 +298,12 @@ pub fn serve(bind: &str, port: u16) -> Result<(), String> {
 }
 
 fn handle_connection(stream: TcpStream, session: &mut Session) -> Result<(), String> {
+    // Loopback means the harness on this machine; a sandbox arrives on the
+    // container bridge address.
+    let local = stream
+        .peer_addr()
+        .map(|a| a.ip().is_loopback())
+        .unwrap_or(false);
     let mut reader = BufReader::new(stream.try_clone().map_err(|e| e.to_string())?);
     let mut stream = stream;
     loop {
@@ -325,7 +331,7 @@ fn handle_connection(stream: TcpStream, session: &mut Session) -> Result<(), Str
             continue;
         }
         let response = if Claim::from_request_target(&target).authorise(session) {
-            dispatch(&message, session, modalities)
+            dispatch(&message, session, modalities, local)
         } else {
             // A stale agent from a finished round: refuse rather than let it
             // build in a park that now belongs to someone else.
@@ -410,7 +416,11 @@ fn rpc_error(id: Value, code: i64, message: &str) -> Value {
     json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": message}})
 }
 
-fn dispatch(message: &Value, session: &mut Session, modalities: Modalities) -> Value {
+/// `local` is true when the request came from this machine. The harness runs
+/// here; agents run in sandboxes and reach the server over the container
+/// network, so it is what separates "the thing collecting artifacts" from "the
+/// thing being measured".
+fn dispatch(message: &Value, session: &mut Session, modalities: Modalities, local: bool) -> Value {
     let id = message.get("id").cloned().unwrap_or(Value::Null);
     let method = message.get("method").and_then(Value::as_str).unwrap_or("");
     match method {
@@ -429,7 +439,7 @@ fn dispatch(message: &Value, session: &mut Session, modalities: Modalities) -> V
             )
         }
         "ping" => rpc_result(id, json!({})),
-        "tools/list" => rpc_result(id, json!({"tools": tool_definitions(modalities)})),
+        "tools/list" => rpc_result(id, json!({"tools": tool_definitions(modalities, local)})),
         "tools/call" => {
             let name = message
                 .pointer("/params/name")
@@ -439,6 +449,15 @@ fn dispatch(message: &Value, session: &mut Session, modalities: Modalities) -> V
                 .pointer("/params/arguments")
                 .cloned()
                 .unwrap_or(json!({}));
+            if !local && is_host_tool(name) {
+                return rpc_result(
+                    id,
+                    json!({
+                        "content": [{"type": "text", "text": format!("{name} is not available to this client")}],
+                        "isError": true,
+                    }),
+                );
+            }
             if !modalities.contains(tool_modality(name)) {
                 return rpc_result(
                     id,
@@ -460,15 +479,22 @@ fn dispatch(message: &Value, session: &mut Session, modalities: Modalities) -> V
     }
 }
 
-fn tool_definitions(modalities: Modalities) -> Value {
+fn tool_definitions(modalities: Modalities, local: bool) -> Value {
     let mut tools = all_tool_definitions();
     if let Some(list) = tools.as_array_mut() {
         list.retain(|t| {
             let name = t.get("name").and_then(Value::as_str).unwrap_or_default();
-            modalities.contains(tool_modality(name))
+            modalities.contains(tool_modality(name)) && (local || !is_host_tool(name))
         });
     }
     tools
+}
+
+/// Tools that belong to the harness, not the agent. save_park takes a
+/// filesystem path and writes it on the machine running the game, so a
+/// sandboxed agent must never see or reach it: the sandbox is the whole point.
+fn is_host_tool(name: &str) -> bool {
+    name == "save_park"
 }
 
 fn all_tool_definitions() -> Value {
@@ -539,6 +565,13 @@ fn all_tool_definitions() -> Value {
             "name": "demolish",
             "description": "Remove the current ride and its track so you can start over with new_ride.",
             "inputSchema": {"type": "object", "properties": {}}
+        },
+        {
+            "name": "save_park",
+            "description": "Harness only: write the park to a .park save on the machine running the game.",
+            "inputSchema": {"type": "object", "required": ["path"], "properties": {
+                "path": {"type": "string", "description": "Filesystem path to write"}
+            }}
         },
         {
             "name": "search_track_designs",
@@ -765,6 +798,17 @@ fn call_tool(name: &str, args: &Value, session: &mut Session) -> Result<Vec<Valu
             host::ride_demolish(build.ride_id)?;
             Ok(text_content(json!({"demolished": build.ride_id})))
         }
+        "save_park" => {
+            let path = args
+                .get("path")
+                .and_then(Value::as_str)
+                .ok_or("path is required")?;
+            if host::save_park(path) {
+                Ok(text_content(json!({"saved": path})))
+            } else {
+                Err("park save failed".to_string())
+            }
+        }
         "search_track_designs" => {
             let ride_type = arg_i64(args, "ride_type").map(|t| t as u16);
             let designs: Vec<Value> = session
@@ -885,7 +929,7 @@ mod tests {
         let mut session = Session::default();
         let msg = json!({"jsonrpc": "2.0", "id": 1, "method": "initialize",
                          "params": {"protocolVersion": "2025-03-26"}});
-        let resp = dispatch(&msg, &mut session, Modalities::ALL);
+        let resp = dispatch(&msg, &mut session, Modalities::ALL, true);
         assert_eq!(
             resp.pointer("/result/protocolVersion")
                 .and_then(Value::as_str),
@@ -931,10 +975,54 @@ mod tests {
     fn dispatch_unknown_method_is_rpc_error() {
         let mut session = Session::default();
         let msg = json!({"jsonrpc": "2.0", "id": 2, "method": "bogus"});
-        let resp = dispatch(&msg, &mut session, Modalities::ALL);
+        let resp = dispatch(&msg, &mut session, Modalities::ALL, true);
         assert_eq!(
             resp.pointer("/error/code").and_then(Value::as_i64),
             Some(-32601)
+        );
+    }
+
+    /// save_park writes a file on the host, so a sandboxed agent must not be
+    /// able to see it or call it. Hiding it from the listing is not enough on
+    /// its own: a client that knows the name could still call it.
+    #[test]
+    fn save_park_is_reachable_from_the_host_and_nowhere_else() {
+        let mut session = Session::default();
+        let list = json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list"});
+        let names = |resp: &Value| -> Vec<String> {
+            resp.pointer("/result/tools")
+                .and_then(Value::as_array)
+                .map(|tools| {
+                    tools
+                        .iter()
+                        .filter_map(|t| t.get("name").and_then(Value::as_str))
+                        .map(str::to_string)
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+
+        let host_view = dispatch(&list, &mut session, Modalities::ALL, true);
+        assert!(names(&host_view).contains(&"save_park".to_string()));
+
+        let agent_view = dispatch(&list, &mut session, Modalities::ALL, false);
+        assert!(
+            !names(&agent_view).contains(&"save_park".to_string()),
+            "a sandboxed agent must not be offered a host filesystem write"
+        );
+        assert!(
+            names(&agent_view).contains(&"place_piece".to_string()),
+            "the building tools are still there"
+        );
+
+        let call = json!({
+            "jsonrpc": "2.0", "id": 2, "method": "tools/call",
+            "params": {"name": "save_park", "arguments": {"path": "/tmp/should-not-happen.park"}}
+        });
+        let refused = dispatch(&call, &mut session, Modalities::ALL, false);
+        assert_eq!(
+            refused.pointer("/result/isError").and_then(Value::as_bool),
+            Some(true)
         );
     }
 
@@ -942,7 +1030,7 @@ mod tests {
     fn tools_list_contains_the_full_toolset() {
         let mut session = Session::default();
         let msg = json!({"jsonrpc": "2.0", "id": 3, "method": "tools/list"});
-        let resp = dispatch(&msg, &mut session, Modalities::ALL);
+        let resp = dispatch(&msg, &mut session, Modalities::ALL, true);
         let tools = resp
             .pointer("/result/tools")
             .and_then(Value::as_array)
@@ -973,7 +1061,7 @@ mod tests {
     fn text_only_clients_never_see_the_screenshot_tool() {
         let mut session = Session::default();
         let msg = json!({"jsonrpc": "2.0", "id": 3, "method": "tools/list"});
-        let resp = dispatch(&msg, &mut session, Modalities::TEXT);
+        let resp = dispatch(&msg, &mut session, Modalities::TEXT, true);
         let names: Vec<&str> = resp
             .pointer("/result/tools")
             .and_then(Value::as_array)
@@ -990,7 +1078,7 @@ mod tests {
         let mut session = Session::default();
         let msg = json!({"jsonrpc": "2.0", "id": 6, "method": "tools/call",
                          "params": {"name": "screenshot", "arguments": {}}});
-        let resp = dispatch(&msg, &mut session, Modalities::TEXT);
+        let resp = dispatch(&msg, &mut session, Modalities::TEXT, true);
         assert_eq!(
             resp.pointer("/result/isError").and_then(Value::as_bool),
             Some(true)
@@ -1110,7 +1198,7 @@ mod tests {
         let mut session = Session::default();
         let msg = json!({"jsonrpc": "2.0", "id": 5, "method": "tools/call",
                          "params": {"name": "search_track_designs", "arguments": {}}});
-        let resp = dispatch(&msg, &mut session, Modalities::ALL);
+        let resp = dispatch(&msg, &mut session, Modalities::ALL, true);
         assert_eq!(
             resp.pointer("/result/isError").and_then(Value::as_bool),
             Some(true)
@@ -1122,7 +1210,7 @@ mod tests {
         let mut session = Session::default();
         let msg = json!({"jsonrpc": "2.0", "id": 4, "method": "tools/call",
                          "params": {"name": "get_state", "arguments": {}}});
-        let resp = dispatch(&msg, &mut session, Modalities::ALL);
+        let resp = dispatch(&msg, &mut session, Modalities::ALL, true);
         assert_eq!(
             resp.pointer("/result/isError").and_then(Value::as_bool),
             Some(true)

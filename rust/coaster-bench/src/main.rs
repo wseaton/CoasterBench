@@ -1167,6 +1167,16 @@ fn collect_round(
         Ok(png) => std::fs::write(round_dir.join("park.png"), png).map_err(|e| e.to_string())?,
         Err(e) => eprintln!("  {shot_tool} failed: {e}"),
     }
+
+    // The park as it stands, so a result can be reopened and checked rather
+    // than taken on the report's word. Server-side write, hence an absolute
+    // path: the game is a separate process with its own working directory.
+    let park_path = std::fs::canonicalize(round_dir)
+        .map(|dir| dir.join("park.park"))
+        .map_err(|e| format!("resolve {}: {e}", round_dir.display()))?;
+    if let Err(e) = client.call("save_park", json!({"path": park_path})) {
+        eprintln!("  save_park failed: {e}");
+    }
     Ok(report)
 }
 

@@ -86,6 +86,17 @@ Non-bundled binaries look for `data/` next to the exe. One-time setup:
   See issue #1 and the readme implementation notes.
 - Stalls never get ratings (RatingsCalculationType::Stall); tracked rides need
   a completed test circuit (RideFlag::tested) before ratings compute.
+- Save-park artifact: `coasterbench-cli eval ... --save-park <path>` writes a
+  .park (~55 KB) after the tick loop, and coaster-bench collects one per round
+  as `round_N/park.park`. Round-trip verified: reloading a saved park gives the
+  same ride, rating and circuit audit. Both paths go through
+  `RustBridge::SavePark`, which packs the loaded objects the way the crash
+  handler's save does, so a park using non-standard objects still reopens.
+  - The MCP `save_park` tool writes a host filesystem path, so it is served
+    only to loopback callers (the harness) and hidden from, and refused to,
+    anyone else. Sandboxed agents arrive on the container bridge address, which
+    is what keeps a host write out of their reach.
+  - `evals/runs/**/*.park` is gitignored like the other heavy artifacts.
 - Circuit audit: `orct2_host_circuit_stats` walks a ride with the game's own
   TrackCircuitIterator (what findTrackGap uses), seeded from the station origin
   element, and report.json gains per-ride

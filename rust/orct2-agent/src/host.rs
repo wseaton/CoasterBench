@@ -166,6 +166,7 @@ unsafe extern "C" {
     fn orct2_host_string_free(s: *mut c_char);
     fn orct2_host_track_mirror(track_type: u16) -> u16;
     fn orct2_host_circuit_stats(ride_id: u16, out: *mut CircuitStats) -> bool;
+    fn orct2_host_save_park(path: *const c_char) -> bool;
 }
 
 #[cfg(test)]
@@ -310,6 +311,14 @@ pub fn capture(path: &str, zoom: i32, rotation: u8, fit_track: bool, xray: bool)
 pub fn track_bounds() -> Option<TrackBounds> {
     let mut bounds = TrackBounds::default();
     unsafe { orct2_host_track_bounds(&mut bounds) }.then_some(bounds)
+}
+
+/// Writes the park to `path` as a .park save.
+pub fn save_park(path: &str) -> bool {
+    let Ok(cstr) = CString::new(path) else {
+        return false;
+    };
+    unsafe { orct2_host_save_park(cstr.as_ptr()) }
 }
 
 /// Walks `ride_id`'s circuit the way its trains do. None when the ride has no
@@ -457,6 +466,9 @@ mod test_stubs {
         false
     }
     pub unsafe fn orct2_host_circuit_stats(_r: u16, _o: *mut crate::host::CircuitStats) -> bool {
+        false
+    }
+    pub unsafe fn orct2_host_save_park(_p: *const c_char) -> bool {
         false
     }
     pub unsafe fn orct2_host_entrance_place(

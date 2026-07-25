@@ -37,6 +37,7 @@ namespace OpenRCT2
     static u8string _serveBind{};
     static u8string _dumpLibraryPath{};
     static u8string _renderLibraryDir{};
+    static u8string _saveParkPath{};
     static bool _captureAllRotations = false;
     static bool _captureXray = false;
 
@@ -53,6 +54,7 @@ namespace OpenRCT2
         { CMDLINE_TYPE_STRING,  &_serveBind,            kNAC, "serve-bind",         "MCP server bind address (default 127.0.0.1; use 0.0.0.0 for containers)" },
         { CMDLINE_TYPE_STRING,  &_dumpLibraryPath,      kNAC, "dump-library",       "write the stock track design library as JSON to this path and exit"      },
         { CMDLINE_TYPE_STRING,  &_renderLibraryDir,     kNAC, "render-library",     "render a preview PNG of every stock track design into this directory and exit" },
+        { CMDLINE_TYPE_STRING,  &_saveParkPath,         kNAC, "save-park",          "write the finished park as a .park save to this path"   },
         { CMDLINE_TYPE_SWITCH,  &_captureAllRotations,  kNAC, "capture-all-rotations", "with --capture, also write the other three view rotations as <name>-r1/-r2/-r3.png" },
         { CMDLINE_TYPE_SWITCH,  &_captureXray,          kNAC, "capture-xray",       "with --capture, also write a see-through verification view (terrain and supports hidden, every placed piece visible) as <name>-x.png" },
         kOptionTableEnd
@@ -158,6 +160,21 @@ namespace OpenRCT2
             if (RustBridge::EvalFinish(outcome, _reportPath.empty() ? nullptr : _reportPath.c_str()) != 0
                 && !_reportPath.empty())
             {
+                exitCode = ExitCode::fail;
+            }
+        }
+        // A screenshot shows the coaster; the save *is* the coaster. It is the
+        // only artifact that lets a result be reopened later and checked
+        // against a claim, rather than believed.
+        if (!_saveParkPath.empty())
+        {
+            if (RustBridge::SavePark(_saveParkPath))
+            {
+                Console::WriteLine("Park saved to %s", _saveParkPath.c_str());
+            }
+            else
+            {
+                Console::Error::WriteLine("Park save failed.");
                 exitCode = ExitCode::fail;
             }
         }

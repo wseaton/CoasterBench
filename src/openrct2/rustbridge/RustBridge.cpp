@@ -35,6 +35,8 @@
     #include "../interface/Screenshot.h"
     #include "../interface/Viewport.h"
     #include "../object/ObjectLimits.h"
+    #include "../object/ObjectManager.h"
+    #include "../park/ParkFile.h"
     #include "../ride/Ride.h"
     #include "../ride/RideData.h"
     #include "../ride/RideEntry.h"
@@ -770,6 +772,15 @@ char* orct2_host_track_library_json(void)
     }
 }
 
+bool orct2_host_save_park(const char* path)
+{
+    if (path == nullptr)
+    {
+        return false;
+    }
+    return RustBridge::SavePark(path);
+}
+
 void orct2_host_string_free(char* s)
 {
     std::free(s);
@@ -875,6 +886,25 @@ namespace OpenRCT2::RustBridge
     int32_t Capture(const char* path, int32_t zoom, uint8_t rotation, bool fitTrack, bool xray)
     {
         return orct2_agent_capture(path, zoom, rotation, fitTrack, xray);
+    }
+
+    bool SavePark(std::string_view path)
+    {
+        try
+        {
+            auto exporter = std::make_unique<ParkFileExporter>();
+            // Pack the loaded objects, as the crash handler's save does:
+            // without them a park using anything non-standard reopens with
+            // missing objects on a machine that lacks them.
+            exporter->ExportObjectsList = GetContext()->GetObjectManager().GetPackableObjects();
+            exporter->Export(getGameState(), path, kParkFileSaveCompressionLevel);
+            return true;
+        }
+        catch (const std::exception& e)
+        {
+            LOG_ERROR("park save failed: %s", e.what());
+            return false;
+        }
     }
 
     int32_t Serve(const char* bind, uint16_t port)
