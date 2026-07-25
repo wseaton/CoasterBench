@@ -70,7 +70,15 @@ because they are exactly the failure classes this job exists to surface:
    interleaved thinking and hit `finish_reason: "length"` with no tool
    call, masquerading as finding #2. vLLM behaved correctly. The driver
    now fails fast with the real cause and takes `--max-tokens` /
-   `--chat-template-kwargs '{"enable_thinking": false}'`.
+   `--chat-template-kwargs '{"enable_thinking": false}'`. Follow-up ruled
+   out every confound: at TP=8, 512k serving context, a 131k budget, an
+   hour-long client timeout, pod-to-pod networking, and reasoning passed
+   back across turns (vLLM renders assistant `reasoning` into the
+   template — verified via prompt_tokens), turn-one thinking still never
+   terminated, and it also failed to terminate with no tools attached.
+   Conclusion: unbounded reasoning is a property of monolithic one-shot
+   design prompts; thinking-tier contenders belong in the interactive
+   per-piece mode, and one-shot runs should disable thinking.
 4. **Config foot-gun — `generation_config.json` overrides server sampling
    defaults** (vLLM warns but serves): Qwen ships temp 0.7 / top-p 0.8 /
    rep-penalty 1.05, so "default" runs are not the sampling you assumed.
