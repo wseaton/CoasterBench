@@ -475,16 +475,14 @@ fn build_model_page(
         out,
         &format!("og-{}", path.replace(".html", ".png")),
     )?;
-    let mut chrome = Chrome::new(
+    let chrome = Chrome::new(
         &format!("Coaster Evals — {} · {}", run.name, view.model),
         &format!("{} · {}", view.model.to_uppercase(), run.name),
         &path,
         base_url,
     )
-    .width(view::Width::Wide);
-    if let Some(card) = &card {
-        chrome = chrome.og_card(card);
-    }
+    .width(view::Width::Wide)
+    .maybe_og_card(card.as_deref());
     let page = ModelPage {
         chrome,
         run_name: run.name.clone(),
@@ -493,7 +491,7 @@ fn build_model_page(
         of_models: run.models.len(),
         context: format!(
             "{} · {} · {} · {}",
-            run.mode,
+            run.mode_label(),
             run.ride_name(),
             run.harness,
             view::mode_tagline(&run.mode)
@@ -530,16 +528,14 @@ fn build_run_page(
         out,
         &format!("og-run-{}.png", run.name),
     )?;
-    let mut chrome = Chrome::new(
+    let chrome = Chrome::new(
         &format!("Coaster Evals — {}", run.name),
-        &format!("RUN {} ({})", run.name, run.mode),
+        &format!("RUN {} ({})", run.name, run.mode_label()),
         &path,
         base_url,
     )
-    .width(view::Width::Wide);
-    if let Some(card) = &card {
-        chrome = chrome.og_card(card);
-    }
+    .width(view::Width::Wide)
+    .maybe_og_card(card.as_deref());
     let page = RunPage {
         chrome,
         mode_tagline: view::mode_tagline(&run.mode),
@@ -554,20 +550,21 @@ fn write_page(path: &Path, html: &str) -> Result<()> {
     std::fs::write(path, html).with_context(|| format!("writing {}", path.display()))
 }
 
-fn thumbnail(
-    shot: &Art,
+/// Writes the thumbnail standing for a model's whole run (its best-rated
+/// coaster) into the site, and returns the src. None when it has no art.
+fn model_thumb(
+    model: &ModelRun,
     store: &ArtStore,
     out: &Path,
     run: &EvalRun,
-    model: &str,
 ) -> Result<Option<String>> {
-    let Some(src) = store.pixels(shot) else {
+    let Some(src) = model_best_shot(model).and_then(|shot| store.pixels(shot)) else {
         return Ok(None);
     };
     let rel = Path::new("assets").join("thumbs").join(format!(
         "{}-{}.png",
         run.name,
-        model::sanitise_name(model)
+        model::sanitise_name(&model.model)
     ));
     images::write_thumbnail(&src, &out.join(&rel))?;
     Ok(Some(rel.to_string_lossy().replace('\\', "/")))
@@ -582,23 +579,16 @@ fn index_rows(runs: &[EvalRun], store: &ArtStore, out: &Path) -> Result<Vec<Inde
         for (i, model) in run.ranked().iter().enumerate() {
             let best = model.best();
             let ride = best.and_then(|r| r.ride.as_ref());
-            let shot = best
-                .and_then(|r| r.screenshot.as_ref())
-                .or_else(|| model.rounds.iter().find_map(|r| r.screenshot.as_ref()));
-            let thumb = match shot {
-                Some(shot) => thumbnail(shot, store, out, run, &model.model)?,
-                None => None,
-            };
             rows.push(IndexRow {
                 run_name: run.name.clone(),
                 run_href: format!("run-{}.html", run.name),
                 model_href: model_href(run, &model.model),
                 date: run.date(),
-                mode: run.mode.clone(),
+                mode: run.mode_label(),
                 coaster: run.ride_name(),
                 harness: run.harness.clone(),
                 model: model.model.clone(),
-                thumb,
+                thumb: model_thumb(model, store, out, run)?,
                 place: place_label(i + 1),
                 is_winner: i == 0 && best.is_some(),
                 sort_score: best.map_or(0.0, |r| r.excitement()),
@@ -632,13 +622,6 @@ fn contenders(runs: &[EvalRun], store: &ArtStore, out: &Path) -> Result<Vec<view
             }
             let best = model.best();
             let ride = best.and_then(|r| r.ride.as_ref());
-            let shot = best
-                .and_then(|r| r.screenshot.as_ref())
-                .or_else(|| model.rounds.iter().find_map(|r| r.screenshot.as_ref()));
-            let thumb = match shot {
-                Some(shot) => thumbnail(shot, store, out, run, &model.model)?,
-                None => None,
-            };
             let totals = model.usage_totals();
             let href = model_href(run, &model.model);
             contenders.push(view::Contender {
@@ -650,7 +633,7 @@ fn contenders(runs: &[EvalRun], store: &ArtStore, out: &Path) -> Result<Vec<view
                 coaster: run.ride_name(),
                 mode: run.mode.clone(),
                 harness: run.harness.clone(),
-                thumb,
+                thumb: model_thumb(model, store, out, run)?,
                 score: best.map(|r| r.excitement()),
                 intensity: ride.and_then(|r| r.intensity),
                 nausea: ride.and_then(|r| r.nausea),
@@ -752,21 +735,25 @@ fn write_matchup_card(
     Ok(Some(filename.to_string()))
 }
 
-/// One matchup permalink: the interactive picker defaulted to this pair, with
-/// its own unfurl card and description so a shared link previews the right
-/// fight. All variants embed the same contender list (`json`, `count`).
-#[allow(clippy::too_many_arguments)]
+/// One compare page defaulted to a pair, with its own card so a shared link
+/// previews that fight. Every variant embeds the same contender list, so the
+/// picker works identically from any of them.
 fn write_compare_variant(
+    contenders: &[view::Contender],
     json: &str,
-    count: usize,
     a: &view::Contender,
     b: &view::Contender,
     page_path: &str,
-    card_name: Option<&str>,
     base_url: Option<&str>,
     out: &Path,
 ) -> Result<()> {
-    let mut chrome = Chrome::new(
+    let card = write_matchup_card(
+        a,
+        b,
+        out,
+        &format!("og-{page_path}").replace(".html", ".png"),
+    )?;
+    let chrome = Chrome::new(
         &format!("Coaster Evals — {} vs {}", a.model, b.model),
         "HEAD TO HEAD",
         page_path,
@@ -776,10 +763,8 @@ fn write_compare_variant(
     .description(&format!(
         "{} vs {} — {} · {} mode. Head-to-head on CoasterBench.",
         a.model, b.model, a.coaster, a.mode
-    ));
-    if let Some(card) = card_name {
-        chrome = chrome.og_card(card);
-    }
+    ))
+    .maybe_og_card(card.as_deref());
     write_page(
         &out.join(page_path),
         &view::ComparePage {
@@ -787,7 +772,7 @@ fn write_compare_variant(
             contenders_json: json.to_string(),
             default_a: a.id.clone(),
             default_b: b.id.clone(),
-            count,
+            count: contenders.len(),
         }
         .render()?,
     )
@@ -799,33 +784,31 @@ fn build_compare_page(
     out: &Path,
 ) -> Result<()> {
     let json = serde_json::to_string(contenders)?;
-    let count = contenders.len();
     let by_id = |id: &str| contenders.iter().find(|c| c.id == id);
 
-    // The hub page: the default matchup, its card, and the picker.
+    // The hub page: the picker itself, defaulted to the best matchup available.
+    // Titled generically (it is the entry point, not one fight) but carded with
+    // its default pair.
     let (default_a, default_b) = default_pair(contenders);
     let hub_card = match (by_id(&default_a), by_id(&default_b)) {
         (Some(a), Some(b)) => write_matchup_card(a, b, out, "og-compare.png")?,
         _ => None,
     };
-    let mut chrome = Chrome::new(
-        "Coaster Evals — Head to Head",
-        "HEAD TO HEAD",
-        "compare.html",
-        base_url,
-    )
-    .width(view::Width::Mid);
-    if let Some(card) = hub_card {
-        chrome = chrome.og_card(&card);
-    }
     write_page(
         &out.join("compare.html"),
         &view::ComparePage {
-            chrome,
+            chrome: Chrome::new(
+                "Coaster Evals — Head to Head",
+                "HEAD TO HEAD",
+                "compare.html",
+                base_url,
+            )
+            .width(view::Width::Mid)
+            .maybe_og_card(hub_card.as_deref()),
             contenders_json: json.clone(),
             default_a,
             default_b,
-            count,
+            count: contenders.len(),
         }
         .render()?,
     )?;
@@ -840,19 +823,8 @@ fn build_compare_page(
             if a.id == b.id || scenario(a) != scenario(b) {
                 continue;
             }
-            let slug = pair_slug(&a.id, &b.id);
-            let card_name = format!("og-compare-{slug}.png");
-            let card = write_matchup_card(a, b, out, &card_name)?;
-            write_compare_variant(
-                &json,
-                count,
-                a,
-                b,
-                &format!("compare-{slug}.html"),
-                card.as_deref(),
-                base_url,
-                out,
-            )?;
+            let path = format!("compare-{}.html", pair_slug(&a.id, &b.id));
+            write_compare_variant(contenders, &json, a, b, &path, base_url, out)?;
         }
     }
     Ok(())
@@ -868,7 +840,7 @@ fn facets(runs: &[EvalRun]) -> Vec<Facet> {
         }
     };
     vec![
-        collect("mode", runs.iter().map(|r| r.mode.clone()).collect()),
+        collect("mode", runs.iter().map(|r| r.mode_label()).collect()),
         collect("coaster", runs.iter().map(|r| r.ride_name()).collect()),
         collect("harness", runs.iter().map(|r| r.harness.clone()).collect()),
         collect(

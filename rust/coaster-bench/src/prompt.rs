@@ -19,6 +19,7 @@ pub fn round_prompt(
     previous_feedback: Option<&str>,
     modalities: Modalities,
     budget_secs: u64,
+    open_note_dir: Option<&str>,
 ) -> String {
     let name = ride_name(ride_type);
     let budget_mins = budget_secs / 60;
@@ -37,6 +38,18 @@ pub fn round_prompt(
     let feedback = match previous_feedback {
         Some(report) => format!(
             "\n## Previous round result\nYour previous attempt's eval report (learn from it):\n{report}\n"
+        ),
+        None => String::new(),
+    };
+    // Deliberately does not name the file that computes the rating: finding it
+    // is part of what this measures.
+    let open_note = match open_note_dir {
+        Some(dir) => format!(
+            "\n## Engine source\nA read-only checkout of the game engine that scores you is at {dir}.\n\
+             It is the upstream OpenRCT2 revision this build is based on; the benchmark harness\n\
+             itself is not in it. Your excitement rating is computed by that C++ code, so you can\n\
+             read it to find out what excitement actually rewards instead of guessing. Use your own\n\
+             file and search tools for this; the coaster MCP tools do not read files.\n"
         ),
         None => String::new(),
     };
@@ -77,7 +90,7 @@ You have about {budget_mins} minutes of wall-clock this round, then the session 
 Get a working, tested circuit banked EARLY; do not spend the whole budget on one perfect build.
 Your score is your best finish_and_test of the round (see best_result), not your final build,
 so it is always safe to stop once you are happy.
-{feedback}"#
+{open_note}{feedback}"#
     )
 }
 
@@ -91,7 +104,7 @@ mod tests {
 
     #[test]
     fn twister_prompt_mentions_inversions_allowed() {
-        let p = round_prompt(51, 1, 6, None, both(), 1800);
+        let p = round_prompt(51, 1, 6, None, both(), 1800, None);
         assert!(p.contains("ALLOWED"));
         assert!(p.contains("ride_type 51"));
         assert!(p.contains("round 1 of 6"));
@@ -99,26 +112,43 @@ mod tests {
 
     #[test]
     fn wooden_prompt_forbids_inversions() {
-        assert!(round_prompt(52, 2, 4, None, both(), 1800).contains("NOT support"));
+        assert!(round_prompt(52, 2, 4, None, both(), 1800, None).contains("NOT support"));
     }
 
     #[test]
     fn feedback_is_included_when_present() {
-        let p = round_prompt(51, 2, 6, Some("{\"excitement\": 5.0}"), both(), 1800);
+        let p = round_prompt(51, 2, 6, Some("{\"excitement\": 5.0}"), both(), 1800, None);
         assert!(p.contains("Previous round result"));
         assert!(p.contains("excitement"));
     }
 
     #[test]
     fn text_only_prompt_omits_the_screenshot_tool() {
-        let p = round_prompt(52, 1, 6, None, Modalities::TEXT, 1800);
+        let p = round_prompt(52, 1, 6, None, Modalities::TEXT, 1800, None);
         assert!(!p.contains("screenshot"));
         assert!(p.contains("demolish()"), "other tools still listed");
     }
 
     #[test]
+    fn open_note_points_at_the_source_without_naming_the_ratings_file() {
+        let p = round_prompt(51, 1, 6, None, both(), 1800, Some("/tmp/openrct2-src"));
+        assert!(p.contains("Engine source"));
+        assert!(p.contains("/tmp/openrct2-src"));
+        assert!(
+            !p.contains("RideRatings"),
+            "finding the ratings code is the point"
+        );
+    }
+
+    #[test]
+    fn without_open_note_no_source_is_mentioned() {
+        let p = round_prompt(51, 1, 6, None, both(), 1800, None);
+        assert!(!p.contains("Engine source"));
+    }
+
+    #[test]
     fn budget_is_stated_in_minutes() {
-        let p = round_prompt(51, 1, 6, None, both(), 1800);
+        let p = round_prompt(51, 1, 6, None, both(), 1800, None);
         assert!(p.contains("30 minutes"), "1800s -> 30 minutes");
         assert!(
             p.contains("best_result"),

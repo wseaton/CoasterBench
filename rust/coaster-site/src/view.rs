@@ -13,11 +13,15 @@ pub const FONTS: &str = "https://fonts.googleapis.com/css2?family=JetBrains+Mono
 pub const CSS: &str = include_str!("../static/site.css");
 pub const JS: &str = include_str!("../static/site.js");
 
-pub const MODE_TAGLINES: [(&str, &str); 2] = [
+pub const MODE_TAGLINES: [(&str, &str); 3] = [
     ("design", "design mode — models build from scratch"),
     (
         "library",
         "library mode — models may search the stock track design library, which measures retrieval and adaptation; copies score zero",
+    ),
+    (
+        "open note",
+        "a modifier on either mode — the agent is also given the engine source it is scored by, so it can read the ratings code instead of guessing; scores are not comparable with black-box runs",
     ),
 ];
 
@@ -88,9 +92,12 @@ impl Chrome {
         self
     }
 
-    /// Point this page's unfurl at its own card (see `og_card`).
-    pub fn og_card(mut self, card: &str) -> Self {
-        self.og_card = card.to_string();
+    /// Point this page's unfurl at its own card, when one could be drawn;
+    /// `None` leaves it on the shared site card (see `og_card`).
+    pub fn maybe_og_card(mut self, card: Option<&str>) -> Self {
+        if let Some(card) = card {
+            self.og_card = card.to_string();
+        }
         self
     }
 

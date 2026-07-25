@@ -98,7 +98,14 @@ Non-bundled binaries look for `data/` next to the exe. One-time setup:
   collects report/program/park.png per round into the same evals/runs layout.
   `./rust/coaster-bench/target/release/coaster-bench --models claude-fable-5
   --rounds 4 --ride-type 51 --name my-run`. Port must be in the sandbox
-  policy (default 8791).
+  policy (default 8791). `--open-note` stages upstream's tree (git archive of
+  `git merge-base HEAD origin/develop`, cached under $TMPDIR by revision) into
+  the sandbox at /tmp/openrct2-src via `openshell sandbox upload`
+  (exec stdin caps at 4 MiB; upload nests the local dir under its dest, so the
+  staging dir is named openrct2-src and uploaded to /tmp), then chmod -R a-w.
+  Records open_note + open_note_source in run.json; the site labels those runs
+  "<mode> + open note". RideRatings.cpp is unmodified in this fork, so upstream
+  source is a faithful oracle for scoring.
 - Second coaster-bench lane: `--models opencode:openrouter/<author>/<model>`
   runs opencode in the `coaster-or` sandbox against OpenRouter (key in the
   login keychain as `openrouter-api-key`, cost tracked by spend delta).
@@ -136,8 +143,8 @@ Non-bundled binaries look for `data/` next to the exe. One-time setup:
 - `cargo run --manifest-path rust/coaster-site/Cargo.toml` writes `evals/site/`
   (own crate, askama templates in `templates/`, CSS/JS in `static/`, raster
   work — index thumbnails, og-card, favicon — via the `image` crate). This is
-  what the Pages workflow builds; `evals/site.py` is the superseded Python
-  version, kept until the Rust output has a few deploys behind it.
+  what the Pages workflow builds. The old `evals/site.py` is gone; this crate
+  is the only site generator.
 - Three page types: `index.html` (one row per model per run, runs pivoted,
   grouped by run, faceted by mode/coaster/harness/model), `run-<run>.html`
   (models side by side for comparison), and `run-<run>-<model>.html` (one

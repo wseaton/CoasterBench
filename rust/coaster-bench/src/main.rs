@@ -7,13 +7,14 @@
 //!
 //! The game server is spawned as a child (coasterbench-cli eval --serve) and the
 //! orchestrator collects per-round artifacts (report.json, program.json,
-//! park.png) in the same evals/runs/<name>/ layout driver.py produces, so
-//! site.py needs no changes.
+//! park.png) in the same evals/runs/<name>/ layout driver.py produces, so the
+//! site generator needs no changes.
 
 mod mcp;
 mod prompt;
 mod trace;
 
+use std::collections::BTreeSet;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -79,7 +80,15 @@ struct Args {
     /// Reuse an already-running MCP server instead of spawning one.
     #[arg(long)]
     attach: bool,
+
+    /// Open note: stage a read-only checkout of the engine source the agents
+    /// are scored by into their sandbox. Upstream OpenRCT2 at this fork's
+    /// merge-base, so the harness and its scoring are not in it.
+    #[arg(long)]
+    open_note: bool,
 }
+
+const OPEN_NOTE_DIR: &str = "/tmp/openrct2-src";
 
 fn expand_home(path: &str) -> PathBuf {
     if let Some(rest) = path.strip_prefix("~/") {
@@ -299,6 +308,16 @@ struct SessionResult {
     error: Option<String>,
 }
 
+impl SessionResult {
+    /// The session never got far enough to report usage.
+    fn failed(error: String) -> SessionResult {
+        SessionResult {
+            usage: Value::Null,
+            error: Some(error),
+        }
+    }
+}
+
 /// Current spend (USD) on the OpenRouter key, for cost-by-delta accounting.
 fn openrouter_spend() -> Option<f64> {
     let key = Command::new("security")
@@ -370,6 +389,118 @@ fn kill_stray_agents(sandbox: &str) {
         .status();
 }
 
+/// The revision of upstream OpenRCT2 this fork is based on. That tree is the
+/// engine we build and score with, minus the harness, so it is what open note
+/// hands to the agents.
+fn upstream_merge_base(root: &Path) -> Result<String, String> {
+    for upstream in ["upstream/develop", "origin/develop"] {
+        let out = Command::new("git")
+            .current_dir(root)
+            .args(["merge-base", "HEAD", upstream])
+            .output()
+            .map_err(|e| format!("git merge-base: {e}"))?;
+        if out.status.success() {
+            let sha = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if !sha.is_empty() {
+                return Ok(sha);
+            }
+        }
+    }
+    Err("no merge-base with upstream/develop or origin/develop".into())
+}
+
+/// Extracts upstream's tree with `git archive` (which cannot contain fork code:
+/// that commit predates all of it) and uploads it into the sandbox. Cached per
+/// revision on the host, so extra models and reruns skip the extract.
+///
+/// exec's stdin caps at 4 MiB, hence `sandbox upload`, which nests the local
+/// directory under its destination: the staging directory is therefore named
+/// after the sandbox path's last component and uploaded to its parent.
+fn stage_open_note(root: &Path, sandbox: &str, sha: &str) -> Result<(), String> {
+    let dest = Path::new(OPEN_NOTE_DIR);
+    let (parent, name) = match (dest.parent(), dest.file_name()) {
+        (Some(p), Some(n)) => (p, n),
+        _ => return Err(format!("{OPEN_NOTE_DIR} is not a usable path")),
+    };
+    let stage = std::env::temp_dir()
+        .join("coaster-open-note")
+        .join(&sha[..12])
+        .join(name);
+    let probe = stage.join("src/openrct2/ride/RideRatings.cpp");
+    if !probe.is_file() {
+        let _ = std::fs::remove_dir_all(&stage);
+        std::fs::create_dir_all(&stage).map_err(|e| format!("create {}: {e}", stage.display()))?;
+        let mut archive = Command::new("git")
+            .current_dir(root)
+            .args(["archive", sha])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|e| format!("git archive: {e}"))?;
+        let source = archive
+            .stdout
+            .take()
+            .ok_or_else(|| "git archive produced no output".to_string())?;
+        let untar = Command::new("tar")
+            .args([
+                std::ffi::OsStr::new("x"),
+                std::ffi::OsStr::new("-C"),
+                stage.as_os_str(),
+            ])
+            .stdin(Stdio::from(source))
+            .status()
+            .map_err(|e| format!("tar: {e}"))?;
+        let _ = archive.wait();
+        if !untar.success() || !probe.is_file() {
+            return Err(format!("extracting upstream {} failed", &sha[..12]));
+        }
+    }
+
+    // An earlier run left the tree unwritable, which would also block deleting
+    // it, so restore write permission before replacing it.
+    let clear = format!("chmod -R u+w {OPEN_NOTE_DIR} 2>/dev/null; rm -rf {OPEN_NOTE_DIR}");
+    let _ = Command::new("openshell")
+        .args(["sandbox", "exec", "-n", sandbox, "--"])
+        .args(["sh", "-c", &clear])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+
+    // --no-git-ignore: upstream's own .gitignore would otherwise silently drop
+    // files from the tree the agent is told is the engine.
+    let upload = Command::new("openshell")
+        .args(["sandbox", "upload", "--no-git-ignore", sandbox])
+        .arg(&stage)
+        .arg(parent)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map_err(|e| format!("openshell upload: {e}"))?;
+    if !upload.success() {
+        return Err(format!("upload into {sandbox} failed: {upload}"));
+    }
+
+    // Read-only, so one round cannot leave edits for the next. Verified by the
+    // ratings source: without it the round would silently be a plain design
+    // round with a misleading prompt.
+    let finish = format!(
+        "chmod -R a-w {OPEN_NOTE_DIR} && test -f {OPEN_NOTE_DIR}/src/openrct2/ride/RideRatings.cpp"
+    );
+    let ok = Command::new("openshell")
+        .args(["sandbox", "exec", "-n", sandbox, "--"])
+        .args(["sh", "-c", &finish])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map_err(|e| format!("verify checkout: {e}"))?;
+    if !ok.success() {
+        return Err(format!(
+            "{OPEN_NOTE_DIR} in {sandbox} has no ratings source"
+        ));
+    }
+    Ok(())
+}
+
 /// One agent session in the harness's sandbox. Success is judged by game
 /// state, not the transcript; usage is captured best-effort either way.
 ///
@@ -410,10 +541,7 @@ fn run_agent_session(
             // before the session starts. Model comes fully qualified on the
             // command line (e.g. openrouter/poolside/...).
             if let Err(e) = write_opencode_config(args, contender, lease) {
-                return SessionResult {
-                    usage: Value::Null,
-                    error: Some(e),
-                };
+                return SessionResult::failed(e);
             }
             cmd.args(["sandbox", "exec", "-n", &args.opencode_sandbox, "--"])
                 .args(["opencode", "run", prompt, "-m", &contender.model])
@@ -425,25 +553,17 @@ fn run_agent_session(
     let (log, errlog) = match (File::create(&log_path), File::create(&err_path)) {
         (Ok(a), Ok(b)) => (a, b),
         _ => {
-            return SessionResult {
-                usage: Value::Null,
-                error: Some(format!(
-                    "cannot open session logs in {}",
-                    round_dir.display()
-                )),
-            }
+            return SessionResult::failed(format!(
+                "cannot open session logs in {}",
+                round_dir.display()
+            ))
         }
     };
     cmd.stdout(Stdio::from(log)).stderr(Stdio::from(errlog));
 
     let mut child = match cmd.spawn() {
         Ok(c) => c,
-        Err(e) => {
-            return SessionResult {
-                usage: Value::Null,
-                error: Some(format!("openshell exec: {e}")),
-            }
-        }
+        Err(e) => return SessionResult::failed(format!("openshell exec: {e}")),
     };
     let budget = Duration::from_secs(args.session_timeout);
     let started = Instant::now();
@@ -460,12 +580,7 @@ fn run_agent_session(
                 break status;
             }
             Ok(None) => std::thread::sleep(Duration::from_secs(1)),
-            Err(e) => {
-                return SessionResult {
-                    usage: Value::Null,
-                    error: Some(format!("waiting on agent session: {e}")),
-                }
-            }
+            Err(e) => return SessionResult::failed(format!("waiting on agent session: {e}")),
         }
     };
 
@@ -605,7 +720,7 @@ fn best_excitement(report: &Value) -> Option<f64> {
         .iter()
         .filter_map(|r| r.get("excitement").and_then(Value::as_f64))
         .reduce(f64::max)?;
-    // Same penalty math as driver.py / site.py (SIMILARITY_GRACE = 0.5).
+    // Same penalty math as driver.py (SIMILARITY_GRACE = 0.5).
     let similarity = report
         .pointer("/similarity/similarity")
         .and_then(Value::as_f64)
@@ -666,6 +781,7 @@ fn main() -> Result<(), String> {
                 None,
                 Modalities::TEXT | Modalities::IMAGE,
                 args.session_timeout,
+                args.open_note.then_some(OPEN_NOTE_DIR),
             )
         );
         return Ok(());
@@ -692,15 +808,26 @@ fn main() -> Result<(), String> {
     println!("game server ready on port {}", args.port);
 
     let contenders: Vec<Contender> = args.models.iter().map(|s| Contender::parse(s)).collect();
+    // Contenders share sandboxes, so per-sandbox setup runs once each.
+    let sandboxes: BTreeSet<&str> = contenders.iter().map(|c| c.sandbox(&args)).collect();
     // A previous run killed from the outside can leave an agent alive in its
     // sandbox, still building in the park this run is about to use.
-    for sandbox in contenders
-        .iter()
-        .map(|c| c.sandbox(&args))
-        .collect::<std::collections::BTreeSet<_>>()
-    {
+    for sandbox in &sandboxes {
         kill_stray_agents(sandbox);
     }
+    let open_note_sha = if args.open_note {
+        let sha = upstream_merge_base(&root)?;
+        for sandbox in &sandboxes {
+            stage_open_note(&root, sandbox, &sha)?;
+            println!(
+                "open note: {OPEN_NOTE_DIR} in {sandbox} at upstream {}",
+                &sha[..12]
+            );
+        }
+        Some(sha)
+    } else {
+        None
+    };
     for c in &contenders {
         if !c.modalities.contains(Modalities::IMAGE) {
             println!(
@@ -741,6 +868,8 @@ fn main() -> Result<(), String> {
             "ticks": args.ticks,
             "ride_type": args.ride_type,
             "similarity_grace": 0.5,
+            "open_note": args.open_note,
+            "open_note_source": open_note_sha,
         }),
     )?;
 
@@ -763,6 +892,7 @@ fn main() -> Result<(), String> {
                 feedback.as_deref(),
                 contender.modalities,
                 args.session_timeout,
+                open_note_sha.as_ref().map(|_| OPEN_NOTE_DIR),
             );
             // Created up front: the session streams its logs in here while it
             // runs, so `tail -f` works on a round in progress.

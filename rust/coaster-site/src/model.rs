@@ -46,6 +46,9 @@ struct RunMeta {
     #[serde(default)]
     models: Vec<String>,
     rounds: Option<u32>,
+    /// Open note: the agents could read the engine source they are scored by.
+    #[serde(default)]
+    open_note: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -284,6 +287,7 @@ pub struct EvalRun {
     pub models: Vec<ModelRun>,
     pub ride_type: i64,
     pub harness: String,
+    pub open_note: bool,
     /// Models and round count run.json promised, when it recorded them.
     expected_models: Vec<String>,
     expected_rounds: Option<u32>,
@@ -343,6 +347,17 @@ impl EvalRun {
             None
         } else {
             Some(format!("short rounds: {}", short.join(", ")))
+        }
+    }
+
+    /// Mode as shown and faceted. Open note is a modifier rather than a mode,
+    /// but its scores are not comparable with black-box ones, so the label has
+    /// to say so wherever a run is identified.
+    pub fn mode_label(&self) -> String {
+        if self.open_note {
+            format!("{} + open note", self.mode)
+        } else {
+            self.mode.clone()
         }
     }
 
@@ -536,6 +551,7 @@ pub fn load_runs(runs_dir: &Path, store: &ArtStore) -> Result<Vec<EvalRun>> {
             models,
             ride_type: meta.ride_type.unwrap_or(52),
             harness: meta.harness.unwrap_or_else(|| "driver-api".to_string()),
+            open_note: meta.open_note,
             expected_models: meta.models,
             expected_rounds: meta.rounds,
         });
@@ -639,9 +655,18 @@ mod tests {
                 .collect(),
             ride_type: 52,
             harness: "test".to_string(),
+            open_note: false,
             expected_models: expected.iter().map(|m| m.to_string()).collect(),
             expected_rounds: rounds,
         }
+    }
+
+    #[test]
+    fn open_note_runs_are_labelled_apart_from_black_box_ones() {
+        let mut r = run(vec![("m", 3)], &["m"], Some(3));
+        assert_eq!(r.mode_label(), "design");
+        r.open_note = true;
+        assert_eq!(r.mode_label(), "design + open note");
     }
 
     #[test]

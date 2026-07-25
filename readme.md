@@ -31,9 +31,11 @@ flowchart LR
     runs --> site["coaster-site → evals/site/ → GitHub Pages"]
 ```
 
-The agent has no filesystem or repository access. Its only interface is the tool
-set the game exposes over the Model Context Protocol (MCP), an open standard for
-connecting models to external tools. All state changes pass through
+The agent has no host filesystem or repository access, and by default its only
+interface is the tool set the game exposes over the Model Context Protocol
+(MCP), an open standard for connecting models to external tools. The one
+exception is open note (below), which stages a read-only copy of the upstream
+engine source inside the sandbox. All state changes pass through
 `GameActions::Execute`, the validation path used by the game's own plugins, so
 the harness accepts the placements the game accepts, minus one class the game
 accepts but cannot draw (see [Implementation notes](#implementation-notes)).
@@ -97,6 +99,13 @@ cd rust/orct2-agent && cargo fmt && cargo clippy --all-targets && cargo test
   --models claude-sonnet-5 \
   --rounds 6 --ride-type 51 --name my-run
 ```
+
+`--open-note` additionally stages a read-only checkout of the engine source into
+the agent's sandbox: upstream OpenRCT2 at this fork's merge-base, so the harness
+and its scoring are absent, but `RideRatings.cpp` is byte-identical to the code
+that rates the ride. It is a modifier on either mode, and its scores are not
+comparable with black-box ones, so the site labels and facets those runs
+separately.
 
 The model specification selects the harness. A bare name runs Claude Code in the
 `coaster-sub` sandbox; `opencode:openrouter/<author>/<model>` runs opencode in
