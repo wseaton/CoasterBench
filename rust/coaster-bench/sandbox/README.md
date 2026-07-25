@@ -34,13 +34,24 @@ never returns even with `--no-tty`, but the sandbox becomes ready during it and
 outlives the client. `sandbox exec` stdin caps at 4 MiB, so use `sandbox upload`
 for anything larger. Deletes are eventually consistent.
 
-## Unverified
+## Verification status
 
-The images have not been rebuilt from these files yet; they were reconstructed
-from `podman history` of the images in use, which is exact for the Claude Code
-and opencode lanes.
+Claude Code and opencode lanes: **rebuilt and verified** 2026-07-25. Building the
+base with cache reproduced the in-use image id exactly (`fb083e1932da`), so the
+recovered instructions match the original build. A `--no-cache` rebuild also
+works, and with the pinned versions produces claude-code 2.1.218 and opencode
+1.18.4, matching what produced the existing results. Unpinned it drifts (2.1.220,
+1.18.5), which is why both are `ARG`s: bumping an agent version should be a
+deliberate edit, not a side effect of rebuilding.
 
-The codex lane is the weak one. The base image ships codex 0.117 at
+`opencode --version` hangs inside a policy-restricted sandbox because it reaches
+out on startup and a denied connection stalls instead of failing. It is fine in
+the Dockerfile, where the build network is open, but never use it as a readiness
+probe: use `sandbox exec -- true` instead.
+
+### codex
+
+The codex lane is the weak one and is still unbuilt. The base image ships codex 0.117 at
 `/usr/bin/codex`, while the live `codex-arena` runs a 263 MB build at
 `/home/sandbox/bin/codex` that was placed there by hand, leaving no record of
 its origin (no tarball, and npm global holds only 0.117). `codex.Dockerfile`

@@ -1,4 +1,7 @@
 # podman build -t localhost/coaster-or -f rust/coaster-bench/sandbox/opencode.Dockerfile rust/coaster-bench/sandbox
-FROM localhost/coaster-sandbox
+ARG BASE=localhost/coaster-sandbox
+FROM ${BASE}
 
-RUN npm install -g opencode-ai@latest && opencode --version
+ARG OPENCODE_VERSION=1.18.4
+
+RUN npm install -g "opencode-ai@${OPENCODE_VERSION}" && opencode --version
