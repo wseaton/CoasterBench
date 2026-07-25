@@ -109,6 +109,11 @@ struct Args {
     #[arg(long, default_value = "openrouter")]
     opencode_sandbox_provider: String,
 
+    /// Extra tools to allow the agent, comma separated (e.g. "Bash"). Open note
+    /// implies the file tools; this grants them without staging any source.
+    #[arg(long)]
+    extra_tools: Option<String>,
+
     /// Open note: stage a read-only checkout of the engine source the agents
     /// are scored by into their sandbox. Upstream OpenRCT2 at this fork's
     /// merge-base, so the harness and its scoring are not in it.
@@ -247,15 +252,35 @@ fn create_sandbox(
     }
 }
 
-fn sandbox_ready(name: &str) -> bool {
-    Command::new("openshell")
-        .args(["sandbox", "exec", "-n", name, "--"])
-        .args(["true"])
+/// Runs a command with a deadline, killing it if it overruns. `sandbox exec`
+/// against a sandbox that is still coming up blocks instead of failing, so an
+/// unbounded readiness probe hangs forever and never reaches its own deadline.
+fn run_bounded(mut cmd: Command, budget: Duration) -> Option<bool> {
+    let mut child = cmd
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
+        .spawn()
+        .ok()?;
+    let deadline = Instant::now() + budget;
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return Some(status.success()),
+            Ok(None) if Instant::now() >= deadline => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+            Ok(None) => std::thread::sleep(Duration::from_millis(500)),
+            Err(_) => return None,
+        }
+    }
+}
+
+fn sandbox_ready(name: &str) -> bool {
+    let mut cmd = Command::new("openshell");
+    cmd.args(["sandbox", "exec", "-n", name, "--"])
+        .args(["true"]);
+    run_bounded(cmd, Duration::from_secs(20)) == Some(true)
 }
 
 /// Set once on SIGINT/SIGTERM/SIGHUP. A handler cannot do the cleanup itself
@@ -735,11 +760,18 @@ fn stage_open_note(root: &Path, sandbox: &str, sha: &str) -> Result<(), String> 
 /// adds the file tools, without which the staged source is unreadable and the
 /// prompt describing it is a lie (observed: every Read denied, turns burnt).
 fn allowed_tools(args: &Args) -> String {
+    let mut allowed = vec!["mcp__coaster__*".to_string()];
     if args.open_note {
-        "mcp__coaster__*,Read,Grep,Glob,Bash".to_string()
-    } else {
-        "mcp__coaster__*".to_string()
+        allowed.extend(["Read", "Grep", "Glob", "Bash"].map(str::to_string));
     }
+    if let Some(extra) = &args.extra_tools {
+        for tool in extra.split(',').map(str::trim).filter(|t| !t.is_empty()) {
+            if !allowed.iter().any(|a| a == tool) {
+                allowed.push(tool.to_string());
+            }
+        }
+    }
+    allowed.join(",")
 }
 
 /// One agent session in the harness's sandbox. Success is judged by game
@@ -1437,5 +1469,20 @@ mod tests {
         let a = ephemeral_sandbox_name("coaster-sub", 1_784_947_247);
         let b = ephemeral_sandbox_name("coaster-sub", 1_784_947_248);
         assert_ne!(a, b);
+    }
+
+    #[test]
+    fn extra_tools_are_added_without_open_note_and_never_duplicated() {
+        let mut args = Args::parse_from(["coaster-bench"]);
+        args.extra_tools = Some("Bash".into());
+        assert_eq!(allowed_tools(&args), "mcp__coaster__*,Bash");
+
+        args.open_note = true;
+        let allowed = allowed_tools(&args);
+        assert_eq!(
+            allowed.matches("Bash").count(),
+            1,
+            "no duplicate: {allowed}"
+        );
     }
 }

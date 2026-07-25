@@ -44,6 +44,16 @@ works, and with the pinned versions produces claude-code 2.1.218 and opencode
 1.18.5), which is why both are `ARG`s: bumping an agent version should be a
 deliberate edit, not a side effect of rebuilding.
 
+`python3` is installed for agents that want to compute track geometry before
+placing it (observed: fable doing exactly that when run outside a sandbox). It
+has no network at all, verified: DNS fails for anthropic and pypi, a raw
+`1.1.1.1:53` connect times out, and even the game's MCP port is unreachable,
+because network is attributed per binary and python3 is in no binaries list. It
+is local compute only, and only usable when the run grants Bash.
+
+Bound every `sandbox exec`: against a sandbox that is still coming up it blocks
+instead of failing, so an unbounded readiness poll hangs forever.
+
 `opencode --version` hangs inside a policy-restricted sandbox because it reaches
 out on startup and a denied connection stalls instead of failing. It is fine in
 the Dockerfile, where the build network is open, but never use it as a readiness
