@@ -110,6 +110,12 @@ granted `capabilities`. It is a modifier on either mode, and its scores are not
 comparable with black-box ones, so the site labels and facets those runs
 separately.
 
+A six-round run takes hours, so launch it detached with
+`scripts/detach.py <log> <cmd...>`: a shell or agent harness that reaps its
+background jobs signals the whole process group, which would otherwise take the
+orchestrator, its game server and the agent session with it. Stop a run with
+`kill -TERM <pid>`; that path cleans up after itself.
+
 `--fresh-sandbox` creates a throwaway sandbox for the run from
 `rust/coaster-bench/sandbox/` and deletes it afterwards. Without it the sandbox
 is long-lived, and an agent's own notes (Claude Code's memory directory is
