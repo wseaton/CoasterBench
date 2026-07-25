@@ -124,6 +124,42 @@ Non-bundled binaries look for `data/` next to the exe. One-time setup:
   session, so the MCP endpoint is per contender. Model input modalities come
   from the OpenRouter catalogue and are recorded in run.json; a text-only
   model gets `?modalities=text` and a prompt with no screenshot tool.
+- Third coaster-bench lane: `--models codex:<model>` runs codex in the
+  `codex-arena` sandbox on the ChatGPT subscription (`codex-oauth` provider),
+  and `--models codex:openrouter/<author>/<model>` runs the same harness against
+  OpenRouter instead. coaster-bench writes `$CODEX_HOME` (config.toml, and
+  auth.json on the subscription backend) per session, so the MCP endpoint,
+  model and credentials are all per contender.
+  - `$HOME` is `/sandbox` in that image, not `/home/sandbox` like the other two
+    lanes, and codex refuses a CODEX_HOME under /tmp. Keep the paths
+    `$HOME`-relative.
+  - Auth: the gateway injects `CODEX_AUTH_*` as `openshell:` placeholders the
+    egress proxy substitutes. The access and refresh tokens stay placeholders;
+    the id token and account id are copied from the host's `~/.codex/auth.json`,
+    because codex decodes the JWT locally ("invalid ID token format" otherwise).
+    `last_refresh` is stamped at session start so codex never tries a refresh,
+    which would write a real token into the sandbox.
+  - Codex has no per-tool allowlist, so open note reaches it as
+    `sandbox_mode = "danger-full-access"` (OpenShell is the real jail) versus
+    `read-only` for a blind run, recorded as `codex_sandbox_mode` in run.json.
+    A blind codex round still has a shell, unlike the other two lanes.
+  - The OpenRouter backend needs `wire_api = "responses"` (codex 0.145 dropped
+    "chat") and needs `/home/sandbox/bin/codex` in the *openrouter provider
+    profile's* binary list: a provider-injected policy owns its own hosts, so
+    `codex-policy.yaml` cannot grant openrouter.ai on its own. The edited
+    profile is checked in at `rust/coaster-bench/sandbox/openrouter-profile.yaml`.
+  - Build the image for the host arch (`podman build --platform linux/arm64`):
+    the OpenShell base is multi-arch, and an amd64 image under Rosetta dies at
+    sandbox start with "Unable to open /proc/self/exe".
+  - Cheap smoke of the whole lane (one round, dollars not cents):
+    `--models codex:openrouter/openai/gpt-5-mini --rounds 1 --open-note
+    --fresh-sandbox --name codex-smoke`. Model support for codex's built-in
+    tools varies on OpenRouter and shows up as a 400 on the first turn:
+    gpt-5-nano and gpt-5-mini negotiate the toolset, gpt-5.4-nano refuses
+    (`Tool 'tool_search' is not supported`). The subscription lane can be
+    smoked for free while quota is out (`--models codex:gpt-5.6-sol
+    --codex-sandbox codex-arena`): reaching the usage-limit error proves the
+    auth file and egress substitution worked.
 - Two driver modes (`--mode`, recorded in run.json + standings.json, separate
   leaderboard sections in the site): `design` (from scratch) and `library`
   (model can search the stock .TD6 library via extra tools; tests retrieval +

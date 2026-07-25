@@ -12,9 +12,17 @@ FROM ghcr.io/nvidia/openshell-community/sandboxes/base:latest
 
 ARG CODEX_VERSION=0.145.0-alpha.18
 
-RUN npm install -g "@openai/codex@${CODEX_VERSION}" \
-    && mkdir -p /home/sandbox/bin \
-    && cp -L "$(npm root -g)/@openai/codex/bin/codex" /home/sandbox/bin/codex \
-    && chmod 0755 /home/sandbox/bin/codex \
-    && chown -R sandbox:sandbox /home/sandbox/bin \
-    && /home/sandbox/bin/codex --version
+USER root
+
+RUN set -eux; \
+    npm install -g "@openai/codex@${CODEX_VERSION}"; \
+    pkg="$(npm root -g)/@openai/codex"; \
+    native="$(find "$pkg" -type f -path '*/vendor/*/bin/codex' | head -1)"; \
+    test -n "$native"; \
+    mkdir -p /home/sandbox/bin; \
+    cp -L "$native" /home/sandbox/bin/codex; \
+    chmod 0755 /home/sandbox/bin/codex; \
+    chown -R sandbox:sandbox /home/sandbox/bin; \
+    /home/sandbox/bin/codex --version
+
+USER sandbox

@@ -16,8 +16,8 @@ podman build -t localhost/coaster-or -f rust/coaster-bench/sandbox/opencode.Dock
 podman build -t localhost/codex-arena -f rust/coaster-bench/sandbox/codex.Dockerfile rust/coaster-bench/sandbox
 ```
 
-`coaster-bench --fresh-sandbox` creates and deletes a per-run sandbox from the
-Claude Code recipe. The other two lanes are still long-lived and predate it.
+`coaster-bench --fresh-sandbox` creates and deletes a per-run sandbox from
+whichever recipes the run's contenders need.
 
 ## Notes
 
@@ -25,6 +25,17 @@ Providers inject their own network block (Anthropic, OpenRouter, OpenAI hosts).
 Never copy those into a policy file: `--provider` regenerates them, and a
 hand-copied version drifts. Only the game MCP endpoint is authored, plus the
 codex exception below.
+
+A provider's injected block also *owns* its hosts: an authored policy naming the
+same host does not grant it, and the request is denied against the provider
+policy instead (`binary '…' not allowed in policy '_provider_openrouter'`). So
+running codex against OpenRouter needs codex's binary in the provider profile,
+not in `codex-policy.yaml`. `openrouter-profile.yaml` is that profile, checked in
+because it is hand-edited state living in the gateway:
+
+```bash
+openshell provider profile update -f openrouter-profile.yaml openrouter
+```
 
 Attribution uses kernel-resolved binary paths, so a symlinked agent binary is
 attributed to its target. `codex.Dockerfile` copies the binary for that reason.
@@ -58,6 +69,16 @@ instead of failing, so an unbounded readiness poll hangs forever.
 out on startup and a denied connection stalls instead of failing. It is fine in
 the Dockerfile, where the build network is open, but never use it as a readiness
 probe: use `sandbox exec -- true` instead.
+
+`sandbox exec` relays the client's stdin, so a command whose inner shell
+redirects or pipes stdin (`wc -c < f`, `a | b`) hangs after doing its work,
+waiting on a stream that never ends. Close it: `< /dev/null` from a shell,
+`.stdin(Stdio::null())` from Rust. This is also why the codex lane must close
+stdin, since codex otherwise reads a second prompt from it.
+
+`$HOME` differs by image: the OpenShell base (codex lane) is `/sandbox`, the
+node-based images (Claude Code, opencode) are `/home/sandbox`. Anything writing
+agent state or wiping it between rounds has to be `$HOME`-relative.
 
 ### codex
 

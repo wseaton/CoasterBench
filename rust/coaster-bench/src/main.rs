@@ -109,6 +109,21 @@ struct Args {
     #[arg(long, default_value = "openrouter")]
     opencode_sandbox_provider: String,
 
+    #[arg(long, default_value = "codex-arena")]
+    codex_sandbox: String,
+
+    #[arg(long, default_value = "localhost/codex-arena")]
+    codex_sandbox_image: String,
+
+    #[arg(long, default_value = "rust/coaster-bench/sandbox/codex-policy.yaml")]
+    codex_sandbox_policy: String,
+
+    #[arg(long, default_value = "codex-oauth")]
+    codex_sandbox_provider: String,
+
+    #[arg(long, default_value = "/home/sandbox/bin/codex")]
+    codex_bin: String,
+
     /// Extra tools to allow the agent, comma separated (e.g. "Bash"). Open note
     /// implies the file tools; this grants them without staging any source.
     #[arg(long)]
@@ -200,12 +215,15 @@ fn create_sandbox(
     // `sandbox create` attaches and never returns, but the sandbox is up long
     // before that and outlives the client, so spawn it, wait for the sandbox to
     // answer, then drop the client.
-    let mut child = Command::new("openshell")
-        .args(["sandbox", "create", "--name", name])
+    let mut cmd = Command::new("openshell");
+    cmd.args(["sandbox", "create", "--name", name])
         .args(["--from", recipe.image])
         .arg("--policy")
-        .arg(&staged)
-        .args(["--provider", recipe.provider])
+        .arg(&staged);
+    for provider in recipe.provider.split(',').filter(|p| !p.is_empty()) {
+        cmd.args(["--provider", provider]);
+    }
+    let mut child = cmd
         .arg("--no-tty")
         .args(["--", "sleep", "infinity"])
         .stdin(Stdio::null())
@@ -257,6 +275,7 @@ fn create_sandbox(
 /// unbounded readiness probe hangs forever and never reaches its own deadline.
 fn run_bounded(mut cmd: Command, budget: Duration) -> Option<bool> {
     let mut child = cmd
+        .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
@@ -449,6 +468,7 @@ impl std::ops::BitOr for Modalities {
 enum Harness {
     ClaudeCode,
     Opencode,
+    Codex,
 }
 
 impl Harness {
@@ -456,6 +476,14 @@ impl Harness {
         match self {
             Harness::ClaudeCode => "claude-code",
             Harness::Opencode => "opencode",
+            Harness::Codex => "codex",
+        }
+    }
+
+    fn single_turn(self) -> bool {
+        match self {
+            Harness::Codex => true,
+            Harness::ClaudeCode | Harness::Opencode => false,
         }
     }
 }
@@ -469,6 +497,16 @@ impl Contender {
                 // so ask the catalogue instead of assuming.
                 modalities: openrouter_modalities(model)
                     .unwrap_or(Modalities::TEXT | Modalities::IMAGE),
+                model: model.to_string(),
+            },
+            Some(("codex", model)) => Contender {
+                harness: Harness::Codex,
+                modalities: match model.strip_prefix("openrouter/") {
+                    Some(or) => {
+                        openrouter_modalities(or).unwrap_or(Modalities::TEXT | Modalities::IMAGE)
+                    }
+                    None => Modalities::TEXT | Modalities::IMAGE,
+                },
                 model: model.to_string(),
             },
             _ => Contender {
@@ -489,7 +527,12 @@ impl Contender {
         match self.harness {
             Harness::ClaudeCode => &args.sandbox,
             Harness::Opencode => &args.opencode_sandbox,
+            Harness::Codex => &args.codex_sandbox,
         }
+    }
+
+    fn codex_openrouter_model(&self) -> Option<&str> {
+        (self.harness == Harness::Codex).then(|| self.model.strip_prefix("openrouter/"))?
     }
 
     /// MCP endpoint this contender's harness should connect to. The server
@@ -616,12 +659,122 @@ fn write_opencode_config(args: &Args, contender: &Contender, lease: &str) -> Res
     Ok(())
 }
 
+fn rfc3339_now() -> String {
+    let secs = epoch_secs();
+    let (y, m, d) = civil_from_days((secs / 86400) as i64);
+    let (h, min, s) = (secs / 3600 % 24, secs / 60 % 60, secs % 60);
+    format!("{y:04}-{m:02}-{d:02}T{h:02}:{min:02}:{s:02}.000Z")
+}
+
+fn host_codex_identity() -> Result<(String, String), String> {
+    let path = expand_home("~/.codex/auth.json");
+    let raw = std::fs::read_to_string(&path)
+        .map_err(|e| format!("read {} (run `codex login` first): {e}", path.display()))?;
+    let auth: Value = serde_json::from_str(&raw).map_err(|e| format!("parse codex auth: {e}"))?;
+    let field = |name: &str| {
+        auth.pointer(&format!("/tokens/{name}"))
+            .and_then(Value::as_str)
+            .filter(|v| !v.is_empty())
+            .map(str::to_string)
+            .ok_or_else(|| format!("codex auth.json has no tokens.{name}"))
+    };
+    Ok((field("id_token")?, field("account_id")?))
+}
+
+fn codex_sandbox_mode(args: &Args) -> &'static str {
+    if args.open_note || allowed_tools(args).contains("Bash") {
+        "danger-full-access"
+    } else {
+        "read-only"
+    }
+}
+
+fn codex_config(args: &Args, contender: &Contender, lease: &str) -> String {
+    let sandbox_mode = codex_sandbox_mode(args);
+    let mut config = match contender.codex_openrouter_model() {
+        Some(model) => format!(
+            "model = \"{model}\"\n\
+             model_provider = \"openrouter\"\n\
+             # Codex has no metadata for an \"openai/...\"-prefixed id, and its\n\
+             # fallback assumes the model cannot reason, which OpenRouter\n\
+             # rejects for models where reasoning is mandatory.\n\
+             model_reasoning_effort = \"medium\"\n\
+             model_reasoning_summary = \"auto\"\n"
+        ),
+        None => format!("model = \"{}\"\n", contender.model),
+    };
+    config.push_str(&format!(
+        "approval_policy = \"never\"\n\
+         sandbox_mode = \"{sandbox_mode}\"\n"
+    ));
+    if contender.codex_openrouter_model().is_some() {
+        config.push_str(
+            "\n[model_providers.openrouter]\n\
+             name = \"OpenRouter\"\n\
+             base_url = \"https://openrouter.ai/api/v1\"\n\
+             env_key = \"OPENROUTER_API_KEY\"\n\
+             wire_api = \"responses\"\n",
+        );
+    }
+    format!(
+        "{config}\n\
+         [projects.\"$HOME\"]\n\
+         trust_level = \"trusted\"\n\
+         \n\
+         [mcp_servers.coaster]\n\
+         url = \"{}\"\n",
+        contender.mcp_url(args.port, lease)
+    )
+}
+
+fn write_codex_config(args: &Args, contender: &Contender, lease: &str) -> Result<(), String> {
+    let mut script = format!(
+        "set -e\n\
+         CODEX_HOME=\"${{CODEX_HOME:-$HOME/.codex}}\"\n\
+         rm -rf \"$CODEX_HOME\"\n\
+         mkdir -p \"$CODEX_HOME\"\n\
+         cat > \"$CODEX_HOME/config.toml\" <<CODEX_CONFIG_EOF\n\
+         {}\
+         CODEX_CONFIG_EOF\n",
+        codex_config(args, contender, lease)
+    );
+    if contender.codex_openrouter_model().is_none() {
+        let (id_token, account_id) = host_codex_identity()?;
+        script.push_str(&format!(
+            "cat > \"$CODEX_HOME/auth.json\" <<CODEX_AUTH_EOF\n\
+             {{\"auth_mode\":\"chatgpt\",\"OPENAI_API_KEY\":null,\"tokens\":{{\
+             \"id_token\":\"{id_token}\",\
+             \"access_token\":\"$CODEX_AUTH_ACCESS_TOKEN\",\
+             \"refresh_token\":\"$CODEX_AUTH_REFRESH_TOKEN\",\
+             \"account_id\":\"{account_id}\"}},\
+             \"last_refresh\":\"{}\"}}\n\
+             CODEX_AUTH_EOF\n\
+             chmod 600 \"$CODEX_HOME/auth.json\"\n",
+            rfc3339_now()
+        ));
+    }
+
+    let mut cmd = Command::new("openshell");
+    cmd.args(["sandbox", "exec", "-n", &args.codex_sandbox, "--"])
+        .args(["sh", "-c", &script]);
+    match run_bounded(cmd, Duration::from_secs(120)) {
+        Some(true) => Ok(()),
+        Some(false) => Err(format!(
+            "writing codex config in {} failed",
+            args.codex_sandbox
+        )),
+        None => Err(format!(
+            "writing codex config in {} timed out",
+            args.codex_sandbox
+        )),
+    }
+}
+
 /// Kill agent processes left behind in a sandbox. Killing the local openshell
 /// client does NOT stop the process it started inside the sandbox, so a run
 /// that dies (Ctrl-C, `pkill`, a timeout) strands an agent that keeps building
 /// in the shared park and keeps spending. Two of those once fought over the
 /// same ride for an hour, each demolishing the other's track.
-///
 /// The sandbox image has no ps/pkill, so this walks /proc and matches the
 /// executable rather than the command line: the command line of this very
 /// script contains "opencode", and matching that would kill the cleanup shell.
@@ -629,7 +782,7 @@ fn write_opencode_config(args: &Args, contender: &Contender, lease: &str) -> Res
 fn kill_stray_agents(sandbox: &str) {
     let script = "for pid in $(ls /proc | grep \"^[0-9]\"); do [ \"$pid\" = \"$$\" ] && continue; \
                   exe=$(readlink /proc/$pid/exe 2>/dev/null); \
-                  case \"$exe\" in *opencode*|*claude*) kill -TERM \"$pid\" ;; esac; done";
+                  case \"$exe\" in *opencode*|*claude*|*codex*) kill -TERM \"$pid\" ;; esac; done";
     let _ = Command::new("openshell")
         .args(["sandbox", "exec", "-n", sandbox, "--"])
         .args(["sh", "-c", script])
@@ -645,24 +798,22 @@ fn kill_stray_agents(sandbox: &str) {
 /// are injected by the provider at exec time, not stored here, so ~/.claude
 /// goes in full.
 fn reset_agent_state(sandbox: &str) -> Result<(), String> {
-    let script = "rm -rf /home/sandbox/.local/share/opencode /home/sandbox/.config/opencode \
-                  /home/sandbox/.local/state/opencode /home/sandbox/.cache \
-                  /home/sandbox/.claude/projects /home/sandbox/.claude/sessions \
-                  /home/sandbox/.claude/shell-snapshots /home/sandbox/.claude/backups \
-                  /home/sandbox/.claude/session-env /home/sandbox/.claude/todos; \
+    let script = "rm -rf \"$HOME\"/.local/share/opencode \"$HOME\"/.config/opencode \
+                  \"$HOME\"/.local/state/opencode \"$HOME\"/.cache \
+                  \"$HOME\"/.claude/projects \"$HOME\"/.claude/sessions \
+                  \"$HOME\"/.claude/shell-snapshots \"$HOME\"/.claude/backups \
+                  \"$HOME\"/.claude/session-env \"$HOME\"/.claude/todos \
+                  \"${CODEX_HOME:-$HOME/.codex}\"; \
                   chmod -R u+w /workspace /tmp 2>/dev/null; \
                   rm -rf /workspace/* /workspace/.* /tmp/* 2>/dev/null; true";
-    let status = Command::new("openshell")
-        .args(["sandbox", "exec", "-n", sandbox, "--"])
-        .args(["sh", "-c", script])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .map_err(|e| format!("reset {sandbox}: {e}"))?;
-    if !status.success() {
-        return Err(format!("reset {sandbox} failed: {status}"));
+    let mut cmd = Command::new("openshell");
+    cmd.args(["sandbox", "exec", "-n", sandbox, "--"])
+        .args(["sh", "-c", script]);
+    match run_bounded(cmd, Duration::from_secs(120)) {
+        Some(true) => Ok(()),
+        Some(false) => Err(format!("reset {sandbox} failed")),
+        None => Err(format!("reset {sandbox} timed out")),
     }
-    Ok(())
 }
 
 /// The revision of upstream OpenRCT2 this fork is based on. That tree is the
@@ -688,7 +839,6 @@ fn upstream_merge_base(root: &Path) -> Result<String, String> {
 /// Extracts upstream's tree with `git archive` (which cannot contain fork code:
 /// that commit predates all of it) and uploads it into the sandbox. Cached per
 /// revision on the host, so extra models and reruns skip the extract.
-///
 /// exec's stdin caps at 4 MiB, hence `sandbox upload`, which nests the local
 /// directory under its destination: the staging directory is therefore named
 /// after the sandbox path's last component and uploaded to its parent.
@@ -797,7 +947,6 @@ fn allowed_tools(args: &Args) -> String {
 
 /// One agent session in the harness's sandbox. Success is judged by game
 /// state, not the transcript; usage is captured best-effort either way.
-///
 /// Output streams to `session.log` / `session.err` in the round directory as
 /// the session runs, so a round in progress can be tailed, and a round that
 /// went wrong can be read afterwards. Files, not pipes: a session can outrun a
@@ -813,7 +962,8 @@ fn run_agent_session(
     let mut cmd = Command::new("openshell");
     let spend_before = match contender.harness {
         Harness::Opencode => openrouter_spend(),
-        Harness::ClaudeCode => None,
+        Harness::Codex if contender.codex_openrouter_model().is_some() => openrouter_spend(),
+        Harness::ClaudeCode | Harness::Codex => None,
     };
     match contender.harness {
         Harness::ClaudeCode => {
@@ -842,6 +992,17 @@ fn run_agent_session(
                 .args(["opencode", "run", prompt, "-m", &contender.model])
                 .args(["--format", "json"]);
         }
+        Harness::Codex => {
+            if let Err(e) = write_codex_config(args, contender, lease) {
+                return SessionResult::failed(e);
+            }
+            let script = format!(
+                "exec {} exec --json --skip-git-repo-check --cd \"$HOME\" \"$1\"",
+                args.codex_bin
+            );
+            cmd.args(["sandbox", "exec", "-n", &args.codex_sandbox, "--"])
+                .args(["sh", "-c", &script, "codex-session", prompt]);
+        }
     }
     let log_path = round_dir.join("session.log");
     let err_path = round_dir.join("session.err");
@@ -854,7 +1015,9 @@ fn run_agent_session(
             ))
         }
     };
-    cmd.stdout(Stdio::from(log)).stderr(Stdio::from(errlog));
+    cmd.stdin(Stdio::null())
+        .stdout(Stdio::from(log))
+        .stderr(Stdio::from(errlog));
 
     let mut child = match cmd.spawn() {
         Ok(c) => c,
@@ -891,8 +1054,7 @@ fn run_agent_session(
     let mut usage = trace.usage.clone();
     // opencode reports per-step cost, but only when the provider sends it back.
     // Fall back to the key's spend delta, which is right for a run of one.
-    if contender.harness == Harness::Opencode
-        && usage.get("cost_usd").and_then(Value::as_f64).unwrap_or(0.0) == 0.0
+    if spend_before.is_some() && usage.get("cost_usd").and_then(Value::as_f64).unwrap_or(0.0) == 0.0
     {
         if let (Some(before), Some(after)) = (spend_before, openrouter_spend()) {
             if after >= before {
@@ -1074,15 +1236,16 @@ fn main() -> Result<(), String> {
     if std::env::var_os("COASTER_BENCH_PRINT_PROMPT").is_some() {
         print!(
             "{}",
-            prompt::round_prompt(
-                args.ride_type,
-                1,
-                args.rounds,
-                None,
-                Modalities::TEXT | Modalities::IMAGE,
-                args.session_timeout,
-                args.open_note.then_some(OPEN_NOTE_DIR),
-            )
+            prompt::round_prompt(&prompt::Round {
+                ride_type: args.ride_type,
+                round: 1,
+                rounds: args.rounds,
+                previous_feedback: None,
+                modalities: Modalities::TEXT | Modalities::IMAGE,
+                budget_secs: args.session_timeout,
+                open_note_dir: args.open_note.then_some(OPEN_NOTE_DIR),
+                single_turn: false,
+            })
         );
         return Ok(());
     }
@@ -1109,6 +1272,14 @@ fn main() -> Result<(), String> {
 
     let contenders: Vec<Contender> = args.models.iter().map(|s| Contender::parse(s)).collect();
     let mut _ephemeral: Vec<EphemeralSandbox> = Vec::new();
+    let codex_providers = if contenders
+        .iter()
+        .any(|c| c.codex_openrouter_model().is_some())
+    {
+        format!("{},openrouter", args.codex_sandbox_provider)
+    } else {
+        args.codex_sandbox_provider.clone()
+    };
     if args.fresh_sandbox {
         let lanes = [
             (
@@ -1129,6 +1300,15 @@ fn main() -> Result<(), String> {
                 },
                 args.opencode_sandbox.clone(),
             ),
+            (
+                Harness::Codex,
+                SandboxRecipe {
+                    image: &args.codex_sandbox_image,
+                    policy: &args.codex_sandbox_policy,
+                    provider: &codex_providers,
+                },
+                args.codex_sandbox.clone(),
+            ),
         ];
         let mut renamed: Vec<(Harness, String)> = Vec::new();
         for (harness, recipe, base) in &lanes {
@@ -1144,6 +1324,7 @@ fn main() -> Result<(), String> {
             match harness {
                 Harness::ClaudeCode => args.sandbox = name,
                 Harness::Opencode => args.opencode_sandbox = name,
+                Harness::Codex => args.codex_sandbox = name,
             }
         }
     }
@@ -1226,8 +1407,10 @@ fn main() -> Result<(), String> {
             "agent_state": if args.fresh_sandbox { "fresh-sandbox" } else { "reset-per-run" },
             "sandbox": args.sandbox,
             "opencode_sandbox": args.opencode_sandbox,
+            "codex_sandbox": args.codex_sandbox,
             "allowed_tools": allowed_tools(&args),
             "opencode_permission": opencode_permissions(&args),
+            "codex_sandbox_mode": codex_sandbox_mode(&args),
             "open_note_source": open_note_sha,
         }),
     )?;
@@ -1248,15 +1431,16 @@ fn main() -> Result<(), String> {
             client.claim("127.0.0.1", args.port, &lease);
             // A fresh park state for every round.
             let _ = client.call("demolish", json!({}));
-            let prompt = prompt::round_prompt(
-                args.ride_type,
+            let prompt = prompt::round_prompt(&prompt::Round {
+                ride_type: args.ride_type,
                 round,
-                args.rounds,
-                feedback.as_deref(),
-                contender.modalities,
-                args.session_timeout,
-                open_note_sha.as_ref().map(|_| OPEN_NOTE_DIR),
-            );
+                rounds: args.rounds,
+                previous_feedback: feedback.as_deref(),
+                modalities: contender.modalities,
+                budget_secs: args.session_timeout,
+                open_note_dir: open_note_sha.as_ref().map(|_| OPEN_NOTE_DIR),
+                single_turn: contender.harness.single_turn(),
+            });
             // Created up front: the session streams its logs in here while it
             // runs, so `tail -f` works on a round in progress.
             let round_dir = run_dir.join(&model).join(format!("round_{round}"));
@@ -1378,6 +1562,103 @@ mod tests {
         };
         assert_eq!(claude.sandbox(&args), "coaster-sub");
         assert_eq!(opencode.sandbox(&args), "coaster-or");
+    }
+
+    #[test]
+    fn codex_specs_pick_their_backend_from_the_model_id() {
+        let oauth = Contender::parse("codex:gpt-5.6-sol");
+        assert_eq!(oauth.harness, Harness::Codex);
+        assert_eq!(oauth.model, "gpt-5.6-sol");
+        assert_eq!(
+            oauth.codex_openrouter_model(),
+            None,
+            "the subscription backend uses its own login"
+        );
+
+        let via_openrouter = Contender::parse("codex:openrouter/openai/gpt-5.1");
+        assert_eq!(via_openrouter.harness, Harness::Codex);
+        assert_eq!(
+            via_openrouter.codex_openrouter_model(),
+            Some("openai/gpt-5.1"),
+            "codex is pointed at OpenRouter with the bare model id"
+        );
+
+        assert_eq!(
+            Contender::parse("claude-sonnet-5").codex_openrouter_model(),
+            None,
+            "other harnesses are never the codex backend"
+        );
+    }
+
+    #[test]
+    fn codex_contenders_run_in_the_codex_sandbox() {
+        let args = Args::parse_from(["coaster-bench"]);
+        assert_eq!(
+            Contender::parse("codex:gpt-5.6-sol").sandbox(&args),
+            "codex-arena"
+        );
+    }
+
+    #[test]
+    fn codex_config_grants_a_shell_only_when_the_run_does() {
+        let mut args = Args::parse_from(["coaster-bench"]);
+        assert!(!allowed_tools(&args).contains("Bash"));
+        args.open_note = true;
+        assert!(allowed_tools(&args).contains("Bash"));
+
+        args.open_note = false;
+        args.extra_tools = Some("Bash".into());
+        assert!(allowed_tools(&args).contains("Bash"));
+    }
+
+    #[test]
+    fn codex_config_keeps_top_level_keys_out_of_the_tables() {
+        let mut args = Args::parse_from(["coaster-bench"]);
+        args.open_note = true;
+        let config = codex_config(
+            &args,
+            &Contender::parse("codex:openrouter/openai/gpt-5.1"),
+            "l1",
+        );
+
+        let first_table = config.find('[').expect("config has tables");
+        for key in [
+            "model =",
+            "model_provider =",
+            "approval_policy =",
+            "sandbox_mode =",
+            "model_reasoning_effort =",
+        ] {
+            let at = config.find(key).unwrap_or_else(|| panic!("{key} missing"));
+            assert!(at < first_table, "{key} fell inside a table:\n{config}");
+        }
+        assert!(config.contains("sandbox_mode = \"danger-full-access\""));
+        assert!(config.contains("wire_api = \"responses\""), "chat is gone");
+        assert!(config.contains("[mcp_servers.coaster]"));
+        assert!(config.contains("lease=l1"), "per-round lease reaches codex");
+    }
+
+    #[test]
+    fn codex_subscription_config_has_no_provider_block() {
+        let args = Args::parse_from(["coaster-bench"]);
+        let config = codex_config(&args, &Contender::parse("codex:gpt-5.6-sol"), "l1");
+        assert!(config.starts_with("model = \"gpt-5.6-sol\""));
+        assert!(
+            !config.contains("model_provider"),
+            "own login, not OpenRouter"
+        );
+        assert!(
+            config.contains("sandbox_mode = \"read-only\""),
+            "a blind round gets the tighter mode"
+        );
+    }
+
+    #[test]
+    fn codex_auth_timestamp_is_the_shape_codex_writes() {
+        let stamped = rfc3339_now();
+        assert_eq!(stamped.len(), 24, "{stamped}");
+        assert!(stamped.ends_with(".000Z"), "{stamped}");
+        assert_eq!(stamped.as_bytes()[10], b'T', "{stamped}");
     }
 
     #[test]

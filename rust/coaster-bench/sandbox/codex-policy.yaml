@@ -74,3 +74,14 @@ network_policies:
         access: read-write
     binaries:
       - path: /home/sandbox/bin/codex
+
+  codex_openrouter_inference:
+    name: codex-openrouter-inference
+    endpoints:
+      - host: openrouter.ai
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        access: read-write
+    binaries:
+      - path: /home/sandbox/bin/codex

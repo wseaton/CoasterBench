@@ -12,15 +12,28 @@ pub fn ride_name(ride_type: u16) -> &'static str {
     }
 }
 
-pub fn round_prompt(
-    ride_type: u16,
-    round: u32,
-    rounds: u32,
-    previous_feedback: Option<&str>,
-    modalities: Modalities,
-    budget_secs: u64,
-    open_note_dir: Option<&str>,
-) -> String {
+pub struct Round<'a> {
+    pub ride_type: u16,
+    pub round: u32,
+    pub rounds: u32,
+    pub previous_feedback: Option<&'a str>,
+    pub modalities: Modalities,
+    pub budget_secs: u64,
+    pub open_note_dir: Option<&'a str>,
+    pub single_turn: bool,
+}
+
+pub fn round_prompt(round_spec: &Round) -> String {
+    let &Round {
+        ride_type,
+        round,
+        rounds,
+        previous_feedback,
+        modalities,
+        budget_secs,
+        open_note_dir,
+        single_turn,
+    } = round_spec;
     let name = ride_name(ride_type);
     let budget_mins = budget_secs / 60;
     // Models that can't take images get an MCP endpoint with screenshot
@@ -34,6 +47,16 @@ pub fn round_prompt(
         "Inversions are ALLOWED and rewarded (vertical loops, corkscrews, half loops)."
     } else {
         "This type does NOT support inversions."
+    };
+    let one_shot = if single_turn {
+        "\n## This is one shot\n\
+         Your session ends the moment you stop calling tools. A progress update, a\n\
+         plan for approval, or a question to the user all end the round for good,\n\
+         with your remaining time unused and nothing scored. Never ask whether to\n\
+         proceed; you already have permission. Keep calling tools until\n\
+         finish_and_test has banked a score, and write your summary only after that.\n"
+    } else {
+        ""
     };
     let feedback = match previous_feedback {
         Some(report) => format!(
@@ -93,7 +116,7 @@ You have about {budget_mins} minutes of wall-clock this round, then the session 
 Get a working, tested circuit banked EARLY; do not spend the whole budget on one perfect build.
 Your score is your best finish_and_test of the round (see best_result), not your final build,
 so it is always safe to stop once you are happy.
-{open_note}{feedback}"#
+{one_shot}{open_note}{feedback}"#
     )
 }
 
@@ -106,8 +129,52 @@ mod tests {
     }
 
     #[test]
+    fn single_turn_harnesses_are_told_that_stopping_is_final() {
+        let looping = round_prompt(&Round {
+            ride_type: 51,
+            round: 1,
+            rounds: 6,
+            previous_feedback: None,
+            modalities: both(),
+            budget_secs: 1800,
+            open_note_dir: None,
+            single_turn: false,
+        });
+        assert!(!looping.contains("one shot"));
+
+        let one_shot = round_prompt(&Round {
+            ride_type: 51,
+            round: 1,
+            rounds: 6,
+            previous_feedback: None,
+            modalities: both(),
+            budget_secs: 1800,
+            open_note_dir: None,
+            single_turn: true,
+        });
+        assert!(one_shot.contains("one shot"));
+        assert!(
+            one_shot.contains("you already have permission"),
+            "asking for confirmation is what actually ended a codex round"
+        );
+        assert!(
+            one_shot.contains("finish_and_test has banked a score"),
+            "the bar for stopping is a banked score, not a plan"
+        );
+    }
+
+    #[test]
     fn twister_prompt_mentions_inversions_allowed() {
-        let p = round_prompt(51, 1, 6, None, both(), 1800, None);
+        let p = round_prompt(&Round {
+            ride_type: 51,
+            round: 1,
+            rounds: 6,
+            previous_feedback: None,
+            modalities: both(),
+            budget_secs: 1800,
+            open_note_dir: None,
+            single_turn: false,
+        });
         assert!(p.contains("ALLOWED"));
         assert!(p.contains("ride_type 51"));
         assert!(p.contains("round 1 of 6"));
@@ -115,26 +182,63 @@ mod tests {
 
     #[test]
     fn wooden_prompt_forbids_inversions() {
-        assert!(round_prompt(52, 2, 4, None, both(), 1800, None).contains("NOT support"));
+        assert!(round_prompt(&Round {
+            ride_type: 52,
+            round: 2,
+            rounds: 4,
+            previous_feedback: None,
+            modalities: both(),
+            budget_secs: 1800,
+            open_note_dir: None,
+            single_turn: false
+        })
+        .contains("NOT support"));
     }
 
     #[test]
     fn feedback_is_included_when_present() {
-        let p = round_prompt(51, 2, 6, Some("{\"excitement\": 5.0}"), both(), 1800, None);
+        let p = round_prompt(&Round {
+            ride_type: 51,
+            round: 2,
+            rounds: 6,
+            previous_feedback: Some("{\"excitement\": 5.0}"),
+            modalities: both(),
+            budget_secs: 1800,
+            open_note_dir: None,
+            single_turn: false,
+        });
         assert!(p.contains("Previous round result"));
         assert!(p.contains("excitement"));
     }
 
     #[test]
     fn text_only_prompt_omits_the_screenshot_tool() {
-        let p = round_prompt(52, 1, 6, None, Modalities::TEXT, 1800, None);
+        let p = round_prompt(&Round {
+            ride_type: 52,
+            round: 1,
+            rounds: 6,
+            previous_feedback: None,
+            modalities: Modalities::TEXT,
+            budget_secs: 1800,
+            open_note_dir: None,
+            single_turn: false,
+        });
         assert!(!p.contains("screenshot"));
         assert!(p.contains("demolish()"), "other tools still listed");
     }
 
     #[test]
     fn open_note_points_at_the_source_without_naming_the_ratings_file() {
-        let p = round_prompt(51, 1, 6, None, both(), 1800, Some("/tmp/openrct2-src"));
+        let p = round_prompt(&Round {
+            ride_type: 51,
+            round: 1,
+            rounds: 6,
+            previous_feedback: None,
+            modalities: both(),
+            budget_secs: 1800,
+            open_note_dir: Some("/tmp/openrct2-src"),
+            single_turn: false,
+        });
         assert!(p.contains("Engine source"));
         assert!(p.contains("/tmp/openrct2-src"));
         assert!(
@@ -145,14 +249,32 @@ mod tests {
 
     #[test]
     fn without_open_note_no_source_is_mentioned() {
-        let p = round_prompt(51, 1, 6, None, both(), 1800, None);
+        let p = round_prompt(&Round {
+            ride_type: 51,
+            round: 1,
+            rounds: 6,
+            previous_feedback: None,
+            modalities: both(),
+            budget_secs: 1800,
+            open_note_dir: None,
+            single_turn: false,
+        });
         assert!(!p.contains("Engine source"));
         assert!(!p.contains("python3"), "python is an open-note capability");
     }
 
     #[test]
     fn open_note_offers_python_and_says_what_it_cannot_do() {
-        let p = round_prompt(51, 1, 6, None, both(), 1800, Some("/tmp/openrct2-src"));
+        let p = round_prompt(&Round {
+            ride_type: 51,
+            round: 1,
+            rounds: 6,
+            previous_feedback: None,
+            modalities: both(),
+            budget_secs: 1800,
+            open_note_dir: Some("/tmp/openrct2-src"),
+            single_turn: false,
+        });
         assert!(p.contains("python3"));
         assert!(p.contains("no network access"), "isolation stated");
         assert!(p.contains("occupied"), "collision blind spot called out");
@@ -160,7 +282,16 @@ mod tests {
 
     #[test]
     fn budget_is_stated_in_minutes() {
-        let p = round_prompt(51, 1, 6, None, both(), 1800, None);
+        let p = round_prompt(&Round {
+            ride_type: 51,
+            round: 1,
+            rounds: 6,
+            previous_feedback: None,
+            modalities: both(),
+            budget_secs: 1800,
+            open_note_dir: None,
+            single_turn: false,
+        });
         assert!(p.contains("30 minutes"), "1800s -> 30 minutes");
         assert!(
             p.contains("best_result"),
