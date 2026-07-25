@@ -107,6 +107,11 @@ that rates the ride. It is a modifier on either mode, and its scores are not
 comparable with black-box ones, so the site labels and facets those runs
 separately.
 
+`--fresh-sandbox` creates a throwaway sandbox for the run from
+`rust/coaster-bench/sandbox/` and deletes it afterwards. Without it the sandbox
+is long-lived, and an agent's own notes (Claude Code's memory directory is
+writable even under a tool allowlist) become the next run's starting knowledge.
+
 The model specification selects the harness. A bare name runs Claude Code in the
 `coaster-sub` sandbox; `opencode:openrouter/<author>/<model>` runs opencode in
 the `coaster-or` sandbox against OpenRouter. Ride type 51 is a steel twister,

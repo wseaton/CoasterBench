@@ -83,6 +83,20 @@ struct Args {
     #[arg(long)]
     attach: bool,
 
+    /// Create a throwaway sandbox for this run and delete it afterwards, so no
+    /// state survives between runs. Claude Code lane only for now.
+    #[arg(long)]
+    fresh_sandbox: bool,
+
+    #[arg(long, default_value = "localhost/coaster-sandbox")]
+    sandbox_image: String,
+
+    #[arg(long, default_value = "rust/coaster-bench/sandbox/policy.yaml")]
+    sandbox_policy: String,
+
+    #[arg(long, default_value = "claude-sub")]
+    sandbox_provider: String,
+
     /// Open note: stage a read-only checkout of the engine source the agents
     /// are scored by into their sandbox. Upstream OpenRCT2 at this fork's
     /// merge-base, so the harness and its scoring are not in it.
@@ -91,6 +105,135 @@ struct Args {
 }
 
 const OPEN_NOTE_DIR: &str = "/tmp/openrct2-src";
+
+/// Longest name the gateway accepts.
+const MAX_SANDBOX_NAME: usize = 19;
+
+/// `<base>-<short id>`, trimming the base rather than the id so runs stay
+/// distinguishable when the name has to be cut.
+fn ephemeral_sandbox_name(base: &str, epoch: u64) -> String {
+    let id = format!("{:x}", epoch % 0xffffff);
+    let room = MAX_SANDBOX_NAME.saturating_sub(id.len() + 1);
+    let base: String = base.chars().take(room).collect();
+    format!("{base}-{id}")
+}
+
+/// A sandbox owned by this run: deleted on the way out, including when a signal
+/// unwinds the run, because the flag path returns from main normally.
+struct EphemeralSandbox {
+    name: String,
+}
+
+impl Drop for EphemeralSandbox {
+    fn drop(&mut self) {
+        let out = Command::new("openshell")
+            .args(["sandbox", "delete", &self.name])
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .output();
+        match out {
+            Ok(o) if o.status.success() => println!("deleted sandbox {}", self.name),
+            Ok(o) if String::from_utf8_lossy(&o.stderr).contains("not found") => {}
+            _ => eprintln!(
+                "could not delete sandbox {}; remove it with `openshell sandbox delete {}`",
+                self.name, self.name
+            ),
+        }
+    }
+}
+
+/// The policy file pins the MCP port, and a mismatch fails as a silent network
+/// denial inside the sandbox, so rewrite it to the port this run serves on.
+fn policy_with_port(policy: &str, port: u16) -> String {
+    policy
+        .lines()
+        .map(|line| {
+            let trimmed = line.trim_start();
+            if let Some(rest) = trimmed.strip_prefix("port:") {
+                if rest.trim().parse::<u16>().is_ok() {
+                    let indent = &line[..line.len() - trimmed.len()];
+                    return format!("{indent}port: {port}");
+                }
+            }
+            line.to_string()
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn create_sandbox(args: &Args, root: &Path, name: &str) -> Result<EphemeralSandbox, String> {
+    let policy_path = root.join(&args.sandbox_policy);
+    let policy = std::fs::read_to_string(&policy_path)
+        .map_err(|e| format!("read {}: {e}", policy_path.display()))?;
+    let staged = std::env::temp_dir().join(format!("coaster-policy-{name}.yaml"));
+    std::fs::write(&staged, policy_with_port(&policy, args.port))
+        .map_err(|e| format!("write {}: {e}", staged.display()))?;
+
+    // `sandbox create` attaches and never returns, but the sandbox is up long
+    // before that and outlives the client, so spawn it, wait for the sandbox to
+    // answer, then drop the client.
+    let mut child = Command::new("openshell")
+        .args(["sandbox", "create", "--name", name])
+        .args(["--from", &args.sandbox_image])
+        .arg("--policy")
+        .arg(&staged)
+        .args(["--provider", &args.sandbox_provider])
+        .arg("--no-tty")
+        .args(["--", "sleep", "infinity"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("openshell create: {e}"))?;
+    // Registered before the wait: a sandbox that comes up and then fails the
+    // readiness check still has to be cleaned up.
+    let guard = EphemeralSandbox {
+        name: name.to_string(),
+    };
+
+    let deadline = Instant::now() + Duration::from_secs(180);
+    loop {
+        if sandbox_ready(name) {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = std::fs::remove_file(&staged);
+            return Ok(guard);
+        }
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                let mut stderr = String::new();
+                if let Some(mut pipe) = child.stderr.take() {
+                    use std::io::Read;
+                    let _ = pipe.read_to_string(&mut stderr);
+                }
+                let _ = std::fs::remove_file(&staged);
+                return Err(format!(
+                    "creating sandbox {name} failed ({status}): {}",
+                    stderr.trim()
+                ));
+            }
+            Ok(None) if Instant::now() >= deadline => {
+                let _ = child.kill();
+                let _ = child.wait();
+                let _ = std::fs::remove_file(&staged);
+                return Err(format!("sandbox {name} never became ready"));
+            }
+            Ok(None) => std::thread::sleep(Duration::from_secs(2)),
+            Err(e) => return Err(format!("waiting on sandbox create: {e}")),
+        }
+    }
+}
+
+fn sandbox_ready(name: &str) -> bool {
+    Command::new("openshell")
+        .args(["sandbox", "exec", "-n", name, "--"])
+        .args(["true"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
 
 /// Set once on SIGINT/SIGTERM/SIGHUP. A handler cannot do the cleanup itself
 /// (killing children and reaping them is not async-signal-safe, and process
@@ -845,7 +988,7 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
 }
 
 fn main() -> Result<(), String> {
-    let args = Args::parse();
+    let mut args = Args::parse();
     let root = repo_root();
     let shutdown = install_shutdown_flag()?;
 
@@ -887,6 +1030,18 @@ fn main() -> Result<(), String> {
     println!("game server ready on port {}", args.port);
 
     let contenders: Vec<Contender> = args.models.iter().map(|s| Contender::parse(s)).collect();
+    let _ephemeral = if args.fresh_sandbox {
+        if contenders.iter().any(|c| c.harness == Harness::Opencode) {
+            return Err("--fresh-sandbox has no recipe for the opencode lane yet".into());
+        }
+        let name = ephemeral_sandbox_name(&args.sandbox, epoch_secs());
+        println!("creating sandbox {name} from {}", args.sandbox_image);
+        let guard = create_sandbox(&args, &root, &name)?;
+        args.sandbox = name;
+        Some(guard)
+    } else {
+        None
+    };
     // Contenders share sandboxes, so per-sandbox setup runs once each.
     let sandboxes: BTreeSet<&str> = contenders.iter().map(|c| c.sandbox(&args)).collect();
     // A previous run killed from the outside can leave an agent alive in its
@@ -956,7 +1111,8 @@ fn main() -> Result<(), String> {
             "ride_type": args.ride_type,
             "similarity_grace": 0.5,
             "open_note": args.open_note,
-            "agent_state": "reset-per-run",
+            "agent_state": if args.fresh_sandbox { "fresh-sandbox" } else { "reset-per-run" },
+            "sandbox": args.sandbox,
             "allowed_tools": allowed_tools(&args),
             "open_note_source": open_note_sha,
         }),
@@ -1178,5 +1334,55 @@ mod tests {
                 "{tool} must be allowed under open note"
             );
         }
+    }
+
+    #[test]
+    fn policy_port_is_rewritten_to_the_running_port() {
+        let policy = "network_policies:\n  coaster_game:\n    endpoints:\n      - host: host.containers.internal\n        port: 8791\n        protocol: rest\n";
+        let out = policy_with_port(policy, 8899);
+        assert!(
+            out.contains("        port: 8899"),
+            "port rewritten in place: {out}"
+        );
+        assert!(
+            out.contains("host: host.containers.internal"),
+            "rest untouched"
+        );
+        assert!(!out.contains("8791"));
+    }
+
+    #[test]
+    fn policy_rewrite_leaves_non_port_lines_alone() {
+        let policy = "process:\n  run_as_user: sandbox\n  # port: not a real key\n";
+        assert_eq!(policy_with_port(policy, 1234), policy.trim_end());
+    }
+
+    #[test]
+    fn ephemeral_names_fit_the_gateway_limit() {
+        let name = ephemeral_sandbox_name("coaster-sub", 1_784_947_247);
+        assert!(
+            name.len() <= MAX_SANDBOX_NAME,
+            "{name} is {} chars",
+            name.len()
+        );
+        assert!(name.starts_with("coaster-sub-"));
+
+        let long = ephemeral_sandbox_name("a-very-long-sandbox-name-indeed", 1_784_947_247);
+        assert!(
+            long.len() <= MAX_SANDBOX_NAME,
+            "{long} is {} chars",
+            long.len()
+        );
+        assert!(
+            long.ends_with(name.rsplit('-').next().unwrap()),
+            "id survives the trim"
+        );
+    }
+
+    #[test]
+    fn ephemeral_names_differ_between_runs() {
+        let a = ephemeral_sandbox_name("coaster-sub", 1_784_947_247);
+        let b = ephemeral_sandbox_name("coaster-sub", 1_784_947_248);
+        assert_ne!(a, b);
     }
 }

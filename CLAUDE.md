@@ -103,6 +103,13 @@ Non-bundled binaries look for `data/` next to the exe. One-time setup:
   the sandbox at /tmp/openrct2-src via `openshell sandbox upload`
   (exec stdin caps at 4 MiB; upload nests the local dir under its dest, so the
   staging dir is named openrct2-src and uploaded to /tmp), then chmod -R a-w.
+  `--fresh-sandbox` creates `<base>-<hex id>` per run from
+  rust/coaster-bench/sandbox/{Dockerfile,policy.yaml} (recovered 2026-07-25 from
+  the running image; the originals were lost) and deletes it on the way out, so
+  no agent state survives a run. Gateway caps sandbox names at 19 chars;
+  `sandbox create` attaches and never returns, but the sandbox outlives the
+  client, so the harness spawns it, polls readiness, then drops the client.
+  `sandbox exec` stdin caps at 4 MiB and deletes are eventually consistent.
   SIGINT/SIGTERM/SIGHUP set a flag (signal-hook) that the round loop and the
   session poll loop check, so the agent is killed, the sandbox swept and the
   game server dropped instead of orphaned; a run refuses to start if its port

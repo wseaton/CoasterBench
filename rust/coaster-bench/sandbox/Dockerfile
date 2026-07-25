@@ -1,0 +1,13 @@
+# podman build -t localhost/coaster-sandbox rust/coaster-bench/sandbox
+# iproute2 is required for OpenShell's netns isolation; the sandbox user by
+# the policy's process.run_as_user.
+FROM node:22-bookworm-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends iproute2 ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && npm install -g @anthropic-ai/claude-code \
+    && useradd -m -s /bin/bash sandbox \
+    && mkdir -p /workspace && chown sandbox:sandbox /workspace
+
+WORKDIR /workspace
+CMD ["sleep", "infinity"]
