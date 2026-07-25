@@ -18,6 +18,8 @@ use std::collections::BTreeSet;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use clap::Parser;
@@ -90,6 +92,23 @@ struct Args {
 
 const OPEN_NOTE_DIR: &str = "/tmp/openrct2-src";
 
+/// Set once on SIGINT/SIGTERM/SIGHUP. A handler cannot do the cleanup itself
+/// (killing children and reaping them is not async-signal-safe, and process
+/// exit from a handler skips every Drop), so it only raises this and the run
+/// loop unwinds normally: agent killed, sandbox swept, game server dropped.
+fn install_shutdown_flag() -> Result<Arc<AtomicBool>, String> {
+    let flag = Arc::new(AtomicBool::new(false));
+    for signal in [
+        signal_hook::consts::SIGINT,
+        signal_hook::consts::SIGTERM,
+        signal_hook::consts::SIGHUP,
+    ] {
+        signal_hook::flag::register(signal, Arc::clone(&flag))
+            .map_err(|e| format!("register signal {signal}: {e}"))?;
+    }
+    Ok(flag)
+}
+
 fn expand_home(path: &str) -> PathBuf {
     if let Some(rest) = path.strip_prefix("~/") {
         if let Some(home) = std::env::var_os("HOME") {
@@ -118,6 +137,16 @@ impl GameServer {
         if !cli.is_file() {
             return Err(format!("{} not built", cli.display()));
         }
+        // Our own child would fail to bind and wait_for_server would then talk
+        // happily to whatever is already there: a stale server holding a
+        // different park, or another run in progress. Scoring against that is
+        // worse than not running.
+        if port_in_use(args.port) {
+            return Err(format!(
+                "port {} is already serving; kill the stale server (lsof -ti:{}) or pass --attach to use it deliberately",
+                args.port, args.port
+            ));
+        }
         let child = Command::new(cli)
             .arg("eval")
             .arg(expand_home(&args.scenario))
@@ -142,6 +171,14 @@ impl Drop for GameServer {
             let _ = child.wait();
         }
     }
+}
+
+fn port_in_use(port: u16) -> bool {
+    std::net::TcpStream::connect_timeout(
+        &std::net::SocketAddr::from(([127, 0, 0, 1], port)),
+        Duration::from_millis(500),
+    )
+    .is_ok()
 }
 
 fn wait_for_server(client: &mut mcp::McpClient, budget: Duration) -> Result<(), String> {
@@ -514,6 +551,7 @@ fn run_agent_session(
     prompt: &str,
     round_dir: &Path,
     lease: &str,
+    shutdown: &AtomicBool,
 ) -> SessionResult {
     let mut cmd = Command::new("openshell");
     let spend_before = match contender.harness {
@@ -568,11 +606,13 @@ fn run_agent_session(
     let budget = Duration::from_secs(args.session_timeout);
     let started = Instant::now();
     let mut timed_out = false;
+    let mut interrupted = false;
     let status = loop {
         match child.try_wait() {
             Ok(Some(status)) => break Some(status),
-            Ok(None) if started.elapsed() >= budget => {
-                timed_out = true;
+            Ok(None) if started.elapsed() >= budget || shutdown.load(Ordering::Relaxed) => {
+                interrupted = shutdown.load(Ordering::Relaxed);
+                timed_out = !interrupted;
                 let _ = child.kill();
                 let status = child.wait().ok();
                 // The local client is gone; the agent inside the sandbox is not.
@@ -608,7 +648,9 @@ fn run_agent_session(
         trace.events.len(),
         trace.tool_calls()
     );
-    let error = if timed_out {
+    let error = if interrupted {
+        Some("run interrupted by a signal; scoring whatever it built".to_string())
+    } else if timed_out {
         Some(format!(
             "agent session hit the {}s timeout and was killed; scoring whatever it built",
             args.session_timeout
@@ -769,6 +811,7 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
 fn main() -> Result<(), String> {
     let args = Args::parse();
     let root = repo_root();
+    let shutdown = install_shutdown_flag()?;
 
     // Debug aid: print the round-1 prompt verbatim and exit.
     if std::env::var_os("COASTER_BENCH_PRINT_PROMPT").is_some() {
@@ -874,11 +917,15 @@ fn main() -> Result<(), String> {
     )?;
 
     let mut standings: Vec<Value> = Vec::new();
-    for contender in &contenders {
+    'contenders: for contender in &contenders {
         let model = contender.display();
         let mut best: Option<(u32, f64)> = None;
         let mut feedback: Option<String> = None;
         for round in 1..=args.rounds {
+            if shutdown.load(Ordering::Relaxed) {
+                eprintln!("interrupted: stopping before {model} round {round}");
+                break 'contenders;
+            }
             // One lease per round: claiming it evicts any agent still alive
             // from an earlier round, which would otherwise build in this park.
             let lease = format!("{}-r{round}-{}", model, epoch_secs());
@@ -904,7 +951,8 @@ fn main() -> Result<(), String> {
                 "[{model}] round {round}: agent session starting (log: {})",
                 round_dir.join("session.log").display()
             );
-            let session = run_agent_session(&args, contender, &prompt, &round_dir, &lease);
+            let session =
+                run_agent_session(&args, contender, &prompt, &round_dir, &lease, &shutdown);
             if let Some(e) = &session.error {
                 eprintln!("[{model}] round {round}: {e}");
             }
@@ -1045,5 +1093,30 @@ mod tests {
     fn unrated_ride_scores_none() {
         let report = json!({"rides": [{"excitement": null}]});
         assert!(best_excitement(&report).is_none());
+    }
+
+    #[test]
+    fn every_shutdown_signal_raises_the_flag() {
+        let flag = install_shutdown_flag().expect("register");
+        assert!(!flag.load(Ordering::Relaxed));
+        for signal in [
+            signal_hook::consts::SIGINT,
+            signal_hook::consts::SIGTERM,
+            signal_hook::consts::SIGHUP,
+        ] {
+            flag.store(false, Ordering::Relaxed);
+            signal_hook::low_level::raise(signal).expect("raise");
+            // Delivery is asynchronous, but to this same process, so it lands
+            // almost immediately; poll briefly rather than sleeping blind.
+            let mut seen = false;
+            for _ in 0..100 {
+                if flag.load(Ordering::Relaxed) {
+                    seen = true;
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            assert!(seen, "signal {signal} did not set the shutdown flag");
+        }
     }
 }

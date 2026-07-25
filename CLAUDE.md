@@ -103,6 +103,10 @@ Non-bundled binaries look for `data/` next to the exe. One-time setup:
   the sandbox at /tmp/openrct2-src via `openshell sandbox upload`
   (exec stdin caps at 4 MiB; upload nests the local dir under its dest, so the
   staging dir is named openrct2-src and uploaded to /tmp), then chmod -R a-w.
+  SIGINT/SIGTERM/SIGHUP set a flag (signal-hook) that the round loop and the
+  session poll loop check, so the agent is killed, the sandbox swept and the
+  game server dropped instead of orphaned; a run refuses to start if its port
+  is already serving (use --attach deliberately).
   Records open_note + open_note_source in run.json; the site labels those runs
   "<mode> + open note". RideRatings.cpp is unmodified in this fork, so upstream
   source is a faithful oracle for scoring.
