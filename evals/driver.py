@@ -86,6 +86,12 @@ NO_GRAPHICS = False
 # multimodal contenders in no-graphics runs.
 SCHEMATIC_FEEDBACK = False
 
+# Set to the run dir by main(): calls that fail (e.g. a reasoning model
+# exhausting its budget) dump their raw response here, because the response
+# body — especially a 131k-token thinking trace — is the evidence, and
+# raising without saving it has already lost that evidence twice.
+FAILED_CALL_DIR: Path | None = None
+
 
 def rct2_args() -> list[str]:
     """The eval CLI either loads the RCT2 install or runs assetless."""
@@ -790,9 +796,14 @@ class OpenAICompat:
                 # Deterministic, so retrying just burns tokens: the model (a
                 # reasoning model, usually) hit the token ceiling while still
                 # thinking and never got to the call.
+                where = ""
+                if FAILED_CALL_DIR is not None:
+                    dump = FAILED_CALL_DIR / f"failed-call-{model.replace('/', '_')}.json"
+                    dump.write_text(json.dumps(resp.model_dump(), indent=1))
+                    where = f"; full response (thinking trace included) saved to {dump}"
                 raise RuntimeError(
                     f"{model} exhausted max_tokens={max_tokens} before emitting a tool call "
-                    "(reasoning models spend the budget thinking first; raise --max-tokens)"
+                    f"(reasoning models spend the budget thinking first; raise --max-tokens){where}"
                 )
             print(f"  [{model}] no tool call (attempt {attempt + 1}/3), retrying", flush=True)
         raise RuntimeError(f"{model} returned no tool call in 3 attempts despite tool_choice={oa_choice!r}")
@@ -995,6 +1006,8 @@ def main() -> int:
     suffix = args.name if args.name else time.strftime("%H%M%S")
     run_dir = REPO / "evals" / "runs" / f"{time.strftime('%Y%m%d')}-{suffix}"
     run_dir.mkdir(parents=True)
+    global FAILED_CALL_DIR
+    FAILED_CALL_DIR = run_dir
     print(f"run dir: {run_dir} (mode: {args.mode})")
 
     library = None
