@@ -154,6 +154,7 @@ pub struct Figure {
 
 /// One row of the index table: a single model's collection of rounds within a
 /// run (runs are pivoted, so a three-model run is three rows).
+#[derive(Clone)]
 pub struct IndexRow {
     pub run_name: String,
     pub run_href: String,
@@ -179,6 +180,23 @@ pub struct IndexRow {
     pub nausea: String,
     pub best_round: String,
     pub usage: String,
+}
+
+/// One board: a condition, and its rows split by coaster so nothing is ever
+/// ranked across ride types.
+pub struct IndexBoard {
+    pub condition: String,
+    pub tagline: String,
+    /// True for the black-box design board, the benchmark proper.
+    pub headline: bool,
+    pub groups: Vec<IndexGroup>,
+}
+
+pub struct IndexGroup {
+    pub coaster: String,
+    /// Shown only when a board holds more than one coaster.
+    pub labelled: bool,
+    pub rows: Vec<IndexRow>,
 }
 
 pub struct Facet {
@@ -208,7 +226,9 @@ pub struct IndexPage {
     /// None when no leaderboard round has a video yet.
     pub featured: Option<Featured>,
     pub facets: Vec<Facet>,
-    pub rows: Vec<IndexRow>,
+    /// One per condition, hardest-earned first.
+    pub boards: Vec<IndexBoard>,
+    pub row_count: usize,
     pub have_previews: bool,
     pub mode_taglines: Vec<(String, String)>,
     /// Runs left out because they never finished, newest first.

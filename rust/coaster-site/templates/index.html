@@ -61,16 +61,20 @@
   </div>
 </details>
 
+{%- if row_count == 0 %}
 <div class="window">
-  <div class="titlebar"><span>{% if rows.is_empty() %}No runs yet{% else %}All runs{% endif %}</span>
+  <div class="titlebar"><span>No runs yet</span><span class="btn"></span></div>
+  <div class="body"><p>Run <code>uv run evals/driver.py</code> to generate one.</p></div>
+</div>
+{%- else %}
+
+<div class="window">
+  <div class="titlebar"><span>Filters</span>
     <span class="titlebar-links">
-    {%- if rows.len() >= 2 %}<a class="titlebar-link" href="compare.html">head to head &rarr;</a>{% endif %}
+    {%- if row_count >= 2 %}<a class="titlebar-link" href="compare.html">head to head &rarr;</a>{% endif %}
     {%- if have_previews %}<a class="titlebar-link" href="library.html">track design library &rarr;</a>{% endif %}
     </span></div>
   <div class="body">
-  {%- if rows.is_empty() %}
-    <p>Run <code>uv run evals/driver.py</code> to generate one.</p>
-  {%- else %}
     {# On a phone these run to five rows, so site.js folds them away. #}
     <details class="facet-box" open>
     <summary>filters</summary>
@@ -85,6 +89,23 @@
     {%- endfor %}
     </div>
     </details>
+    <p id="no-rows" class="dim footnote" hidden>No run matches those filters.</p>
+  </div>
+</div>
+
+{# One board per condition. Scores are not comparable across them: a model that
+   could search the stock library, or read the ratings source, is not playing the
+   same game as one working blind. Nor are ride types comparable, hence a table
+   per coaster inside a board. #}
+{%- for board in boards %}
+<div class="window board{% if board.headline %} board-headline{% endif %}" data-mode="{{ board.condition }}">
+  <div class="titlebar"><span>{{ board.condition }}{% if board.headline %} &mdash; the benchmark{% endif %}</span>
+    <span class="btn"></span></div>
+  <div class="body">
+    <p class="board-note dim">{{ board.tagline }}</p>
+  {%- for group in board.groups %}
+    <div class="board-group" data-coaster="{{ group.coaster }}">
+    {%- if group.labelled %}<h2 class="group-heading">{{ group.coaster }}</h2>{% endif %}
     <div class="table-scroll">
     <table class="run-table">
       <thead><tr>
@@ -97,7 +118,7 @@
         <th>tokens / cost</th>
       </tr></thead>
       <tbody>
-      {%- for row in rows %}
+      {%- for row in group.rows %}
         <tr class="{% if row.is_winner %}winner{% endif %}"
             data-run="{{ row.run_name }}" data-mode="{{ row.mode }}" data-coaster="{{ row.coaster }}"
             data-harness="{{ row.harness }}" data-model="{{ row.model }}"
@@ -106,13 +127,13 @@
           <td>
           {%- match row.thumb %}
           {%- when Some(thumb) %}
-            <a href="{{ row.model_href }}"><img class="run-thumb" src="{{ thumb }}" alt="best coaster of {{ row.model }} in {{ row.run_name }}" loading="lazy"></a>
+            <a href="{{ row.model_href }}"><img class="run-thumb" src="{{ thumb }}" alt="best coaster of {{ row.model }} in {{ row.run_name }}" loading="lazy" decoding="async"></a>
           {%- when None %}
             <div class="no-preview">no image</div>
           {%- endmatch %}
           </td>
           <td class="run-cell"><a href="{{ row.run_href }}">{{ row.run_name }}</a><span class="dim">{{ row.date }}</span></td>
-          <td class="dim setup">{{ row.mode }} &middot; {{ row.coaster }} &middot; {{ row.harness }}</td>
+          <td class="dim setup">{{ row.coaster }} &middot; {{ row.harness }}</td>
           <td class="model"><span class="medal dim">{{ row.place }}</span> <a href="{{ row.model_href }}">{{ row.model }}</a></td>
           {%- match row.score %}
           {%- when Some(score) %}
@@ -129,12 +150,15 @@
       </tbody>
     </table>
     </div>
-    <p id="no-rows" class="dim footnote" hidden>No run matches those filters.</p>
-    {%- if !skipped.is_empty() %}
-    <p class="dim footnote">not shown, incomplete or still running:
-    {% for run in skipped %}{% if !loop.first %}, {% endif %}{{ run }}{% endfor %}</p>
-    {%- endif %}
-  {%- endif %}
+    </div>
+  {%- endfor %}
   </div>
 </div>
+{%- endfor %}
+
+{%- if !skipped.is_empty() %}
+<p class="dim footnote">not shown, incomplete or still running:
+{% for run in skipped %}{% if !loop.first %}, {% endif %}{{ run }}{% endfor %}</p>
+{%- endif %}
+{%- endif %}
 {% endblock %}

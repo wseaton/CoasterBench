@@ -11,6 +11,14 @@ function applyFacets(active) {
     row.style.display = show ? '' : 'none';
     if (show) shown++;
   });
+  // A group or a whole board with nothing left in it should go, not sit there
+  // as an empty table with a heading.
+  document.querySelectorAll('.board-group').forEach(function (group) {
+    group.hidden = !group.querySelector('tbody tr:not([style*="display: none"])');
+  });
+  document.querySelectorAll('.board').forEach(function (board) {
+    board.hidden = !board.querySelector('.board-group:not([hidden])');
+  });
   var empty = document.getElementById('no-rows');
   if (empty) empty.hidden = shown > 0;
 }

@@ -23,8 +23,8 @@ use clap::Parser;
 use art::{Art, ArtStore};
 use model::{Circuit, EvalRun, ModelRun, Round};
 use view::{
-    Badge, Chrome, Facet, Figure, IndexPage, IndexRow, LibraryPage, ModelPage, ModelView,
-    RoundStats, RoundView, RunPage, Shot, StandingRow, Stat,
+    Badge, Chrome, Facet, Figure, IndexBoard, IndexGroup, IndexPage, IndexRow, LibraryPage,
+    ModelPage, ModelView, RoundStats, RoundView, RunPage, Shot, StandingRow, Stat,
 };
 
 #[derive(Parser)]
@@ -821,15 +821,6 @@ fn index_rows(runs: &[EvalRun], store: &ArtStore, out: &Path) -> Result<Vec<Inde
         }
     }
     rows.sort_by(|a, b| b.sort_score.total_cmp(&a.sort_score));
-    // Magnitude against the whole board, so it needs every row first.
-    let top = rows.first().map_or(0.0, |r| r.sort_score);
-    for row in &mut rows {
-        row.score_pct = if top > 0.0 {
-            format!("{:.1}", (row.sort_score / top * 100.0).clamp(0.0, 100.0))
-        } else {
-            "0".to_string()
-        };
-    }
     Ok(rows)
 }
 
@@ -919,6 +910,64 @@ fn featured(runs: &[EvalRun], store: &ArtStore, out: &Path) -> Result<Option<vie
         ),
         stats,
     }))
+}
+
+/// The leaderboard, split by what the agent was allowed to do and then by
+/// coaster.
+///
+/// One table would rank a model that searched the stock design library, and one
+/// that read the ratings source, above every model that worked blind — and rank
+/// a 6 km wooden coaster against a twister while it was at it. Neither is a
+/// comparison anyone should draw, so the page does not offer it.
+fn index_boards(rows: Vec<IndexRow>) -> Vec<IndexBoard> {
+    // Blind design first: it is the benchmark. The rest are their own
+    // experiments, and say so.
+    let order = ["design", "library", "design + open note"];
+    let mut boards: Vec<IndexBoard> = Vec::new();
+    let mut conditions: Vec<String> = rows.iter().map(|r| r.mode.clone()).collect();
+    conditions.sort_by_key(|c| order.iter().position(|o| o == c).unwrap_or(usize::MAX));
+    conditions.dedup();
+
+    for condition in conditions {
+        let mine: Vec<&IndexRow> = rows.iter().filter(|r| r.mode == condition).collect();
+        let mut coasters: Vec<String> = mine.iter().map(|r| r.coaster.clone()).collect();
+        coasters.sort();
+        coasters.dedup();
+        let labelled = coasters.len() > 1;
+        let groups = coasters
+            .into_iter()
+            .map(|coaster| {
+                let mut rows: Vec<IndexRow> = mine
+                    .iter()
+                    .filter(|r| r.coaster == coaster)
+                    .map(|r| (*r).clone())
+                    .collect();
+                // The meter is magnitude within its own table: scaled across
+                // boards, a board's own leader would show a part-full bar
+                // against a score nobody here was competing with.
+                let top = rows.first().map_or(0.0, |r| r.sort_score);
+                for row in &mut rows {
+                    row.score_pct = if top > 0.0 {
+                        format!("{:.1}", (row.sort_score / top * 100.0).clamp(0.0, 100.0))
+                    } else {
+                        "0".to_string()
+                    };
+                }
+                IndexGroup {
+                    rows,
+                    coaster,
+                    labelled,
+                }
+            })
+            .collect();
+        boards.push(IndexBoard {
+            headline: condition == "design",
+            tagline: view::mode_tagline(condition.split(" + ").next().unwrap_or(&condition)),
+            condition,
+            groups,
+        });
+    }
+    boards
 }
 
 /// Every finished model run, as head-to-head contenders. Draws from all runs,
@@ -1154,7 +1203,6 @@ fn facets(runs: &[EvalRun]) -> Vec<Facet> {
         }
     };
     vec![
-        collect("mode", runs.iter().map(|r| r.mode_label()).collect()),
         collect("coaster", runs.iter().map(|r| r.ride_name()).collect()),
         collect("harness", runs.iter().map(|r| r.harness.clone()).collect()),
         collect(
@@ -1316,12 +1364,14 @@ fn main() -> Result<()> {
         }
     }
 
+    let rows = index_rows(&runs, &store, out)?;
     let index = IndexPage {
         chrome: Chrome::new("CoasterBench", "COASTERBENCH", "index.html", base_url)
             .width(view::Width::Mid),
         featured: featured(&runs, &store, out)?,
         facets: facets(&runs),
-        rows: index_rows(&runs, &store, out)?,
+        row_count: rows.len(),
+        boards: index_boards(rows),
         have_previews: store.have_previews(),
         mode_taglines: view::MODE_TAGLINES
             .iter()

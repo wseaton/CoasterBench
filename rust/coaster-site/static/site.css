@@ -450,6 +450,17 @@ tr:last-child td { border-bottom: none; }
   color: var(--ink-soft); margin-bottom: .3rem; }
 /* On a desktop they cost one line, so the marker is noise. */
 @media (min-width: 700px) { .facet-box > summary { display: none; } }
+/* One board per condition. The benchmark proper gets the gold edge; the others
+   are their own experiments and read as such. */
+.board-note { font-size: .72rem; margin: 0 0 .5rem; }
+.board-headline { border-color: var(--gold);
+  box-shadow: var(--bevel-up), var(--drop), 0 0 0 1px rgba(217,165,32,.45); }
+.board-headline > .titlebar { border-bottom-color: var(--gold); }
+.board-group + .board-group { margin-top: .9rem; }
+.group-heading { font-family: var(--font-display); font-size: .62rem; font-weight: 400;
+  color: var(--ink-soft); margin: 0 0 .2rem; }
+.board[hidden], .board-group[hidden] { display: none; }
+
 .facets { display: flex; flex-wrap: wrap; gap: .35rem .7rem; }
 .facet-group { display: inline-flex; align-items: center; gap: .2rem; flex-wrap: wrap; }
 .facet-label { font-size: .62rem; text-transform: uppercase; letter-spacing: .06em; margin-right: .1rem;
