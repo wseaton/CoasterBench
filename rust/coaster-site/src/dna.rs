@@ -67,14 +67,9 @@ pub struct Summary {
     pub pieces: usize,
     pub inversions: usize,
     pub lift_pieces: usize,
-    /// Lowest point of the circuit to the highest, in z units.
-    pub swing: f64,
 }
 
 pub fn summarise(pieces: &[Piece]) -> Summary {
-    let z = altitudes(pieces);
-    let low = z.iter().copied().fold(0.0_f64, f64::min);
-    let high = z.iter().copied().fold(0.0_f64, f64::max);
     Summary {
         pieces: pieces.len(),
         inversions: pieces
@@ -82,7 +77,6 @@ pub fn summarise(pieces: &[Piece]) -> Summary {
             .filter(|p| geometry::is_inversion(&p.name))
             .count(),
         lift_pieces: pieces.iter().filter(|p| p.chain).count(),
-        swing: high - low,
     }
 }
 
@@ -284,9 +278,8 @@ mod tests {
     fn altitude_follows_the_game_geometry() {
         let z = altitudes(&pieces(&["up_25", "down_25"]));
         assert_eq!(z, vec![16.0, 0.0]);
-        // Tops out 32 above the station, ends 32 below it: swing is 64.
         let summary = summarise(&pieces(&["up_25", "up_25", "down_60"]));
-        assert_eq!(summary.swing, 64.0);
+        assert_eq!(summary.pieces, 3);
     }
 
     #[test]

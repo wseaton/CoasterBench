@@ -81,37 +81,9 @@ fn first_text(result: &Value) -> Option<String> {
         .map(str::to_string)
 }
 
-/// Std-only base64 decode (standard alphabet, padded) — not worth a crate.
-fn base64_decode(input: &str) -> Option<Vec<u8>> {
-    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = Vec::with_capacity(input.len() * 3 / 4);
-    let mut buf = 0u32;
-    let mut bits = 0u8;
-    for &byte in input.as_bytes() {
-        if byte == b'=' || byte == b'\n' || byte == b'\r' {
-            continue;
-        }
-        let value = TABLE.iter().position(|&t| t == byte)? as u32;
-        buf = (buf << 6) | value;
-        bits += 6;
-        if bits >= 8 {
-            bits -= 8;
-            out.push((buf >> bits) as u8);
-        }
-    }
-    Some(out)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn base64_roundtrip() {
-        assert_eq!(base64_decode("aGVsbG8=").as_deref(), Some(&b"hello"[..]));
-        assert_eq!(base64_decode("").as_deref(), Some(&b""[..]));
-        assert!(base64_decode("!!!!").is_none());
-    }
 
     #[test]
     fn first_text_reads_content_blocks() {
