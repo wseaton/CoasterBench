@@ -84,7 +84,7 @@ pub fn round_prompt(round_spec: &Round) -> String {
 This is round {round} of {rounds}. You build interactively through the "coaster" MCP tools:
 
 - new_ride(ride_type, x, y, dir): start building; the cursor starts at that tile. Directions: 0 faces -x, 1 faces +y, 2 faces +x, 3 faces -y.
-- place_piece(piece, chain?): place one piece at the cursor. Returns the new cursor and circuit_closed.
+- place_piece(piece, chain?, speed?): place one piece at the cursor. Returns the new cursor and circuit_closed.
 - place_pieces(pieces): batch placement; stops at the first rejection.
 - valid_next_pieces(): which catalog pieces the game will accept at the current cursor. Ground truth - use it whenever unsure.
 - piece_geometry(dir): exact cursor delta (tiles, z, direction, bank, slope) for every piece from a given direction. Use this to PLAN closure.
@@ -98,6 +98,7 @@ This is round {round} of {rounds}. You build interactively through the "coaster"
 - Build a CLOSED CIRCUIT: get_state must show circuit_closed before finish_and_test will pass.
 - Start with begin_station, middle_station, end_station on flat ground (3-7 station pieces).
 - Chain lift ({{"chain": true}}) only works on 25-degree slopes. Trains start slow; climb first, then coast.
+- A `booster` accelerates the train up to its speed and `brakes` slows it down to theirs: {{"t": "booster", "speed": 25}}, 0-30, default 8. A booster is the fix for a layout that runs out of energy and valleys; brakes are for shedding speed before the station.
 - Intensity above ~10 tanks excitement; keep it under 10. Crashes disqualify.
 - {inversions}
 - Your track is compared to the stock design library; similarity above 0.5 scales your score toward zero. Design something original.
@@ -161,6 +162,29 @@ mod tests {
             one_shot.contains("finish_and_test has banked a score"),
             "the bar for stopping is a banked score, not a plan"
         );
+    }
+
+    /// The one agent that ever reached for a booster did so after reading the
+    /// catalog dump, concluded from a harness bug that boosters do not work,
+    /// and wrote that down. Now that they work, the prompt says so rather than
+    /// leaving the piece to be rediscovered.
+    #[test]
+    fn both_ride_types_are_told_about_boosters_and_their_speed() {
+        for ride_type in [51, 52] {
+            let p = round_prompt(&Round {
+                ride_type,
+                round: 1,
+                rounds: 6,
+                previous_feedback: None,
+                modalities: both(),
+                budget_secs: 1800,
+                open_note_dir: None,
+                single_turn: false,
+            });
+            assert!(p.contains("booster"), "ride type {ride_type}");
+            assert!(p.contains("\"speed\": 25"), "the syntax, not just the name");
+            assert!(p.contains("valleys"), "says what it is for");
+        }
     }
 
     #[test]

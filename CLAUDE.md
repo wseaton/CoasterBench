@@ -103,8 +103,17 @@ Non-bundled binaries look for `data/` next to the exe. One-time setup:
     identical to no booster; at speed 25 the same circuit is 12s/0.27. Runs
     before that commit are not comparable on any track using either piece.
   - Twister (51) has `booster` in its enabledTrackGroups; wooden (52) has it
-    only in extraTrackGroups, though TrackPlaceAction never checks those groups
-    (see the drawability note above), so it places anyway.
+    only in extraTrackGroups, so the game's own construction window hides it
+    behind the extra-elements toggle. TrackPlaceAction never checks those
+    groups (see the drawability note above), and boosters are deliberately
+    allowed on both here: the 56s->12s measurement above is ride_type 52.
+  - The round prompt names the piece and its speed syntax for both ride types.
+    Before that it was only discoverable through a valid_next_pieces catalog
+    dump, and in eleven rounds exactly one agent (opus-5, opennote round 6)
+    ever tried a booster. It used three to fix a valleying loop, got
+    tested:false because they were inert, concluded "boosters are NOT a
+    sufficient energy fix" and wrote that into its notes. The bug did not cost
+    a score; it suppressed a strategy.
 - Save-park artifact: `coasterbench-cli eval ... --save-park <path>` writes a
   .park (~55 KB) after the tick loop, and coaster-bench collects one per round
   as `round_N/park.park`. Round-trip verified: reloading a saved park gives the
