@@ -290,7 +290,9 @@ fn poster(
     Ok(derived_or_edge(art, run, model, round.number, out, store))
 }
 
-/// The derived copy, else an edge-resized URL, else nothing.
+/// The derived copy, else an edge-resized URL, else the artifact itself. That
+/// last fallback matters: a CI build has no local artifacts to derive from, and
+/// returning nothing there left the hero with no poster at all.
 fn derived_or_edge(
     art: &Art,
     run: &EvalRun,
@@ -303,7 +305,9 @@ fn derived_or_edge(
     if out.join(&rel).is_file() {
         return Some(rel.to_string_lossy().replace('\\', "/"));
     }
-    store.resized_url(art, DISPLAY_WIDTH)
+    store
+        .resized_url(art, DISPLAY_WIDTH)
+        .or_else(|| art.url.clone())
 }
 
 /// Copies a round artifact into the site under a run/model/round path. Shared by

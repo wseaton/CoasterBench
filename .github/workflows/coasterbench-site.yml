@@ -30,7 +30,9 @@ jobs:
         with:
           workspaces: rust/coaster-site
       - name: Build site
-        run: cargo run --release --manifest-path rust/coaster-site/Cargo.toml
+        # --cf-images: a CI build has no local artifacts to downscale, so the
+        # captures are resized at the edge instead of served whole.
+        run: cargo run --release --manifest-path rust/coaster-site/Cargo.toml -- --cf-images
       - uses: actions/configure-pages@v6
       - uses: actions/upload-pages-artifact@v5
         with:
