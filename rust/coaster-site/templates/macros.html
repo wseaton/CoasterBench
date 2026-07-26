@@ -86,6 +86,17 @@
   <details><summary>track program ({{ round.program_pieces }} pieces)</summary><pre>{{ program }}</pre></details>
   {%- when None %}
   {%- endmatch %}
+  {%- match round.replay %}
+  {%- when Some(replay) %}
+  {# The ride running, not just the track standing: a still cannot show whether
+     a train makes it round. Poster is the still, so the card looks the same
+     until played. #}
+  <video class="replay" controls loop muted playsinline preload="none"
+    {%- if round.shots.len() > 0 %} poster="{{ round.shots[0].src }}"{% endif %}>
+    <source src="{{ replay }}" type="video/mp4">
+  </video>
+  {%- when None %}
+  {%- endmatch %}
   {%- if round.shots.len() > 1 %}
   <div class="rotator" data-shots="{{ round.shots_json }}" data-labels="{{ round.labels_json }}" data-i="0">
     <img src="{{ round.shots[0].src }}" alt="park screenshot, {{ model }} round {{ round.number }}" loading="lazy">

@@ -247,6 +247,8 @@ pub struct RoundView {
     pub lookups: Option<String>,
     pub program_json: Option<String>,
     pub program_pieces: usize,
+    /// Replay video source, when the round recorded one.
+    pub replay: Option<String>,
     pub shots: Vec<Shot>,
     /// The rotator's shot list / labels as JSON, for the client-side flipper.
     pub shots_json: String,

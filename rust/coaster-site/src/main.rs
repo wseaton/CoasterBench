@@ -425,6 +425,16 @@ fn build_model_view(
             lookups: lookups_line(round),
             program_json: round.program_json.clone(),
             program_pieces: round.program_pieces,
+            replay: match &round.replay {
+                Some(art) => {
+                    let rel = Path::new("assets")
+                        .join(&run.name)
+                        .join(&model.model)
+                        .join(format!("round_{}_{}", round.number, art.name));
+                    place_art(art, out, &rel)?
+                }
+                None => None,
+            },
             shots_json: serde_json::to_string(&shots.iter().map(|s| &s.src).collect::<Vec<_>>())?,
             labels_json: serde_json::to_string(
                 &shots.iter().map(|s| &s.label).collect::<Vec<_>>(),

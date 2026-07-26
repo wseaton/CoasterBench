@@ -601,6 +601,16 @@ fn control_tool_definitions() -> Value {
             "inputSchema": {"type": "object", "required": ["path"], "properties": {
                 "path": {"type": "string", "description": "Filesystem path to write"}
             }}
+        },
+        {
+            "name": "capture_replay",
+            "description": "Tick the simulation and write PNG frames of the running ride to a directory, for encoding into a replay video.",
+            "inputSchema": {"type": "object", "required": ["dir"], "properties": {
+                "dir": {"type": "string", "description": "Directory to write frame_00000.png into"},
+                "frames": {"type": "integer", "description": "How many frames to capture (default 400)"},
+                "every_ticks": {"type": "integer", "description": "Game ticks between frames; 40 ticks = 1 second (default 2)"},
+                "zoom": {"type": "integer", "description": "Zoom level; higher is smaller and cheaper (default 1)"}
+            }}
         }
     ])
 }
@@ -621,6 +631,37 @@ fn call_control_tool(
             } else {
                 Err("park save failed".to_string())
             }
+        }
+        "capture_replay" => {
+            let dir = args
+                .get("dir")
+                .and_then(Value::as_str)
+                .ok_or("dir is required")?;
+            let frames = arg_i64(args, "frames").unwrap_or(400).clamp(1, 20_000) as usize;
+            let every = arg_i64(args, "every_ticks").unwrap_or(2).clamp(1, 400) as u32;
+            let zoom = arg_i64(args, "zoom").unwrap_or(1).clamp(0, 3) as i32;
+            std::fs::create_dir_all(dir).map_err(|e| format!("create {dir}: {e}"))?;
+
+            // Framing is fit to the track's bounding box, which does not move
+            // while a test runs, so every frame shares a camera. That is the
+            // point: a still camera over a still park means consecutive frames
+            // differ only where the train is, which is what makes the encode
+            // small.
+            let mut written = 0usize;
+            for index in 0..frames {
+                host::run_ticks(every);
+                let path = format!("{dir}/frame_{index:05}.png");
+                if !host::capture(&path, zoom, 0, true, false) {
+                    break;
+                }
+                written += 1;
+            }
+            Ok(text_content(json!({
+                "frames": written,
+                "every_ticks": every,
+                "zoom": zoom,
+                "fps": 40.0 / f64::from(every),
+            })))
         }
         other => Err(format!("unknown control tool: {other}")),
     }
@@ -1113,8 +1154,18 @@ mod tests {
                 .unwrap_or_default()
         };
 
+        // The two tables are disjoint: everything the harness can ask for
+        // writes this filesystem or drives the clock, and nothing an agent can
+        // ask for does.
         let control = dispatch(&list, &mut session, Modalities::ALL, Source::Control);
-        assert_eq!(names(&control), vec!["save_park".to_string()]);
+        let agent_names = names(&dispatch(&list, &mut session, Modalities::ALL, Source::Mcp));
+        assert!(names(&control).contains(&"save_park".to_string()));
+        assert!(names(&control).contains(&"capture_replay".to_string()));
+        assert!(
+            names(&control).iter().all(|t| !agent_names.contains(t)),
+            "control tools leaked into the agent table: {:?}",
+            names(&control)
+        );
 
         let agent = dispatch(&list, &mut session, Modalities::ALL, Source::Mcp);
         assert!(

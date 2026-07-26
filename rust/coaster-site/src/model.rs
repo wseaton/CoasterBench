@@ -162,6 +162,8 @@ pub struct Round {
     pub program_json: Option<String>,
     pub program_pieces: usize,
     pub screenshot: Option<Art>,
+    /// Replay of the finished ride, when one was recorded.
+    pub replay: Option<Art>,
     /// Additional view rotations of the same capture (park-r1/2/3.png).
     pub rotation_shots: Vec<Art>,
     /// See-through verification capture (park-x.png): terrain and supports
@@ -510,6 +512,7 @@ fn load_round(
         program_json,
         program_pieces,
         screenshot,
+        replay: art("replay.mp4"),
         rotation_shots,
         xray_shot: art("park-x.png"),
         lookups: read_json_opt(&round_dir.join("lookups.json"))?.unwrap_or_default(),
@@ -656,6 +659,7 @@ mod tests {
             program_json: None,
             program_pieces: 0,
             screenshot: None,
+            replay: None,
             rotation_shots: Vec::new(),
             xray_shot: None,
             lookups: Vec::new(),

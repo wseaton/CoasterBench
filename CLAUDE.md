@@ -33,9 +33,11 @@ eval: an LLM designs the best roller coaster, scored by in-game ratings.
   no window/GPU, but asserts if sprite data wasn't loaded.
 - Ride ratings hook site: `src/openrct2/ride/RideRatings.cpp` (~line 1076),
   next to the JS `rideRatingsCalculate` hook.
-- Replay video = per-tick `CaptureImage` chase-cam frames (game logic is 40
-  ticks/sec) + external ffmpeg encode in the harness. No video encoder in-tree,
-  keep it that way.
+- Replay video = fixed-camera frames + external ffmpeg encode in the harness.
+  No video encoder in-tree, keep it that way. The camera is the track's
+  bounding box (the same crop as park.png) and never moves, so consecutive
+  frames differ only where the train is, which is what makes the encode cheap.
+  A chase cam would move every pixel and defeat that.
 - Determinism/repro: `ReplayManager.h`, `GameStateSnapshots.h` exist upstream.
 
 ## Rust bridge workflow
@@ -95,6 +97,18 @@ Non-bundled binaries look for `data/` next to the exe. One-time setup:
   - `save_park` writes a host filesystem path, so it lives on the loopback
     control listener only (see the MCP section), never in the agent toolset.
   - `evals/runs/**/*.park` is gitignored like the other heavy artifacts.
+- Replay video: the control tool `capture_replay(dir, frames, every_ticks, zoom)`
+  ticks the running ride and writes cropped PNG frames; coaster-bench encodes
+  them with ffmpeg into `round_N/replay.mp4` (libx264, crf 28, `-g` = frame
+  count so the clip has a single keyframe) and deletes the frames. Off with
+  `--replay-seconds 0`; 20s by default. The site embeds it with park.png as the
+  poster.
+  - Measured on a test circuit at 672x432, 20fps, zoom 0: 4 ms and 29 KB per
+    frame to capture, and 400 frames (20s) encode to 255 KB. Ten times the
+    frames cost under four times the bytes, so length is cheap; the PNG
+    intermediate (13 MB for those 400) is transient.
+  - ffmpeg comes from brew and is not vendored; a missing binary logs and skips
+    the video rather than failing the round.
 - Circuit audit: `orct2_host_circuit_stats` walks a ride with the game's own
   TrackCircuitIterator (what findTrackGap uses), seeded from the station origin
   element, and report.json gains per-ride

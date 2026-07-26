@@ -135,6 +135,11 @@ struct Args {
     #[arg(long)]
     extra_tools: Option<String>,
 
+    /// Seconds of the finished ride to record as round_N/replay.mp4 (needs
+    /// ffmpeg on PATH). 0 records nothing.
+    #[arg(long, default_value_t = 20)]
+    replay_seconds: u32,
+
     /// Open note: stage a read-only checkout of the engine source the agents
     /// are scored by into their sandbox. Upstream OpenRCT2 at this fork's
     /// merge-base, so the harness and its scoring are not in it.
@@ -1188,7 +1193,58 @@ fn collect_round(
     if let Err(e) = control.call("save_park", json!({"path": park_path})) {
         eprintln!("  save_park failed: {e}");
     }
+    // Saved before the replay, because capturing one ticks the simulation on.
+    if args.replay_seconds > 0 {
+        if let Err(e) = capture_replay(&mut control, args, round_dir) {
+            eprintln!("  replay failed: {e}");
+        }
+    }
     Ok(report)
+}
+
+/// Records the running ride as a video: frames from the game, encoded by
+/// ffmpeg, frames thrown away.
+///
+/// The camera is the track's bounding box and never moves, so consecutive
+/// frames differ only where the train is. That is what makes this cheap to
+/// keep: measured on a test circuit, 20 seconds came to 255 KB, and ten times
+/// the frames cost under four times the bytes. The PNGs in between are large
+/// (13 MB for those 400 frames) and are deleted once encoded.
+fn capture_replay(
+    control: &mut mcp::McpClient,
+    args: &Args,
+    round_dir: &Path,
+) -> Result<(), String> {
+    const FPS: u32 = 20;
+    // 40 game ticks make a second, so every other tick is 20fps.
+    let frames = args.replay_seconds * FPS;
+    let dir = std::fs::canonicalize(round_dir)
+        .map(|d| d.join("frames"))
+        .map_err(|e| format!("resolve {}: {e}", round_dir.display()))?;
+    control.call(
+        "capture_replay",
+        json!({"dir": dir, "frames": frames, "every_ticks": 2, "zoom": 0}),
+    )?;
+
+    let out = round_dir.join("replay.mp4");
+    // -g with the frame count: one keyframe for the whole clip. The scene is
+    // static, so extra keyframes are pure cost.
+    let status = Command::new("ffmpeg")
+        .args(["-y", "-loglevel", "error", "-framerate", &FPS.to_string()])
+        .arg("-i")
+        .arg(dir.join("frame_%05d.png"))
+        .args(["-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "28"])
+        .args(["-g", &frames.to_string(), "-movflags", "+faststart"])
+        .arg(&out)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map_err(|e| format!("ffmpeg (brew install ffmpeg): {e}"))?;
+    let _ = std::fs::remove_dir_all(&dir);
+    if !status.success() {
+        return Err(format!("ffmpeg failed: {status}"));
+    }
+    Ok(())
 }
 
 fn write_json(path: &Path, value: &Value) -> Result<(), String> {
