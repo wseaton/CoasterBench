@@ -8,8 +8,6 @@ use serde::Serialize;
 
 pub const TAGLINE: &str = "A benchmark in which language models design roller coasters that RollerCoaster Tycoon 2 builds, tests, and rates.";
 
-pub const FONTS: &str = "https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@700;800&family=IBM+Plex+Mono:wght@400;600&display=swap";
-
 pub const CSS: &str = include_str!("../static/site.css");
 pub const JS: &str = include_str!("../static/site.js");
 
@@ -55,10 +53,8 @@ pub struct Chrome {
     /// Page width: prose by default, `Mid` for the leaderboard, `Wide` for
     /// the multi-column run and round grids.
     pub width: Width,
-    /// Pull in mermaid (from jsDelivr) only on the page that draws a diagram.
-    pub needs_mermaid: bool,
     /// The unfurl image filename for this page, relative to the site root.
-    /// Defaults to the shared `og-card.png`; run/model/compare pages set their
+    /// Defaults to the shared `og-card.jpg`; run/model/compare pages set their
     /// own so the preview shows the coaster the page is actually about.
     pub og_card: String,
     /// Per-page unfurl description; falls back to the site tagline. Matchup
@@ -81,8 +77,7 @@ impl Chrome {
             path: path.to_string(),
             base_url: base_url.map(|b| b.trim_end_matches('/').to_string()),
             width: Width::Prose,
-            needs_mermaid: false,
-            og_card: "og-card.png".to_string(),
+            og_card: "og-card.jpg".to_string(),
             description: None,
         }
     }
@@ -112,11 +107,6 @@ impl Chrome {
         self.description.as_deref().unwrap_or(TAGLINE)
     }
 
-    pub fn with_mermaid(mut self) -> Self {
-        self.needs_mermaid = true;
-        self
-    }
-
     pub fn tagline(&self) -> &'static str {
         TAGLINE
     }
@@ -129,8 +119,9 @@ impl Chrome {
         JS
     }
 
-    pub fn fonts(&self) -> &'static str {
-        FONTS
+    /// The one face the first screen needs; the rest load normally.
+    pub fn font_preload(&self) -> &'static str {
+        crate::fonts::PRELOAD
     }
 
     pub fn wrap_class(&self) -> &'static str {
@@ -181,6 +172,9 @@ pub struct IndexRow {
     pub sort_intensity: f64,
     pub sort_nausea: f64,
     pub score: Option<String>,
+    /// This row's score as a percentage of the best on the board, for the meter
+    /// under the number. 0 when nothing rated.
+    pub score_pct: String,
     pub intensity: String,
     pub nausea: String,
     pub best_round: String,
@@ -192,10 +186,27 @@ pub struct Facet {
     pub values: Vec<String>,
 }
 
+/// The record coaster, headlining the index: footage rather than a still,
+/// unlabelled beyond its caption.
+pub struct Featured {
+    pub model: String,
+    pub model_href: String,
+    pub replay: String,
+    /// The replay's own first frame, so the still looks like the clip.
+    pub poster: Option<String>,
+    /// Whether the clip runs a whole cycle, and so can be looped.
+    pub loops: bool,
+    /// For anyone who cannot watch it.
+    pub alt: String,
+    pub stats: Vec<Stat>,
+}
+
 #[derive(Template)]
 #[template(path = "index.html")]
 pub struct IndexPage {
     pub chrome: Chrome,
+    /// None when no leaderboard round has a video yet.
+    pub featured: Option<Featured>,
     pub facets: Vec<Facet>,
     pub rows: Vec<IndexRow>,
     pub have_previews: bool,
@@ -217,8 +228,14 @@ pub struct StandingRow {
 }
 
 pub struct Shot {
+    /// What the card shows: downscaled and re-encoded.
     pub src: String,
+    /// The original capture, loaded only when someone opens the lightbox.
+    pub full: String,
     pub label: String,
+    /// Intrinsic size, when the file was local enough to measure. Emitted as
+    /// width/height so the browser reserves the space before the image lands.
+    pub size: Option<(u32, u32)>,
 }
 
 /// How a round ended, as a chip next to its heading: only the outcomes worth
@@ -247,11 +264,21 @@ pub struct RoundView {
     pub lookups: Option<String>,
     pub program_json: Option<String>,
     pub program_pieces: usize,
+    /// Elevation profile as inline SVG; empty without a program to walk.
+    pub dna: String,
+    /// The profile's shape, and what changed since the round before.
+    pub dna_caption: String,
     /// Replay video source, when the round recorded one.
     pub replay: Option<String>,
+    /// Poster still framed like the replay, written beside it while filming.
+    pub replay_poster: Option<String>,
+    /// Whether the clip runs a whole cycle, and so can be looped.
+    pub replay_loops: bool,
     pub shots: Vec<Shot>,
     /// The rotator's shot list / labels as JSON, for the client-side flipper.
     pub shots_json: String,
+    /// The same shots at full resolution, for the lightbox.
+    pub fulls_json: String,
     pub labels_json: String,
 }
 

@@ -84,6 +84,13 @@ pub struct Circuit {
     pub looped: bool,
 }
 
+/// The sidecar filming leaves beside a clip.
+#[derive(Debug, Deserialize)]
+struct ReplayMeta {
+    #[serde(default)]
+    looped: bool,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct Similarity {
     #[serde(default)]
@@ -161,9 +168,16 @@ pub struct Round {
     /// Pretty-printed program.json, shown in a <details> block.
     pub program_json: Option<String>,
     pub program_pieces: usize,
+    /// Parsed, for the elevation profile.
+    pub pieces: Vec<crate::dna::Piece>,
     pub screenshot: Option<Art>,
     /// Replay of the finished ride, when one was recorded.
     pub replay: Option<Art>,
+    /// Still from the replay's own camera; park screenshots frame the whole map.
+    pub replay_poster: Option<Art>,
+    /// A whole station-to-station cycle, and so loops. False when the lap
+    /// outran the cap; None for clips filmed before this was recorded.
+    pub replay_looped: Option<bool>,
     /// Additional view rotations of the same capture (park-r1/2/3.png).
     pub rotation_shots: Vec<Art>,
     /// See-through verification capture (park-x.png): terrain and supports
@@ -495,6 +509,10 @@ fn load_round(
         .as_ref()
         .map(serde_json::to_string_pretty)
         .transpose()?;
+    let pieces = program
+        .as_ref()
+        .map(crate::dna::parse_pieces)
+        .unwrap_or_default();
 
     // Paths in the artifact manifest are relative to the run directory.
     let rel = round_dir.strip_prefix(run_dir).unwrap_or(round_dir);
@@ -511,8 +529,12 @@ fn load_round(
         build_error: build_error(report.program.as_ref()),
         program_json,
         program_pieces,
+        pieces,
         screenshot,
         replay: art("replay.mp4"),
+        replay_poster: art("replay.png"),
+        replay_looped: read_json_opt::<ReplayMeta>(&round_dir.join("replay.json"))?
+            .map(|meta| meta.looped),
         rotation_shots,
         xray_shot: art("park-x.png"),
         lookups: read_json_opt(&round_dir.join("lookups.json"))?.unwrap_or_default(),
@@ -658,8 +680,11 @@ mod tests {
             build_error: None,
             program_json: None,
             program_pieces: 0,
+            pieces: Vec::new(),
             screenshot: None,
             replay: None,
+            replay_poster: None,
+            replay_looped: None,
             rotation_shots: Vec::new(),
             xray_shot: None,
             lookups: Vec::new(),

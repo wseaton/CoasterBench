@@ -51,14 +51,17 @@
   {%- endmatch %}
   {%- match round.stats %}
   {%- when Some(stats) %}
+  {# The ratings get their own row so a column of cards lines up. #}
   <div class="stats">
-    <span class="rating-excitement">excitement {{ stats.excitement }}</span>
-    <span class="rating-intensity">intensity {{ stats.intensity }}</span>
-    <span class="rating-nausea">nausea {{ stats.nausea }}</span>
-    <span>length {{ stats.ride_length }}</span>
-    <span>drops {{ stats.num_drops }}</span>
-    <span>airtime {{ stats.total_air_time }}</span>
-    <span>{% if stats.crashed %}CRASHED{% else %}tested ok{% endif %}</span>
+    <span class="stat-cell"><span class="k">excitement</span><b class="rating-excitement">{{ stats.excitement }}</b></span>
+    <span class="stat-cell"><span class="k">intensity</span><b class="rating-intensity">{{ stats.intensity }}</b></span>
+    <span class="stat-cell"><span class="k">nausea</span><b class="rating-nausea">{{ stats.nausea }}</b></span>
+  </div>
+  <div class="stats stats-minor">
+    <span><span class="k">length</span> {{ stats.ride_length }} m</span>
+    <span><span class="k">drops</span> {{ stats.num_drops }}</span>
+    <span><span class="k">airtime</span> {{ stats.total_air_time }}</span>
+    <span>{% if stats.crashed %}<b class="fail">CRASHED</b>{% else %}tested ok{% endif %}</span>
     {%- match stats.similarity %}
     {%- when Some(similarity) %}
     <span class="dim">{{ similarity }}</span>
@@ -81,6 +84,14 @@
   {%- when None %}
   {%- endmatch %}
   </div>
+  {%- if round.dna.len() > 0 %}
+  {# Altitude along the circuit; the dashed ghost is the round before, on the
+     same scale. #}
+  <figure class="dna-figure">
+    {{ round.dna|safe }}
+    <figcaption>{{ round.dna_caption }}</figcaption>
+  </figure>
+  {%- endif %}
   {%- match round.program_json %}
   {%- when Some(program) %}
   <details><summary>track program ({{ round.program_pieces }} pieces)</summary><pre>{{ program }}</pre></details>
@@ -88,24 +99,24 @@
   {%- endmatch %}
   {%- match round.replay %}
   {%- when Some(replay) %}
-  {# The ride running, not just the track standing: a still cannot show whether
-     a train makes it round. Poster is the still, so the card looks the same
-     until played. #}
-  <video class="replay" controls loop muted playsinline preload="none"
-    {%- if round.shots.len() > 0 %} poster="{{ round.shots[0].src }}"{% endif %}>
+  {# The poster is the replay's own first frame, same camera. #}
+  <video class="replay" controls{% if round.replay_loops %} loop{% endif %} muted playsinline preload="none"
+    {%- match round.replay_poster %}{%- when Some(poster) %} poster="{{ poster }}"{%- when None %}{%- endmatch %}>
     <source src="{{ replay }}" type="video/mp4">
   </video>
   {%- when None %}
   {%- endmatch %}
   {%- if round.shots.len() > 1 %}
-  <div class="rotator" data-shots="{{ round.shots_json }}" data-labels="{{ round.labels_json }}" data-i="0">
-    <img src="{{ round.shots[0].src }}" alt="park screenshot, {{ model }} round {{ round.number }}" loading="lazy">
+  <div class="rotator" data-shots="{{ round.shots_json }}" data-fulls="{{ round.fulls_json }}" data-labels="{{ round.labels_json }}" data-i="0">
+    <img data-full="{{ round.shots[0].full }}" src="{{ round.shots[0].src }}" alt="park screenshot, {{ model }} round {{ round.number }}" loading="lazy" decoding="async"
+      {%- match round.shots[0].size %}{%- when Some(size) %} width="{{ size.0 }}" height="{{ size.1 }}"{%- when None %}{%- endmatch %}>
     <button class="rot-btn rot-prev" aria-label="rotate view left">&#9664;</button>
     <span class="rot-count">{{ round.shots[0].label }}</span>
     <button class="rot-btn rot-next" aria-label="rotate view right">&#9654;</button>
   </div>
   {%- else if round.shots.len() == 1 %}
-  <img src="{{ round.shots[0].src }}" alt="park screenshot, {{ model }} round {{ round.number }}" loading="lazy">
+  <img data-full="{{ round.shots[0].full }}" src="{{ round.shots[0].src }}" alt="park screenshot, {{ model }} round {{ round.number }}" loading="lazy" decoding="async"
+    {%- match round.shots[0].size %}{%- when Some(size) %} width="{{ size.0 }}" height="{{ size.1 }}"{%- when None %}{%- endmatch %}>
   {%- else %}
   <div class="no-capture">no capture</div>
   {%- endif %}
