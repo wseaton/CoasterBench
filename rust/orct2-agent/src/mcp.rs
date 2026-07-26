@@ -163,6 +163,9 @@ struct Placed {
     /// the program.json rebuilt from it) can round-trip the lift hills — a
     /// name-only piece list rebuilds the shape but not a working ride.
     chain: bool,
+    /// Brake/booster speed, for the pieces that have one. Same reason as
+    /// `chain`: a replay without it is a different ride.
+    speed: Option<u8>,
 }
 
 /// The piece list in program form: a bare name when the piece is plain, or a
@@ -172,12 +175,11 @@ struct Placed {
 fn placed_pieces_json(placed: &[Placed]) -> Vec<Value> {
     placed
         .iter()
-        .map(|p| {
-            if p.chain {
-                json!({"t": p.name, "chain": true})
-            } else {
-                json!(p.name)
-            }
+        .map(|p| match (p.chain, p.speed) {
+            (false, None) => json!(p.name),
+            (true, None) => json!({"t": p.name, "chain": true}),
+            (false, Some(speed)) => json!({"t": p.name, "speed": speed}),
+            (true, Some(speed)) => json!({"t": p.name, "chain": true, "speed": speed}),
         })
         .collect()
 }
@@ -194,20 +196,42 @@ struct Build {
 impl Build {
     /// Places one catalog piece at the cursor and records it, or hands back the
     /// game's rejection reason. The cursor only moves when the game accepts.
-    fn place(&mut self, piece: &str, chain: bool) -> Result<i64, String> {
+    ///
+    /// `speed` is None unless the caller asked for one. A piece that reads a
+    /// speed gets the game's own default rather than zero, which would leave a
+    /// booster inert; a piece that ignores speed is refused an explicit one, so
+    /// a setting that would do nothing fails loudly instead of silently.
+    fn place(&mut self, piece: &str, chain: bool, speed: Option<u8>) -> Result<i64, String> {
         let (name, track_type) = pieces::CATALOG
             .iter()
             .find(|(n, _)| *n == piece)
             .copied()
             .ok_or_else(|| format!("unknown piece: {piece}"))?;
+        let speed = match (speed, pieces::takes_speed(track_type)) {
+            (Some(_), false) => {
+                return Err(format!(
+                    "{piece} has no speed setting; only brakes and booster do"
+                ))
+            }
+            (Some(s), true) if s > pieces::MAX_BRAKE_SPEED => {
+                return Err(format!(
+                    "speed {s} is above the game's maximum of {}",
+                    pieces::MAX_BRAKE_SPEED
+                ))
+            }
+            (Some(s), true) => s,
+            (None, true) => pieces::DEFAULT_BRAKE_SPEED,
+            (None, false) => 0,
+        };
         let origin = self.cursor;
-        let cost = host::track_place(self.ride_id, track_type, chain, &mut self.cursor)?;
+        let cost = host::track_place(self.ride_id, track_type, chain, speed, &mut self.cursor)?;
         self.placed.push(Placed {
             name,
             track_type,
             origin,
             cost,
             chain,
+            speed: pieces::takes_speed(track_type).then_some(speed),
         });
         Ok(cost)
     }
@@ -684,7 +708,8 @@ fn all_tool_definitions() -> Value {
             "description": "Place one track piece at the cursor and advance it. Returns the new cursor (including bank/slope state) and piece cost, or the game's rejection reason.",
             "inputSchema": {"type": "object", "required": ["piece"], "properties": {
                 "piece": {"type": "string", "description": "Piece name from the catalog, e.g. begin_station, flat, up_25, left_turn_5"},
-                "chain": {"type": "boolean", "description": "Chain lift on this piece (for climbing)"}
+                "chain": {"type": "boolean", "description": "Chain lift on this piece (for climbing)"},
+                "speed": {"type": "integer", "description": "brakes and booster only: brakes slow a train down to this speed, a booster accelerates it up to this speed. 0-30, default 8. Rejected on any other piece."}
             }}
         },
         {
@@ -756,7 +781,7 @@ fn all_tool_definitions() -> Value {
             "inputSchema": {"type": "object", "required": ["pieces"], "properties": {
                 "pieces": {
                     "type": "array",
-                    "description": "Array of pieces to place sequentially. Each element is either a string (piece name) or an object {\"piece\": \"name\", \"chain\": true/false}.",
+                    "description": "Array of pieces to place sequentially. Each element is either a string (piece name) or an object {\"piece\": \"name\", \"chain\": true/false, \"speed\": 0-30}. speed applies to brakes and booster only (brakes slow to it, a booster accelerates up to it; default 8).",
                     "maxItems": 200
                 }
             }}
@@ -813,7 +838,8 @@ fn call_tool(name: &str, args: &Value, session: &mut Session) -> Result<Vec<Valu
                 .and_then(Value::as_str)
                 .ok_or("piece required")?;
             let chain = args.get("chain").and_then(Value::as_bool).unwrap_or(false);
-            let cost = build.place(piece, chain).map_err(|e| {
+            let speed = arg_i64(args, "speed").map(|s| s.clamp(0, 255) as u8);
+            let cost = build.place(piece, chain, speed).map_err(|e| {
                 format!(
                     "'{piece}' rejected: {e} (cursor unchanged: {})",
                     cursor_json(&build.cursor)
@@ -1017,15 +1043,20 @@ fn call_tool(name: &str, args: &Value, session: &mut Session) -> Result<Vec<Valu
             let mut rejection: Option<Value> = None;
 
             for (index, piece_val) in pieces_arg.iter().enumerate() {
-                let (piece_name, chain) = match piece_val {
-                    Value::String(s) => (s.as_str(), false),
+                let (piece_name, chain, speed) = match piece_val {
+                    Value::String(s) => (s.as_str(), false, None),
                     Value::Object(obj) => {
                         let name = obj
                             .get("piece")
                             .and_then(Value::as_str)
+                            .or_else(|| obj.get("t").and_then(Value::as_str))
                             .ok_or_else(|| format!("piece[{index}]: missing 'piece' field"))?;
                         let chain = obj.get("chain").and_then(Value::as_bool).unwrap_or(false);
-                        (name, chain)
+                        let speed = obj
+                            .get("speed")
+                            .and_then(Value::as_i64)
+                            .map(|s| s.clamp(0, 255) as u8);
+                        (name, chain, speed)
                     }
                     _ => {
                         return Err(format!(
@@ -1033,7 +1064,7 @@ fn call_tool(name: &str, args: &Value, session: &mut Session) -> Result<Vec<Valu
                         ))
                     }
                 };
-                match build.place(piece_name, chain) {
+                match build.place(piece_name, chain, speed) {
                     Ok(_) => placed_this_call += 1,
                     Err(e) => {
                         rejection = Some(json!({
@@ -1107,6 +1138,7 @@ mod tests {
                 origin: cursor,
                 cost: 0,
                 chain: false,
+                speed: None,
             },
             Placed {
                 name: "up_25",
@@ -1114,6 +1146,15 @@ mod tests {
                 origin: cursor,
                 cost: 0,
                 chain: true,
+                speed: None,
+            },
+            Placed {
+                name: "booster",
+                track_type: 100,
+                origin: cursor,
+                cost: 0,
+                chain: false,
+                speed: Some(20),
             },
         ];
         let out = placed_pieces_json(&placed);
@@ -1121,6 +1162,9 @@ mod tests {
         // object program.rs parses, so program.json round-trips the lift hill.
         assert_eq!(out[0], json!("begin_station"));
         assert_eq!(out[1], json!({"t": "up_25", "chain": true}));
+        // Likewise the booster speed: replaying without it gives a booster that
+        // does nothing, which is a different ride.
+        assert_eq!(out[2], json!({"t": "booster", "speed": 20}));
     }
 
     #[test]

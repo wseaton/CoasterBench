@@ -119,6 +119,7 @@ unsafe extern "C" {
         ride_id: u16,
         track_type: u16,
         chain_lift: bool,
+        speed: u8,
         cursor: *mut TrackCursor,
         out_cost: *mut i64,
         err: *mut c_char,
@@ -234,10 +235,14 @@ pub fn ride_create(ride_type: u16) -> Result<u16, String> {
 }
 
 /// Places one piece at the cursor and advances it. Returns the piece cost.
+/// Places one piece and advances the cursor. `speed` is the brake/booster
+/// speed stored on the element; the game only reads it for brakes, block
+/// brakes and boosters (see `pieces::takes_speed`).
 pub fn track_place(
     ride_id: u16,
     track_type: u16,
     chain_lift: bool,
+    speed: u8,
     cursor: &mut TrackCursor,
 ) -> Result<i64, String> {
     let mut cost: i64 = 0;
@@ -247,6 +252,7 @@ pub fn track_place(
             ride_id,
             track_type,
             chain_lift,
+            speed,
             cursor,
             &mut cost,
             err.as_mut_ptr(),
@@ -440,10 +446,12 @@ mod test_stubs {
     ) -> bool {
         false
     }
+    #[allow(clippy::too_many_arguments)] // mirrors the C ABI it stands in for
     pub unsafe fn orct2_host_track_place(
         _r: u16,
         _t: u16,
         _c: bool,
+        _s: u8,
         _cur: *mut TrackCursor,
         _cost: *mut i64,
         _e: *mut c_char,

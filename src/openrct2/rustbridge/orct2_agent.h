@@ -9,6 +9,19 @@
 #include <stdlib.h>
 
 /**
+ * What the game's own construction window starts a brake or booster at
+ * (`_currentBrakeSpeed = 8`), and therefore what a piece placed without an
+ * explicit speed should get. Zero is not a neutral default: it makes a booster
+ * inert and a brake a full stop.
+ */
+#define Orct2DEFAULT_BRAKE_SPEED 8
+
+/**
+ * The game refuses anything above this (`kMaximumTrackSpeed`).
+ */
+#define Orct2MAX_BRAKE_SPEED 30
+
+/**
  * Result of executing a track program, later folded into the eval report.
  */
 typedef struct Orct2ProgramOutcome Orct2ProgramOutcome;
@@ -215,6 +228,7 @@ extern bool orct2_host_ride_create(uint16_t ride_type,
 extern bool orct2_host_track_place(uint16_t ride_id,
                                    uint16_t track_type,
                                    bool chain_lift,
+                                   uint8_t speed,
                                    struct Orct2TrackCursor *cursor,
                                    int64_t *out_cost,
                                    char *err,

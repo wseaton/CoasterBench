@@ -88,6 +88,23 @@ Non-bundled binaries look for `data/` next to the exe. One-time setup:
   See issue #1 and the readme implementation notes.
 - Stalls never get ratings (RatingsCalculationType::Stall); tracked rides need
   a completed test circuit (RideFlag::tested) before ratings compute.
+- Brake/booster speed is a per-element property (0-30, `kMaximumTrackSpeed`)
+  that only brakes and boosters read: brakes decelerate a train to it, a
+  booster accelerates up to it and does nothing at all when its speed does not
+  exceed the train's. Pieces take an optional `speed` in the same object form
+  as `chain` (`{"t": "booster", "speed": 20}`), in place_piece, place_pieces and
+  track programs; absent means 8, which is what the construction window gives a
+  player (`_currentBrakeSpeed`). It is refused on pieces that ignore it rather
+  than stored and forgotten, and it round-trips through placed_pieces so a
+  replayed program is the same ride.
+  - Until 2026-07-25 the bridge hardcoded brakeSpeed 0 on every placement, so
+    every booster an agent placed was inert and every brake was a full stop.
+    Measured on the test oval: a speed-0 booster gives 56s/0.12 excitement,
+    identical to no booster; at speed 25 the same circuit is 12s/0.27. Runs
+    before that commit are not comparable on any track using either piece.
+  - Twister (51) has `booster` in its enabledTrackGroups; wooden (52) has it
+    only in extraTrackGroups, though TrackPlaceAction never checks those groups
+    (see the drawability note above), so it places anyway.
 - Save-park artifact: `coasterbench-cli eval ... --save-park <path>` writes a
   .park (~55 KB) after the tick loop, and coaster-bench collects one per round
   as `round_N/park.park`. Round-trip verified: reloading a saved park gives the

@@ -40,19 +40,24 @@ pub enum PieceRef {
 pub enum Piece {
     /// Bare piece: "flat" or 0
     Simple(PieceRef),
-    /// Piece with options: {"t": "up_25", "chain": true}
+    /// Piece with options: {"t": "up_25", "chain": true} or
+    /// {"t": "booster", "speed": 20}
     Full {
         t: PieceRef,
         #[serde(default)]
         chain: bool,
+        /// Brake/booster speed. Absent means the game's default for pieces that
+        /// read one, which is what a player gets from the construction window.
+        #[serde(default)]
+        speed: Option<u8>,
     },
 }
 
 impl Piece {
-    fn parts(&self) -> (&PieceRef, bool) {
+    fn parts(&self) -> (&PieceRef, bool, Option<u8>) {
         match self {
-            Piece::Simple(r) => (r, false),
-            Piece::Full { t, chain } => (t, *chain),
+            Piece::Simple(r) => (r, false, None),
+            Piece::Full { t, chain, speed } => (t, *chain, *speed),
         }
     }
 }
@@ -204,7 +209,7 @@ pub fn run(json: &str) -> ProgramOutcome {
     let mut station_tiles: Vec<(i32, i32)> = Vec::new();
 
     for (index, piece) in program.pieces.iter().enumerate() {
-        let (piece_ref, chain) = piece.parts();
+        let (piece_ref, chain, speed) = piece.parts();
         let track_type = match resolve(piece_ref) {
             Ok(t) => t,
             Err(message) => {
@@ -217,7 +222,14 @@ pub fn run(json: &str) -> ProgramOutcome {
             }
         };
         let piece_tile = (cursor.x / 32, cursor.y / 32);
-        match host::track_place(ride_id, track_type, chain, &mut cursor) {
+        // Same rule as the MCP path: a piece that reads a speed gets the
+        // game's default rather than zero, which would leave a booster inert.
+        let speed = match (speed, pieces::takes_speed(track_type)) {
+            (Some(s), true) => s.min(pieces::MAX_BRAKE_SPEED),
+            (None, true) => pieces::DEFAULT_BRAKE_SPEED,
+            (_, false) => 0,
+        };
+        match host::track_place(ride_id, track_type, chain, speed, &mut cursor) {
             Ok(cost) => {
                 outcome.pieces_placed += 1;
                 outcome.total_cost += cost;
@@ -309,10 +321,10 @@ mod tests {
         assert_eq!(p.ride_type, 52);
         assert_eq!(p.start.dir, 1);
         assert_eq!(p.pieces.len(), 4);
-        let (r0, chain0) = p.pieces[0].parts();
+        let (r0, chain0, _) = p.pieces[0].parts();
         assert_eq!(resolve(r0).expect("resolve"), 2);
         assert!(!chain0);
-        let (r2, chain2) = p.pieces[2].parts();
+        let (r2, chain2, _) = p.pieces[2].parts();
         assert_eq!(resolve(r2).expect("resolve"), 4);
         assert!(chain2);
     }

@@ -426,9 +426,14 @@ bool orct2_host_ride_create(uint16_t ride_type, uint16_t* out_ride_id, char* err
     return true;
 }
 
+// speed is the brake/booster speed the game stores on the element. It is only
+// read for brakes, block brakes and boosters; everything else ignores it. The
+// bridge used to hardcode 0 here, which made every booster inert (a booster
+// only accelerates while its speed exceeds the train's, and 0 never does) and
+// every brake a full stop.
 bool orct2_host_track_place(
-    uint16_t ride_id, uint16_t track_type, bool chain_lift, Orct2TrackCursor* cursor, int64_t* out_cost, char* err,
-    size_t err_len)
+    uint16_t ride_id, uint16_t track_type, bool chain_lift, uint8_t speed, Orct2TrackCursor* cursor, int64_t* out_cost,
+    char* err, size_t err_len)
 {
     if (cursor == nullptr || out_cost == nullptr)
     {
@@ -456,8 +461,8 @@ bool orct2_host_track_place(
     }
 
     auto action = GameActions::TrackPlaceAction(
-        rideId, trackType, ride->type, PieceOrigin(trackType, *cursor), 0 /*brakeSpeed*/, 0 /*colour*/,
-        4 /*seatRotation*/, liftFlags, false /*fromTrackDesign*/);
+        rideId, trackType, ride->type, PieceOrigin(trackType, *cursor), speed, 0 /*colour*/, 4 /*seatRotation*/,
+        liftFlags, false /*fromTrackDesign*/);
     GameActions::Result result;
     if (!ExecuteForBridge(action, err, err_len, result))
     {

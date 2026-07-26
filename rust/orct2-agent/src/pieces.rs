@@ -110,3 +110,45 @@ mod tests {
         assert_eq!(ids.len(), CATALOG.len());
     }
 }
+
+/// Track types whose brake/booster speed the game actually reads: brakes slow a
+/// train to it, boosters accelerate up to it, and everything else stores it and
+/// ignores it. Offering the setting on a piece that ignores it would be a knob
+/// connected to nothing.
+pub fn takes_speed(track_type: u16) -> bool {
+    matches!(track_type, 99 | 100)
+}
+
+/// What the game's own construction window starts a brake or booster at
+/// (`_currentBrakeSpeed = 8`), and therefore what a piece placed without an
+/// explicit speed should get. Zero is not a neutral default: it makes a booster
+/// inert and a brake a full stop.
+pub const DEFAULT_BRAKE_SPEED: u8 = 8;
+
+/// The game refuses anything above this (`kMaximumTrackSpeed`).
+pub const MAX_BRAKE_SPEED: u8 = 30;
+
+#[cfg(test)]
+mod speed_tests {
+    use super::*;
+
+    #[test]
+    fn only_brakes_and_booster_read_a_speed() {
+        assert!(takes_speed(lookup("brakes").unwrap()));
+        assert!(takes_speed(lookup("booster").unwrap()));
+        for inert in ["flat", "up_25", "left_turn_5", "begin_station"] {
+            assert!(
+                !takes_speed(lookup(inert).unwrap()),
+                "{inert} stores a speed the game never reads"
+            );
+        }
+    }
+
+    #[test]
+    fn the_default_is_the_games_own() {
+        // _currentBrakeSpeed in the construction window. Zero is not neutral:
+        // a booster at 0 never accelerates and a brake at 0 is a full stop.
+        assert_eq!(DEFAULT_BRAKE_SPEED, 8);
+        assert_eq!(MAX_BRAKE_SPEED, 30, "kMaximumTrackSpeed");
+    }
+}
