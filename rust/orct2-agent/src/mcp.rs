@@ -207,22 +207,7 @@ impl Build {
             .find(|(n, _)| *n == piece)
             .copied()
             .ok_or_else(|| format!("unknown piece: {piece}"))?;
-        let speed = match (speed, pieces::takes_speed(track_type)) {
-            (Some(_), false) => {
-                return Err(format!(
-                    "{piece} has no speed setting; only brakes and booster do"
-                ))
-            }
-            (Some(s), true) if s > pieces::MAX_BRAKE_SPEED => {
-                return Err(format!(
-                    "speed {s} is above the game's maximum of {}",
-                    pieces::MAX_BRAKE_SPEED
-                ))
-            }
-            (Some(s), true) => s,
-            (None, true) => pieces::DEFAULT_BRAKE_SPEED,
-            (None, false) => 0,
-        };
+        let speed = pieces::resolve_speed(track_type, speed)?;
         let origin = self.cursor;
         let cost = host::track_place(self.ride_id, track_type, chain, speed, &mut self.cursor)?;
         self.placed.push(Placed {
@@ -838,7 +823,7 @@ fn all_tool_definitions() -> Value {
             "inputSchema": {"type": "object", "required": ["pieces"], "properties": {
                 "pieces": {
                     "type": "array",
-                    "description": "Array of pieces to place sequentially. Each element is either a string (piece name) or an object {\"piece\": \"name\", \"chain\": true/false, \"speed\": 0-30}. speed applies to brakes and booster only (brakes slow to it, a booster accelerates up to it; default 8).",
+                    "description": "Array of pieces to place sequentially. Each element is either a string (piece name) or an object {\"t\": \"name\", \"chain\": true/false, \"speed\": 0-30}; \"piece\" is accepted in place of \"t\". This is the same form get_state and the eval report hand back, so a piece list from either can be replayed as-is. speed applies to brakes and booster only (brakes slow to it, a booster accelerates up to it; default 8).",
                     "maxItems": 200
                 }
             }}
@@ -1100,27 +1085,14 @@ fn call_tool(name: &str, args: &Value, session: &mut Session) -> Result<Vec<Valu
             let mut rejection: Option<Value> = None;
 
             for (index, piece_val) in pieces_arg.iter().enumerate() {
-                let (piece_name, chain, speed) = match piece_val {
-                    Value::String(s) => (s.as_str(), false, None),
-                    Value::Object(obj) => {
-                        let name = obj
-                            .get("piece")
-                            .and_then(Value::as_str)
-                            .or_else(|| obj.get("t").and_then(Value::as_str))
-                            .ok_or_else(|| format!("piece[{index}]: missing 'piece' field"))?;
-                        let chain = obj.get("chain").and_then(Value::as_bool).unwrap_or(false);
-                        let speed = obj
-                            .get("speed")
-                            .and_then(Value::as_i64)
-                            .map(|s| s.clamp(0, 255) as u8);
-                        (name, chain, speed)
-                    }
-                    _ => {
-                        return Err(format!(
-                            "piece[{index}]: expected string or object, got {piece_val}"
-                        ))
-                    }
-                };
+                let spec: pieces::PieceSpec = serde_json::from_value(piece_val.clone())
+                    .map_err(|e| format!("piece[{index}]: {e}"))?;
+                let track_type = spec
+                    .track_type()
+                    .map_err(|e| format!("piece[{index}]: {e}"))?;
+                let piece_name = pieces::name_of(track_type)
+                    .ok_or_else(|| format!("piece[{index}]: unknown piece #{track_type}"))?;
+                let (_, chain, speed) = spec.parts();
                 match build.place(piece_name, chain, speed) {
                     Ok(_) => placed_this_call += 1,
                     Err(e) => {

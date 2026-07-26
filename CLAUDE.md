@@ -74,6 +74,14 @@ Non-bundled binaries look for `data/` next to the exe. One-time setup:
 - Track programs: JSON (ride_type, start tile+dir, piece list) executed by
   `rust/orct2-agent/src/program.rs`; piece vocabulary in `pieces.rs` mirrors
   `src/openrct2/ride/ted/TrackElemType.h`. Example: `evals/programs/test_oval.json`.
+- One piece format everywhere: `pieces::PieceSpec` parses a bare name, a raw
+  TrackElemType id, or `{"t"|"piece": name, "chain": bool, "speed": 0-30}`, and
+  both the program executor and place_pieces use it. Programs used to take only
+  `t` and place_pieces only `piece`, while the lists the server hands back
+  (get_state, placed_pieces, the eval report) are in program form, so replaying
+  a session's own batch needed hand translation. It doesn't now: a place_pieces
+  array copied out of a trace runs as a program unchanged, which is how the
+  loop-under-lift retest was done.
 - Full run: `./build/coasterbench-cli eval <scenario> --ticks 25000
   --rct2-data-path ~/rct2-assets --program p.json --out report.json --capture park.png`
 - Entrance/exit are brute-force auto-placed next to station tiles (game
