@@ -173,7 +173,7 @@ int32_t orct2_agent_capture(const char *path,
  * # Safety
  * `bind` must be null or a valid NUL-terminated string.
  */
-int32_t orct2_agent_serve(const char *bind, uint16_t port);
+int32_t orct2_agent_serve(const char *bind, uint16_t port, uint16_t control_port);
 
 /**
  * Writes the stock track design library to `out_path` as JSON:

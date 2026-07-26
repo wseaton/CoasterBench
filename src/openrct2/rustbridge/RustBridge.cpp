@@ -907,9 +907,9 @@ namespace OpenRCT2::RustBridge
         }
     }
 
-    int32_t Serve(const char* bind, uint16_t port)
+    int32_t Serve(const char* bind, uint16_t port, uint16_t controlPort)
     {
-        return orct2_agent_serve(bind, port);
+        return orct2_agent_serve(bind, port, controlPort);
     }
 
     int32_t DumpLibrary(const char* path)

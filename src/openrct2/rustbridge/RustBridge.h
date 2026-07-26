@@ -39,9 +39,10 @@ namespace OpenRCT2::RustBridge
     // reopened and checked instead of taken on trust. Returns true on success.
     bool SavePark(std::string_view path);
 
-    // Runs the MCP server on bind:port (null bind = 127.0.0.1); blocks the
-    // game thread until the process exits. Tool calls drive the game directly.
-    int32_t Serve(const char* bind, uint16_t port);
+    // Runs the MCP server on bind:port (null bind = 127.0.0.1) and, when
+    // controlPort is non-zero, a loopback-only control server beside it for the
+    // harness. Blocks the game thread until the process exits.
+    int32_t Serve(const char* bind, uint16_t port, uint16_t controlPort);
 
     // Writes the stock track design library as JSON for the eval driver's
     // library mode. Returns 0 on success.

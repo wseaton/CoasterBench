@@ -59,6 +59,12 @@ struct Args {
     #[arg(long, default_value_t = 8791)]
     port: u16,
 
+    /// Loopback-only control port. The harness's own channel into the game
+    /// (save_park), on a listener the sandboxes cannot route to, so nothing an
+    /// agent can reach writes to this filesystem.
+    #[arg(long, default_value_t = 8792)]
+    control_port: u16,
+
     /// Max agentic turns per round session. Claude Code only; opencode has no
     /// equivalent, so --session-timeout is what bounds it.
     #[arg(long, default_value_t = 120)]
@@ -366,6 +372,8 @@ impl GameServer {
             .arg(args.port.to_string())
             .arg("--serve-bind")
             .arg("0.0.0.0")
+            .arg("--serve-control")
+            .arg(args.control_port.to_string())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
@@ -1174,7 +1182,10 @@ fn collect_round(
     let park_path = std::fs::canonicalize(round_dir)
         .map(|dir| dir.join("park.park"))
         .map_err(|e| format!("resolve {}: {e}", round_dir.display()))?;
-    if let Err(e) = client.call("save_park", json!({"path": park_path})) {
+    // Control plane, not the agents' MCP endpoint: save_park writes this
+    // filesystem and only exists on the loopback listener.
+    let mut control = mcp::McpClient::new("127.0.0.1", args.control_port);
+    if let Err(e) = control.call("save_park", json!({"path": park_path})) {
         eprintln!("  save_park failed: {e}");
     }
     Ok(report)

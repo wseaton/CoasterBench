@@ -92,10 +92,8 @@ Non-bundled binaries look for `data/` next to the exe. One-time setup:
   same ride, rating and circuit audit. Both paths go through
   `RustBridge::SavePark`, which packs the loaded objects the way the crash
   handler's save does, so a park using non-standard objects still reopens.
-  - The MCP `save_park` tool writes a host filesystem path, so it is served
-    only to loopback callers (the harness) and hidden from, and refused to,
-    anyone else. Sandboxed agents arrive on the container bridge address, which
-    is what keeps a host write out of their reach.
+  - `save_park` writes a host filesystem path, so it lives on the loopback
+    control listener only (see the MCP section), never in the agent toolset.
   - `evals/runs/**/*.park` is gitignored like the other heavy artifacts.
 - Circuit audit: `orct2_host_circuit_stats` walks a ride with the game's own
   TrackCircuitIterator (what findTrackGap uses), seeded from the station origin
@@ -234,9 +232,20 @@ Non-bundled binaries look for `data/` next to the exe. One-time setup:
 - `./build/coasterbench-cli eval <scenario> --rct2-data-path ~/rct2-assets
   --serve 8791` runs an MCP server at `http://127.0.0.1:8791/mcp`
   (streamable HTTP, JSON response mode).
-- Hand-rolled sync server in `rust/orct2-agent/src/mcp.rs` — runs ON the game
-  thread by design (game API is single-threaded); rmcp/tokio deliberately
-  avoided. Tools: new_ride, place_piece, place_pieces (batch placement, max 200
+- Hand-rolled server in `rust/orct2-agent/src/mcp.rs`, no async runtime. Socket
+  I/O runs on a thread per connection; every request crosses one mpsc channel to
+  the game thread, which owns the session and is the only thread that may call
+  `host::*` (the logger included, so connection threads never log). Requests
+  still execute serially in arrival order, so determinism is unchanged. Before
+  this the accept loop lived on the game thread and a client that connected then
+  went silent hung the server for everyone.
+- Two listeners, and the one a request arrives on chooses its tool table:
+  `--serve` (bind 0.0.0.0 for the sandboxes) serves the agent tools, and
+  `--serve-control <port>` binds 127.0.0.1 only and serves the harness's tools
+  (`save_park`). A control tool is therefore absent from the agent's table
+  rather than filtered out of it, and the listener is not routable from a
+  container at all. coaster-bench defaults to `--control-port 8792` and only
+  ever calls save_park there. Tools: new_ride, place_piece, place_pieces (batch placement, max 200
   pieces), valid_next_pieces (game-as-oracle query of the whole catalog),
   get_state, finish_and_test, screenshot (MCP image content), demolish,
   search_track_designs + get_track_design (stock .TD6 library browsing;

@@ -1,17 +1,28 @@
 //! Minimal MCP (Model Context Protocol) server over streamable HTTP.
 //!
-//! Hand-rolled on purpose: the game API is strictly single-threaded, so the
-//! server runs synchronously ON the game thread — a tool call executes host
-//! functions directly, and `run_ticks` advances the simulation inline. No
-//! async runtime, no cross-thread marshaling, fully deterministic. The
-//! protocol subset (initialize, tools/list, tools/call) is small; if we ever
-//! need SSE streaming or concurrent clients, swap in rmcp then.
+//! Hand-rolled on purpose: the protocol subset (initialize, tools/list,
+//! tools/call) is small, and no async runtime is needed for it.
+//!
+//! The game API is strictly single-threaded, but I/O is not: sockets are read
+//! and written on a thread per connection, and every request crosses one
+//! channel to the game thread, which owns the session and is the only thread
+//! allowed to touch the game. Tool calls still execute one at a time in arrival
+//! order, so the simulation stays deterministic. Nothing reachable from a
+//! connection thread may call `host::*`, the logger included.
+//!
+//! Two listeners, and which one a request arrived on decides what it can ask
+//! for: the MCP listener is reachable from the agent sandboxes, the control
+//! listener binds loopback for the harness. They dispatch against separate tool
+//! tables, so a control tool is absent from the agent's world rather than
+//! merely refused to it.
 //!
 //! Transport: POST /mcp with a JSON-RPC message, single JSON response
 //! (the "streamable HTTP" JSON response mode). GET returns 405.
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
+use std::sync::mpsc;
+use std::time::Duration;
 
 use base64::Engine;
 use serde_json::{json, Value};
@@ -277,33 +288,100 @@ impl Session {
     }
 }
 
-/// Runs the MCP server until the process is killed. Never panics; per-request
-/// failures are reported to the client and the listener keeps accepting.
-pub fn serve(bind: &str, port: u16) -> Result<(), String> {
+/// Which socket a request arrived on. This is the capability boundary: the MCP
+/// listener is reachable from the sandboxes (it has to be), the control
+/// listener binds loopback only. Tools are looked up in a table chosen by this,
+/// so a control tool is not merely hidden from an agent, it does not exist in
+/// the table its requests are dispatched against.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Source {
+    Mcp,
+    Control,
+}
+
+/// One request waiting on the game thread, with the channel its connection is
+/// blocked on.
+struct Request {
+    source: Source,
+    /// The HTTP request target, carrying the modality set and the park lease.
+    target: String,
+    message: Value,
+    reply: mpsc::Sender<Value>,
+}
+
+/// How long a connection waits for the game thread before giving up. The game
+/// thread is single-threaded and a tool call can run thousands of ticks, so
+/// this is generous; it exists so a wedged game cannot leak connection threads
+/// forever.
+const REPLY_TIMEOUT: Duration = Duration::from_secs(600);
+
+/// Runs the server until the process is killed. Never panics; per-request
+/// failures are reported to the client and the listeners keep accepting.
+///
+/// Sockets are read and written on per-connection threads, and every request is
+/// funnelled through one channel to this thread, which owns the session and is
+/// the only thread that may touch the game: the game API is single-threaded,
+/// but nothing about *I/O* has to happen there. Previously it did, so one
+/// client that connected and vanished blocked the accept loop and hung every
+/// other client. Requests still execute one at a time in arrival order, so the
+/// simulation stays as deterministic as it was.
+pub fn serve(bind: &str, port: u16, control_port: u16) -> Result<(), String> {
+    let (tx, rx) = mpsc::channel::<Request>();
+
     let listener =
         TcpListener::bind((bind, port)).map_err(|e| format!("bind {bind}:{port}: {e}"))?;
     host::log(&format!(
         "orct2-agent: MCP server listening on http://{bind}:{port}/mcp"
     ));
+    spawn_listener(listener, Source::Mcp, tx.clone());
+
+    if control_port > 0 {
+        // Loopback only, and not configurable: the harness runs on this
+        // machine, and a control port reachable from a sandbox would hand the
+        // thing under test a write to the host filesystem.
+        let control = TcpListener::bind(("127.0.0.1", control_port))
+            .map_err(|e| format!("bind 127.0.0.1:{control_port}: {e}"))?;
+        host::log(&format!(
+            "orct2-agent: control server listening on http://127.0.0.1:{control_port}/mcp"
+        ));
+        spawn_listener(control, Source::Control, tx.clone());
+    }
+    // The listeners hold the senders they need; without this the loop below
+    // could never see a disconnect.
+    drop(tx);
 
     let mut session = Session::default();
-    for stream in listener.incoming() {
-        let Ok(stream) = stream else { continue };
-        // One client at a time, requests handled in arrival order.
-        if let Err(e) = handle_connection(stream, &mut session) {
-            host::log(&format!("orct2-agent: mcp connection ended: {e}"));
-        }
+    while let Ok(request) = rx.recv() {
+        let response = handle_request(&request, &mut session);
+        // A connection that gave up while we worked is not an error worth
+        // reporting: its thread is already gone.
+        let _ = request.reply.send(response);
     }
     Ok(())
 }
 
-fn handle_connection(stream: TcpStream, session: &mut Session) -> Result<(), String> {
-    // Loopback means the harness on this machine; a sandbox arrives on the
-    // container bridge address.
-    let local = stream
-        .peer_addr()
-        .map(|a| a.ip().is_loopback())
-        .unwrap_or(false);
+fn spawn_listener(listener: TcpListener, source: Source, tx: mpsc::Sender<Request>) {
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(stream) = stream else { continue };
+            let tx = tx.clone();
+            // Per connection, so a client that stalls mid-request stalls only
+            // itself. These threads never call host::*, including the logger:
+            // the game side of the bridge is not thread-safe.
+            std::thread::spawn(move || {
+                let _ = pump_connection(stream, source, &tx);
+            });
+        }
+    });
+}
+
+/// Reads requests off one socket, hands each to the game thread, and writes
+/// back what it answers. Bytes and JSON only: no game state is touched here.
+fn pump_connection(
+    stream: TcpStream,
+    source: Source,
+    tx: &mpsc::Sender<Request>,
+) -> Result<(), String> {
     let mut reader = BufReader::new(stream.try_clone().map_err(|e| e.to_string())?);
     let mut stream = stream;
     loop {
@@ -312,7 +390,6 @@ fn handle_connection(stream: TcpStream, session: &mut Session) -> Result<(), Str
             Ok(None) => return Ok(()), // clean EOF
             Err(e) => return Err(e),
         };
-        let modalities = Modalities::from_request_target(&target);
         if method != "POST" {
             write_http(&mut stream, 405, "text/plain", b"method not allowed")?;
             continue;
@@ -330,19 +407,35 @@ fn handle_connection(stream: TcpStream, session: &mut Session) -> Result<(), Str
             write_http(&mut stream, 202, "text/plain", b"")?;
             continue;
         }
-        let response = if Claim::from_request_target(&target).authorise(session) {
-            dispatch(&message, session, modalities, local)
-        } else {
-            // A stale agent from a finished round: refuse rather than let it
-            // build in a park that now belongs to someone else.
-            rpc_error(
-                message.get("id").cloned().unwrap_or(Value::Null),
-                -32000,
-                "this park is leased to another session; your lease is stale",
-            )
-        };
+        let (reply_tx, reply_rx) = mpsc::channel();
+        tx.send(Request {
+            source,
+            target,
+            message,
+            reply: reply_tx,
+        })
+        .map_err(|_| "game thread is gone".to_string())?;
+        let response = reply_rx
+            .recv_timeout(REPLY_TIMEOUT)
+            .map_err(|e| format!("waiting on the game thread: {e}"))?;
         write_json(&mut stream, &response)?;
     }
+}
+
+/// Game-thread side of one request: claim the park, then dispatch. Everything
+/// reachable from here may call host functions.
+fn handle_request(request: &Request, session: &mut Session) -> Value {
+    if !Claim::from_request_target(&request.target).authorise(session) {
+        // A stale agent from a finished round: refuse rather than let it
+        // build in a park that now belongs to someone else.
+        return rpc_error(
+            request.message.get("id").cloned().unwrap_or(Value::Null),
+            -32000,
+            "this park is leased to another session; your lease is stale",
+        );
+    }
+    let modalities = Modalities::from_request_target(&request.target);
+    dispatch(&request.message, session, modalities, request.source)
 }
 
 fn read_http_request(
@@ -416,11 +509,12 @@ fn rpc_error(id: Value, code: i64, message: &str) -> Value {
     json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": message}})
 }
 
-/// `local` is true when the request came from this machine. The harness runs
-/// here; agents run in sandboxes and reach the server over the container
-/// network, so it is what separates "the thing collecting artifacts" from "the
-/// thing being measured".
-fn dispatch(message: &Value, session: &mut Session, modalities: Modalities, local: bool) -> Value {
+fn dispatch(
+    message: &Value,
+    session: &mut Session,
+    modalities: Modalities,
+    source: Source,
+) -> Value {
     let id = message.get("id").cloned().unwrap_or(Value::Null);
     let method = message.get("method").and_then(Value::as_str).unwrap_or("");
     match method {
@@ -439,7 +533,13 @@ fn dispatch(message: &Value, session: &mut Session, modalities: Modalities, loca
             )
         }
         "ping" => rpc_result(id, json!({})),
-        "tools/list" => rpc_result(id, json!({"tools": tool_definitions(modalities, local)})),
+        "tools/list" => {
+            let tools = match source {
+                Source::Mcp => tool_definitions(modalities),
+                Source::Control => control_tool_definitions(),
+            };
+            rpc_result(id, json!({"tools": tools}))
+        }
         "tools/call" => {
             let name = message
                 .pointer("/params/name")
@@ -449,14 +549,14 @@ fn dispatch(message: &Value, session: &mut Session, modalities: Modalities, loca
                 .pointer("/params/arguments")
                 .cloned()
                 .unwrap_or(json!({}));
-            if !local && is_host_tool(name) {
-                return rpc_result(
-                    id,
-                    json!({
-                        "content": [{"type": "text", "text": format!("{name} is not available to this client")}],
-                        "isError": true,
-                    }),
-                );
+            if source == Source::Control {
+                return match call_control_tool(name, &args, session) {
+                    Ok(content) => rpc_result(id, json!({"content": content, "isError": false})),
+                    Err(text) => rpc_result(
+                        id,
+                        json!({"content": [{"type": "text", "text": text}], "isError": true}),
+                    ),
+                };
             }
             if !modalities.contains(tool_modality(name)) {
                 return rpc_result(
@@ -479,22 +579,51 @@ fn dispatch(message: &Value, session: &mut Session, modalities: Modalities, loca
     }
 }
 
-fn tool_definitions(modalities: Modalities, local: bool) -> Value {
+fn tool_definitions(modalities: Modalities) -> Value {
     let mut tools = all_tool_definitions();
     if let Some(list) = tools.as_array_mut() {
         list.retain(|t| {
             let name = t.get("name").and_then(Value::as_str).unwrap_or_default();
-            modalities.contains(tool_modality(name)) && (local || !is_host_tool(name))
+            modalities.contains(tool_modality(name))
         });
     }
     tools
 }
 
-/// Tools that belong to the harness, not the agent. save_park takes a
-/// filesystem path and writes it on the machine running the game, so a
-/// sandboxed agent must never see or reach it: the sandbox is the whole point.
-fn is_host_tool(name: &str) -> bool {
-    name == "save_park"
+/// The harness's own tools, served only on the loopback control listener.
+/// save_park writes a path on the machine running the game, which is precisely
+/// what a sandboxed agent must not be able to ask for.
+fn control_tool_definitions() -> Value {
+    json!([
+        {
+            "name": "save_park",
+            "description": "Write the park to a .park save on the machine running the game.",
+            "inputSchema": {"type": "object", "required": ["path"], "properties": {
+                "path": {"type": "string", "description": "Filesystem path to write"}
+            }}
+        }
+    ])
+}
+
+fn call_control_tool(
+    name: &str,
+    args: &Value,
+    _session: &mut Session,
+) -> Result<Vec<Value>, String> {
+    match name {
+        "save_park" => {
+            let path = args
+                .get("path")
+                .and_then(Value::as_str)
+                .ok_or("path is required")?;
+            if host::save_park(path) {
+                Ok(text_content(json!({"saved": path})))
+            } else {
+                Err("park save failed".to_string())
+            }
+        }
+        other => Err(format!("unknown control tool: {other}")),
+    }
 }
 
 fn all_tool_definitions() -> Value {
@@ -565,13 +694,6 @@ fn all_tool_definitions() -> Value {
             "name": "demolish",
             "description": "Remove the current ride and its track so you can start over with new_ride.",
             "inputSchema": {"type": "object", "properties": {}}
-        },
-        {
-            "name": "save_park",
-            "description": "Harness only: write the park to a .park save on the machine running the game.",
-            "inputSchema": {"type": "object", "required": ["path"], "properties": {
-                "path": {"type": "string", "description": "Filesystem path to write"}
-            }}
         },
         {
             "name": "search_track_designs",
@@ -798,17 +920,6 @@ fn call_tool(name: &str, args: &Value, session: &mut Session) -> Result<Vec<Valu
             host::ride_demolish(build.ride_id)?;
             Ok(text_content(json!({"demolished": build.ride_id})))
         }
-        "save_park" => {
-            let path = args
-                .get("path")
-                .and_then(Value::as_str)
-                .ok_or("path is required")?;
-            if host::save_park(path) {
-                Ok(text_content(json!({"saved": path})))
-            } else {
-                Err("park save failed".to_string())
-            }
-        }
         "search_track_designs" => {
             let ride_type = arg_i64(args, "ride_type").map(|t| t as u16);
             let designs: Vec<Value> = session
@@ -929,7 +1040,7 @@ mod tests {
         let mut session = Session::default();
         let msg = json!({"jsonrpc": "2.0", "id": 1, "method": "initialize",
                          "params": {"protocolVersion": "2025-03-26"}});
-        let resp = dispatch(&msg, &mut session, Modalities::ALL, true);
+        let resp = dispatch(&msg, &mut session, Modalities::ALL, Source::Mcp);
         assert_eq!(
             resp.pointer("/result/protocolVersion")
                 .and_then(Value::as_str),
@@ -975,18 +1086,18 @@ mod tests {
     fn dispatch_unknown_method_is_rpc_error() {
         let mut session = Session::default();
         let msg = json!({"jsonrpc": "2.0", "id": 2, "method": "bogus"});
-        let resp = dispatch(&msg, &mut session, Modalities::ALL, true);
+        let resp = dispatch(&msg, &mut session, Modalities::ALL, Source::Mcp);
         assert_eq!(
             resp.pointer("/error/code").and_then(Value::as_i64),
             Some(-32601)
         );
     }
 
-    /// save_park writes a file on the host, so a sandboxed agent must not be
-    /// able to see it or call it. Hiding it from the listing is not enough on
-    /// its own: a client that knows the name could still call it.
+    /// save_park writes a file on the host. The listener a request arrives on
+    /// picks the table it is dispatched against, so an agent is not merely
+    /// refused the tool: nothing in the table its requests reach has that name.
     #[test]
-    fn save_park_is_reachable_from_the_host_and_nowhere_else() {
+    fn control_tools_exist_only_on_the_control_listener() {
         let mut session = Session::default();
         let list = json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list"});
         let names = |resp: &Value| -> Vec<String> {
@@ -1002,26 +1113,38 @@ mod tests {
                 .unwrap_or_default()
         };
 
-        let host_view = dispatch(&list, &mut session, Modalities::ALL, true);
-        assert!(names(&host_view).contains(&"save_park".to_string()));
+        let control = dispatch(&list, &mut session, Modalities::ALL, Source::Control);
+        assert_eq!(names(&control), vec!["save_park".to_string()]);
 
-        let agent_view = dispatch(&list, &mut session, Modalities::ALL, false);
+        let agent = dispatch(&list, &mut session, Modalities::ALL, Source::Mcp);
         assert!(
-            !names(&agent_view).contains(&"save_park".to_string()),
+            !names(&agent).contains(&"save_park".to_string()),
             "a sandboxed agent must not be offered a host filesystem write"
         );
-        assert!(
-            names(&agent_view).contains(&"place_piece".to_string()),
-            "the building tools are still there"
-        );
+        assert!(names(&agent).contains(&"place_piece".to_string()));
 
+        // Naming it explicitly does not help either: the agent table has no
+        // such tool to call.
         let call = json!({
             "jsonrpc": "2.0", "id": 2, "method": "tools/call",
             "params": {"name": "save_park", "arguments": {"path": "/tmp/should-not-happen.park"}}
         });
-        let refused = dispatch(&call, &mut session, Modalities::ALL, false);
+        let refused = dispatch(&call, &mut session, Modalities::ALL, Source::Mcp);
         assert_eq!(
             refused.pointer("/result/isError").and_then(Value::as_bool),
+            Some(true)
+        );
+
+        // And the building tools are not reachable from the control plane.
+        let build = json!({
+            "jsonrpc": "2.0", "id": 3, "method": "tools/call",
+            "params": {"name": "get_state", "arguments": {}}
+        });
+        let wrong_plane = dispatch(&build, &mut session, Modalities::ALL, Source::Control);
+        assert_eq!(
+            wrong_plane
+                .pointer("/result/isError")
+                .and_then(Value::as_bool),
             Some(true)
         );
     }
@@ -1030,7 +1153,7 @@ mod tests {
     fn tools_list_contains_the_full_toolset() {
         let mut session = Session::default();
         let msg = json!({"jsonrpc": "2.0", "id": 3, "method": "tools/list"});
-        let resp = dispatch(&msg, &mut session, Modalities::ALL, true);
+        let resp = dispatch(&msg, &mut session, Modalities::ALL, Source::Mcp);
         let tools = resp
             .pointer("/result/tools")
             .and_then(Value::as_array)
@@ -1061,7 +1184,7 @@ mod tests {
     fn text_only_clients_never_see_the_screenshot_tool() {
         let mut session = Session::default();
         let msg = json!({"jsonrpc": "2.0", "id": 3, "method": "tools/list"});
-        let resp = dispatch(&msg, &mut session, Modalities::TEXT, true);
+        let resp = dispatch(&msg, &mut session, Modalities::TEXT, Source::Mcp);
         let names: Vec<&str> = resp
             .pointer("/result/tools")
             .and_then(Value::as_array)
@@ -1078,7 +1201,7 @@ mod tests {
         let mut session = Session::default();
         let msg = json!({"jsonrpc": "2.0", "id": 6, "method": "tools/call",
                          "params": {"name": "screenshot", "arguments": {}}});
-        let resp = dispatch(&msg, &mut session, Modalities::TEXT, true);
+        let resp = dispatch(&msg, &mut session, Modalities::TEXT, Source::Mcp);
         assert_eq!(
             resp.pointer("/result/isError").and_then(Value::as_bool),
             Some(true)
@@ -1198,7 +1321,7 @@ mod tests {
         let mut session = Session::default();
         let msg = json!({"jsonrpc": "2.0", "id": 5, "method": "tools/call",
                          "params": {"name": "search_track_designs", "arguments": {}}});
-        let resp = dispatch(&msg, &mut session, Modalities::ALL, true);
+        let resp = dispatch(&msg, &mut session, Modalities::ALL, Source::Mcp);
         assert_eq!(
             resp.pointer("/result/isError").and_then(Value::as_bool),
             Some(true)
@@ -1210,7 +1333,7 @@ mod tests {
         let mut session = Session::default();
         let msg = json!({"jsonrpc": "2.0", "id": 4, "method": "tools/call",
                          "params": {"name": "get_state", "arguments": {}}});
-        let resp = dispatch(&msg, &mut session, Modalities::ALL, true);
+        let resp = dispatch(&msg, &mut session, Modalities::ALL, Source::Mcp);
         assert_eq!(
             resp.pointer("/result/isError").and_then(Value::as_bool),
             Some(true)

@@ -132,9 +132,13 @@ pub unsafe extern "C" fn orct2_agent_capture(
 /// # Safety
 /// `bind` must be null or a valid NUL-terminated string.
 #[no_mangle]
-pub unsafe extern "C" fn orct2_agent_serve(bind: *const c_char, port: u16) -> i32 {
+pub unsafe extern "C" fn orct2_agent_serve(
+    bind: *const c_char,
+    port: u16,
+    control_port: u16,
+) -> i32 {
     let bind = read_c_path(bind).unwrap_or_else(|| "127.0.0.1".to_string());
-    match mcp::serve(&bind, port) {
+    match mcp::serve(&bind, port, control_port) {
         Ok(()) => 0,
         Err(e) => {
             host::log(&format!("orct2-agent: serve failed: {e}"));

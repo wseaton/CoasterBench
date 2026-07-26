@@ -34,6 +34,7 @@ namespace OpenRCT2
     static u8string _reportPath{};
     static u8string _capturePath{};
     static int32_t _servePort = 0;
+    static int32_t _serveControlPort = 0;
     static u8string _serveBind{};
     static u8string _dumpLibraryPath{};
     static u8string _renderLibraryDir{};
@@ -52,6 +53,7 @@ namespace OpenRCT2
         { CMDLINE_TYPE_STRING,  &_capturePath,          kNAC, "capture",            "write a giant park screenshot (PNG) to this path"       },
         { CMDLINE_TYPE_INTEGER, &_servePort,            kNAC, "serve",              "run the MCP server on this port instead of a batch eval" },
         { CMDLINE_TYPE_STRING,  &_serveBind,            kNAC, "serve-bind",         "MCP server bind address (default 127.0.0.1; use 0.0.0.0 for containers)" },
+        { CMDLINE_TYPE_INTEGER, &_serveControlPort,     kNAC, "serve-control",      "loopback-only control port for the harness (save_park); off when 0"      },
         { CMDLINE_TYPE_STRING,  &_dumpLibraryPath,      kNAC, "dump-library",       "write the stock track design library as JSON to this path and exit"      },
         { CMDLINE_TYPE_STRING,  &_renderLibraryDir,     kNAC, "render-library",     "render a preview PNG of every stock track design into this directory and exit" },
         { CMDLINE_TYPE_STRING,  &_saveParkPath,         kNAC, "save-park",          "write the finished park as a .park save to this path"   },
@@ -126,7 +128,9 @@ namespace OpenRCT2
         {
             // Interactive mode: the MCP server owns the game loop from here.
             // Blocks until the process is terminated.
-            RustBridge::Serve(_serveBind.empty() ? nullptr : _serveBind.c_str(), static_cast<uint16_t>(_servePort));
+            RustBridge::Serve(
+                _serveBind.empty() ? nullptr : _serveBind.c_str(), static_cast<uint16_t>(_servePort),
+                static_cast<uint16_t>(_serveControlPort));
             return ExitCode::ok;
         }
 
