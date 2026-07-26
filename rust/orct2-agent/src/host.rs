@@ -172,6 +172,21 @@ unsafe extern "C" {
     fn orct2_host_track_mirror(track_type: u16) -> u16;
     fn orct2_host_circuit_stats(ride_id: u16, out: *mut CircuitStats) -> bool;
     fn orct2_host_save_park(path: *const c_char) -> bool;
+    fn orct2_host_capture_frame(
+        zoom: i32,
+        rotation: u8,
+        fit_track: bool,
+        out: *mut u8,
+        cap: usize,
+    ) -> usize;
+    fn orct2_host_capture_size(
+        zoom: i32,
+        rotation: u8,
+        fit_track: bool,
+        out_w: *mut u32,
+        out_h: *mut u32,
+    ) -> bool;
+    fn orct2_host_vehicle_status(ride_id: u16, out_status: *mut u8) -> bool;
 }
 
 #[cfg(test)]
@@ -331,6 +346,27 @@ pub fn save_park(path: &str) -> bool {
     unsafe { orct2_host_save_park(cstr.as_ptr()) }
 }
 
+/// Frame size for the current track, so a caller can size one buffer and reuse
+/// it for every frame of a replay.
+pub fn capture_size(zoom: i32, rotation: u8, fit_track: bool) -> Option<(u32, u32)> {
+    let (mut w, mut h) = (0u32, 0u32);
+    unsafe { orct2_host_capture_size(zoom, rotation, fit_track, &mut w, &mut h) }.then_some((w, h))
+}
+
+/// Renders one frame as RGBA into `buf`, returning the bytes written. Zero
+/// means the render failed or the buffer was too small.
+pub fn capture_frame(zoom: i32, rotation: u8, fit_track: bool, buf: &mut [u8]) -> usize {
+    unsafe { orct2_host_capture_frame(zoom, rotation, fit_track, buf.as_mut_ptr(), buf.len()) }
+}
+
+/// `Vehicle::Status` of the ride's lead train: 0 movingToEndOfStation,
+/// 1 waitingForPassengers, 2 waitingToDepart, 3 departing, 4 travelling,
+/// 5 arriving, 6 unloadingPassengers.
+pub fn vehicle_status(ride_id: u16) -> Option<u8> {
+    let mut status = 0u8;
+    unsafe { orct2_host_vehicle_status(ride_id, &mut status) }.then_some(status)
+}
+
 /// Walks `ride_id`'s circuit the way its trains do. None when the ride has no
 /// station to start from, which is also true of a ride that was never built.
 pub fn circuit_stats(ride_id: u16) -> Option<CircuitStats> {
@@ -481,6 +517,27 @@ mod test_stubs {
         false
     }
     pub unsafe fn orct2_host_save_park(_p: *const c_char) -> bool {
+        false
+    }
+    pub unsafe fn orct2_host_capture_frame(
+        _z: i32,
+        _r: u8,
+        _f: bool,
+        _o: *mut u8,
+        _c: usize,
+    ) -> usize {
+        0
+    }
+    pub unsafe fn orct2_host_capture_size(
+        _z: i32,
+        _r: u8,
+        _f: bool,
+        _w: *mut u32,
+        _h: *mut u32,
+    ) -> bool {
+        false
+    }
+    pub unsafe fn orct2_host_vehicle_status(_r: u16, _s: *mut u8) -> bool {
         false
     }
     pub unsafe fn orct2_host_entrance_place(

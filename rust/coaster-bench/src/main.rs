@@ -1244,32 +1244,15 @@ fn capture_replay(
     const FPS: u32 = 20;
     // 40 game ticks make a second, so every other tick is 20fps.
     let frames = seconds * FPS;
-    let dir = std::fs::canonicalize(round_dir)
-        .map(|d| d.join("frames"))
+    let out = std::fs::canonicalize(round_dir)
+        .map(|d| d.join("replay.mp4"))
         .map_err(|e| format!("resolve {}: {e}", round_dir.display()))?;
+    // The game renders straight into ffmpeg, so there are no frames on disk to
+    // clean up and nothing is PNG-encoded on the way.
     control.call(
         "capture_replay",
-        json!({"dir": dir, "frames": frames, "every_ticks": 2, "zoom": 0}),
+        json!({"out": out, "frames": frames, "every_ticks": 2, "zoom": 0}),
     )?;
-
-    let out = round_dir.join("replay.mp4");
-    // -g with the frame count: one keyframe for the whole clip. The scene is
-    // static, so extra keyframes are pure cost.
-    let status = Command::new("ffmpeg")
-        .args(["-y", "-loglevel", "error", "-framerate", &FPS.to_string()])
-        .arg("-i")
-        .arg(dir.join("frame_%05d.png"))
-        .args(["-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "28"])
-        .args(["-g", &frames.to_string(), "-movflags", "+faststart"])
-        .arg(&out)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .map_err(|e| format!("ffmpeg (brew install ffmpeg): {e}"))?;
-    let _ = std::fs::remove_dir_all(&dir);
-    if !status.success() {
-        return Err(format!("ffmpeg failed: {status}"));
-    }
     Ok(())
 }
 

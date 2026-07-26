@@ -629,7 +629,9 @@ static std::string ResolveFilenameForCapture(const fs::path& filename)
     return screenshotPath.u8string();
 }
 
-void CaptureImage(const CaptureOptions& options)
+// Shared by CaptureImage and CaptureImageToBuffer: everything up to the point
+// where one writes a file and the other keeps the pixels.
+static Viewport ViewportForCapture(const CaptureOptions& options)
 {
     Viewport viewport{};
     if (options.View.has_value())
@@ -655,6 +657,41 @@ void CaptureImage(const CaptureOptions& options)
         viewport.flags |= VIEWPORT_FLAG_TRANSPARENT_BACKGROUND;
     }
     viewport.flags |= options.ViewFlags;
+    return viewport;
+}
+
+bool CaptureImageToBuffer(const CaptureOptions& options, std::vector<uint8_t>& outRgba, int32_t& outWidth, int32_t& outHeight)
+{
+    auto viewport = ViewportForCapture(options);
+    auto rt = CreateRT(viewport);
+    RenderViewport(nullptr, viewport, rt);
+
+    outWidth = rt.width;
+    outHeight = rt.height;
+    outRgba.resize(static_cast<size_t>(rt.width) * rt.height * 4);
+    // The software renderer works in 8-bit palette indices; the palette lookup
+    // is the whole conversion.
+    const auto stride = rt.width + rt.pitch;
+    for (int32_t y = 0; y < rt.height; y++)
+    {
+        const auto* src = rt.bits + static_cast<size_t>(y) * stride;
+        auto* dst = outRgba.data() + static_cast<size_t>(y) * rt.width * 4;
+        for (int32_t x = 0; x < rt.width; x++)
+        {
+            const auto& colour = gPalette[static_cast<size_t>(EnumValue(src[x]))];
+            dst[x * 4 + 0] = colour.red;
+            dst[x * 4 + 1] = colour.green;
+            dst[x * 4 + 2] = colour.blue;
+            dst[x * 4 + 3] = 255;
+        }
+    }
+    ReleaseRT(rt);
+    return outWidth > 0 && outHeight > 0;
+}
+
+void CaptureImage(const CaptureOptions& options)
+{
+    auto viewport = ViewportForCapture(options);
 
     auto outputPath = ResolveFilenameForCapture(options.Filename);
     auto rt = CreateRT(viewport);

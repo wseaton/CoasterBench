@@ -446,6 +446,24 @@ fn pump_connection(
     }
 }
 
+/// Ticks until the ride's lead train is pulling out of the station, so a replay
+/// opens on a departure instead of mid-circuit. Gives up after a lap's worth of
+/// ticks: a train that never departs (a valleyed circuit) still gets filmed,
+/// which is exactly when the footage is worth watching.
+fn wait_for_departure(ride_id: u16, every: u32) -> u32 {
+    const DEPARTING: u8 = 3;
+    const MAX_WAIT_TICKS: u32 = 40 * 120;
+    let mut waited = 0;
+    while waited < MAX_WAIT_TICKS {
+        if host::vehicle_status(ride_id) == Some(DEPARTING) {
+            break;
+        }
+        host::run_ticks(every.max(1));
+        waited += every.max(1);
+    }
+    waited
+}
+
 /// Game-thread side of one request: claim the park, then dispatch. Everything
 /// reachable from here may call host functions.
 fn handle_request(request: &Request, session: &mut Session) -> Value {
@@ -628,12 +646,12 @@ fn control_tool_definitions() -> Value {
         },
         {
             "name": "capture_replay",
-            "description": "Tick the simulation and write PNG frames of the running ride to a directory, for encoding into a replay video.",
-            "inputSchema": {"type": "object", "required": ["dir"], "properties": {
-                "dir": {"type": "string", "description": "Directory to write frame_00000.png into"},
+            "description": "Film the running ride straight into an mp4: ticks the simulation, renders frames, and pipes them to ffmpeg. Starts from the train leaving the station.",
+            "inputSchema": {"type": "object", "required": ["out"], "properties": {
+                "out": {"type": "string", "description": "Path of the .mp4 to write"},
                 "frames": {"type": "integer", "description": "How many frames to capture (default 400)"},
-                "every_ticks": {"type": "integer", "description": "Game ticks between frames; 40 ticks = 1 second (default 2)"},
-                "zoom": {"type": "integer", "description": "Zoom level; higher is smaller and cheaper (default 1)"}
+                "every_ticks": {"type": "integer", "description": "Game ticks between frames; 40 ticks = 1 second (default 2, so 20fps)"},
+                "zoom": {"type": "integer", "description": "Zoom level; higher is smaller and cheaper (default 0)"}
             }}
         }
     ])
@@ -642,7 +660,7 @@ fn control_tool_definitions() -> Value {
 fn call_control_tool(
     name: &str,
     args: &Value,
-    _session: &mut Session,
+    session: &mut Session,
 ) -> Result<Vec<Value>, String> {
     match name {
         "save_park" => {
@@ -657,34 +675,73 @@ fn call_control_tool(
             }
         }
         "capture_replay" => {
-            let dir = args
-                .get("dir")
+            let out = args
+                .get("out")
                 .and_then(Value::as_str)
-                .ok_or("dir is required")?;
+                .ok_or("out (an .mp4 path) is required")?;
             let frames = arg_i64(args, "frames").unwrap_or(400).clamp(1, 20_000) as usize;
             let every = arg_i64(args, "every_ticks").unwrap_or(2).clamp(1, 400) as u32;
-            let zoom = arg_i64(args, "zoom").unwrap_or(1).clamp(0, 3) as i32;
-            std::fs::create_dir_all(dir).map_err(|e| format!("create {dir}: {e}"))?;
+            let zoom = arg_i64(args, "zoom").unwrap_or(0).clamp(0, 3) as i32;
+            let fps = 40.0 / f64::from(every);
 
             // Framing is fit to the track's bounding box, which does not move
             // while a test runs, so every frame shares a camera. That is the
             // point: a still camera over a still park means consecutive frames
             // differ only where the train is, which is what makes the encode
             // small.
+            let (width, height) = host::capture_size(zoom, 0, true).ok_or("no track to film")?;
+
+            // Start where a viewer expects: the train pulling out of the
+            // station, not wherever it happened to be when the test ended.
+            let waited = session
+                .build
+                .as_ref()
+                .map(|b| b.ride_id)
+                .map(|ride| wait_for_departure(ride, every))
+                .unwrap_or(0);
+
+            let mut child = std::process::Command::new("ffmpeg")
+                .args(["-y", "-loglevel", "error"])
+                .args(["-f", "rawvideo", "-pix_fmt", "rgba"])
+                .args(["-s", &format!("{width}x{height}")])
+                .args(["-framerate", &format!("{fps}")])
+                .args(["-i", "-"])
+                .args(["-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "28"])
+                // One keyframe for the whole clip: the scene is static, so
+                // extra keyframes are pure cost.
+                .args(["-g", &frames.to_string(), "-movflags", "+faststart"])
+                .arg(out)
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+                .map_err(|e| format!("ffmpeg (brew install ffmpeg): {e}"))?;
+            let mut sink = child.stdin.take().ok_or("ffmpeg stdin")?;
+
+            // One buffer for the whole replay, handed to the renderer and then
+            // straight to the encoder: no PNG, no temporary files.
+            let mut buf = vec![0u8; width as usize * height as usize * 4];
             let mut written = 0usize;
-            for index in 0..frames {
+            for _ in 0..frames {
                 host::run_ticks(every);
-                let path = format!("{dir}/frame_{index:05}.png");
-                if !host::capture(&path, zoom, 0, true, false) {
+                let n = host::capture_frame(zoom, 0, true, &mut buf);
+                if n == 0 || sink.write_all(&buf[..n]).is_err() {
                     break;
                 }
                 written += 1;
             }
+            drop(sink);
+            let status = child.wait().map_err(|e| format!("ffmpeg: {e}"))?;
+            if !status.success() {
+                return Err(format!("ffmpeg failed: {status}"));
+            }
             Ok(text_content(json!({
+                "out": out,
                 "frames": written,
-                "every_ticks": every,
-                "zoom": zoom,
-                "fps": 40.0 / f64::from(every),
+                "width": width,
+                "height": height,
+                "fps": fps,
+                "ticks_waited_for_station": waited,
             })))
         }
         other => Err(format!("unknown control tool: {other}")),

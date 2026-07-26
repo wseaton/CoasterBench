@@ -123,22 +123,32 @@ Non-bundled binaries look for `data/` next to the exe. One-time setup:
   - `save_park` writes a host filesystem path, so it lives on the loopback
     control listener only (see the MCP section), never in the agent toolset.
   - `evals/runs/**/*.park` is gitignored like the other heavy artifacts.
-- Replay video: the control tool `capture_replay(dir, frames, every_ticks, zoom)`
-  ticks the running ride and writes cropped PNG frames; coaster-bench encodes
-  them with ffmpeg into `round_N/replay.mp4` (libx264, crf 28, `-g` = frame
-  count so the clip has a single keyframe) and deletes the frames. Off with
-  `--replay-seconds 0`; 20s by default. The site embeds it with park.png as the
-  poster.
+- Replay video: the control tool `capture_replay(out, frames, every_ticks, zoom)`
+  renders frames straight into an ffmpeg it spawns (rawvideo rgba on stdin ->
+  libx264, crf 28, `-g` = frame count so the clip has a single keyframe),
+  writing `round_N/replay.mp4` with no intermediate files at all. Off with
+  `--replay-seconds 0`. The site embeds it with park.png as the poster.
+  - `CaptureImageToBuffer` (a fork-only addition beside `CaptureImage` in
+    Screenshot.cpp) renders to RGBA instead of writing a PNG; the palette
+    lookup is the whole conversion, since the software renderer works in 8-bit
+    indices. `orct2_host_capture_size` gives the frame size up front so one
+    buffer serves the whole replay.
+  - Filming starts when the lead train's `Vehicle::Status` reaches `departing`,
+    so a clip opens on a station departure rather than mid-circuit. It gives up
+    after 120s of game time: a valleyed train never departs, and that footage
+    is exactly the footage worth having.
   - Length comes from the game's own measured lap ("Ride time" =
     `Ride::getTotalTime()`, the sum of the stations' SegmentTime, in seconds)
     plus a 3s tail, bounded by `--replay-seconds` (90 default). Report.json
     carries it as `ride_time`. Do not guess: the test oval laps in 56s, so the
     old fixed 20s cut it off two thirds in. A ride that never tested has no
     measured time and falls back to the cap.
-  - Measured at 672x432, 20fps, zoom 0: 4 ms and 29 KB per frame to capture.
-    20s encodes to 255 KB, a full 59s lap to 577 KB (1180 frames, 4.5s to
-    capture). Tripling the length costs 2.3x the bytes, so length is cheap; the
-    PNG intermediate (37 MB for that lap) is transient.
+  - Frame size follows the track's footprint, so numbers vary a lot: the test
+    oval crops to 672x432, the 7.39 record coaster to 2016x1552. Measured on
+    the latter, 1280 frames (64s): PNG frames cost 40 ms each, 51s in total and
+    269 MB on disk; piping raw costs 6 ms each and 7.8s, with no disk at all.
+    That is 8.2x realtime, against ~1031x realtime for the simulation itself
+    (25000 ticks in 0.61s), so filming remains the slow half by far.
   - ffmpeg comes from brew and is not vendored; a missing binary logs and skips
     the video rather than failing the round.
 - Circuit audit: `orct2_host_circuit_stats` walks a ride with the game's own

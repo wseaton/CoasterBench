@@ -289,6 +289,20 @@ extern bool orct2_host_circuit_stats(uint16_t ride_id, struct Orct2CircuitStats 
 
 extern bool orct2_host_save_park(const char *path);
 
+extern uintptr_t orct2_host_capture_frame(int32_t zoom,
+                                          uint8_t rotation,
+                                          bool fit_track,
+                                          uint8_t *out,
+                                          uintptr_t cap);
+
+extern bool orct2_host_capture_size(int32_t zoom,
+                                    uint8_t rotation,
+                                    bool fit_track,
+                                    uint32_t *out_w,
+                                    uint32_t *out_h);
+
+extern bool orct2_host_vehicle_status(uint16_t ride_id, uint8_t *out_status);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus

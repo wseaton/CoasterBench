@@ -43,6 +43,7 @@
     #include "../ride/RideManager.hpp"
     #include "../ride/RideRatings.h"
     #include "../ride/TrackData.h"
+    #include "../ride/Vehicle.h"
     #include "../ride/TrackIteration.h"
     #include "../ride/TrackStyle.h"
     #include "../ride/TrackDesign.h"
@@ -57,6 +58,7 @@
     #include <cstring>
     #include <unistd.h>
     #include <unordered_set>
+    #include <vector>
 
 using namespace OpenRCT2;
 
@@ -776,6 +778,94 @@ char* orct2_host_track_library_json(void)
         LOG_ERROR("track library scan failed: %s", e.what());
         return nullptr;
     }
+}
+
+// Renders one frame of the same view orct2_host_capture uses, but hands back
+// RGBA bytes. Filming a ride writes a frame every other tick, where the PNG
+// encode and two file writes per frame cost more than the render.
+//
+// The caller sizes the buffer from orct2_host_capture_size and reuses it, so a
+// whole replay allocates once. Returns the bytes written, or 0 on failure or a
+// buffer too small.
+size_t orct2_host_capture_frame(int32_t zoom, uint8_t rotation, bool fit_track, uint8_t* out, size_t cap)
+{
+    if (out == nullptr)
+    {
+        return 0;
+    }
+    try
+    {
+        CaptureOptions options;
+        options.Zoom = ZoomLevel{ static_cast<int8_t>(zoom) };
+        options.Rotation = rotation & 3;
+        if (fit_track)
+        {
+            Orct2TrackBounds bounds;
+            if (FindTrackBounds(bounds))
+            {
+                options.View = FitViewToTrack(bounds, options.Rotation);
+            }
+        }
+        std::vector<uint8_t> pixels;
+        int32_t width = 0;
+        int32_t height = 0;
+        if (!CaptureImageToBuffer(options, pixels, width, height) || pixels.size() > cap)
+        {
+            return 0;
+        }
+        std::memcpy(out, pixels.data(), pixels.size());
+        return pixels.size();
+    }
+    catch (const std::exception& e)
+    {
+        LOG_ERROR("frame capture failed: %s", e.what());
+        return 0;
+    }
+}
+
+// Frame dimensions for the current track, without rendering anything.
+bool orct2_host_capture_size(int32_t zoom, uint8_t rotation, bool fit_track, uint32_t* out_w, uint32_t* out_h)
+{
+    if (out_w == nullptr || out_h == nullptr)
+    {
+        return false;
+    }
+    auto rotationMasked = static_cast<uint8_t>(rotation & 3);
+    Orct2TrackBounds bounds;
+    if (fit_track && FindTrackBounds(bounds))
+    {
+        auto view = FitViewToTrack(bounds, rotationMasked);
+        auto zoomLevel = ZoomLevel{ static_cast<int8_t>(zoom) };
+        // Matches CreateRT: the view is in world pixels, the target in screen
+        // pixels after the zoom division.
+        *out_w = static_cast<uint32_t>(zoomLevel.ApplyInversedTo(view.Width));
+        *out_h = static_cast<uint32_t>(zoomLevel.ApplyInversedTo(view.Height));
+        return *out_w > 0 && *out_h > 0;
+    }
+    return false;
+}
+
+// The lead train's status (Vehicle::Status), so a replay can start where a
+// viewer expects it to: the train leaving the station, not wherever it happened
+// to be when the test ended.
+bool orct2_host_vehicle_status(uint16_t ride_id, uint8_t* out_status)
+{
+    if (out_status == nullptr)
+    {
+        return false;
+    }
+    const auto* ride = GetRide(RideId::FromUnderlying(ride_id));
+    if (ride == nullptr || ride->numTrains == 0)
+    {
+        return false;
+    }
+    const auto* vehicle = getGameState().entities.GetEntity<Vehicle>(ride->vehicles[0]);
+    if (vehicle == nullptr)
+    {
+        return false;
+    }
+    *out_status = static_cast<uint8_t>(vehicle->status);
+    return true;
 }
 
 bool orct2_host_save_park(const char* path)
