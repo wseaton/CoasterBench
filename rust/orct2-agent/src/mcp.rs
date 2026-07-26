@@ -31,6 +31,7 @@ use crate::host;
 use crate::library::{self, LibraryDesign};
 use crate::pieces;
 use crate::program;
+use crate::replay;
 use crate::report;
 
 /// Content kinds a client can accept, named after the OpenRouter model
@@ -119,6 +120,7 @@ impl Claim {
             session.lease = self.lease.clone();
             session.best_test = None;
             session.best_shot = None;
+            session.best_shot_fit = None;
             return true;
         }
         match (&session.lease, &self.lease) {
@@ -129,12 +131,12 @@ impl Claim {
     }
 }
 
-/// Render the whole park to a PNG and return the bytes. The full map is
-/// intentional: an agent needs whole-park spatial context, not a viewport.
-fn capture_park_png() -> Result<Vec<u8>, String> {
+/// Render the park to a PNG. The agent's screenshots are deliberately the whole
+/// map (spatial context); the harness keeps the `fit_track` crop.
+fn capture_park_png(fit_track: bool) -> Result<Vec<u8>, String> {
     let path = std::env::temp_dir().join("orct2_mcp_capture.png");
     let path_str = path.to_string_lossy();
-    if !host::capture(&path_str, 0, 0, false, false) {
+    if !host::capture(&path_str, 0, 0, fit_track, false) {
         return Err("capture failed".into());
     }
     std::fs::read(&path).map_err(|e| format!("read capture: {e}"))
@@ -257,6 +259,9 @@ struct Session {
     /// Park PNG captured at the moment `best_test` was set, so the scored
     /// coaster can be pictured even after it was demolished. Reset with it.
     best_shot: Option<Vec<u8>>,
+    /// The same moment cropped to the track: the round's picture. Taken then,
+    /// not later, because the coaster may be gone by the end of the round.
+    best_shot_fit: Option<Vec<u8>>,
 }
 
 /// Best-ride excitement in a finish_and_test report, if any ride was rated.
@@ -429,24 +434,6 @@ fn pump_connection(
             .map_err(|e| format!("waiting on the game thread: {e}"))?;
         write_json(&mut stream, &response)?;
     }
-}
-
-/// Ticks until the ride's lead train is pulling out of the station, so a replay
-/// opens on a departure instead of mid-circuit. Gives up after a lap's worth of
-/// ticks: a train that never departs (a valleyed circuit) still gets filmed,
-/// which is exactly when the footage is worth watching.
-fn wait_for_departure(ride_id: u16, every: u32) -> u32 {
-    const DEPARTING: u8 = 3;
-    const MAX_WAIT_TICKS: u32 = 40 * 120;
-    let mut waited = 0;
-    while waited < MAX_WAIT_TICKS {
-        if host::vehicle_status(ride_id) == Some(DEPARTING) {
-            break;
-        }
-        host::run_ticks(every.max(1));
-        waited += every.max(1);
-    }
-    waited
 }
 
 /// Game-thread side of one request: claim the park, then dispatch. Everything
@@ -630,6 +617,14 @@ fn control_tool_definitions() -> Value {
             }}
         },
         {
+            "name": "capture_park",
+            "description": "Write a PNG of the park, cropped to the track, to a path on the machine running the game. The agent-facing screenshot tool renders the whole map instead.",
+            "inputSchema": {"type": "object", "required": ["path"], "properties": {
+                "path": {"type": "string", "description": "Filesystem path to write"},
+                "best": {"type": "boolean", "description": "Write the park as it stood when the best rated test was taken, rather than as it stands now (default false)"}
+            }}
+        },
+        {
             "name": "capture_replay",
             "description": "Film the running ride straight into an mp4: ticks the simulation, renders frames, and pipes them to ffmpeg. Starts from the train leaving the station.",
             "inputSchema": {"type": "object", "required": ["out"], "properties": {
@@ -659,6 +654,28 @@ fn call_control_tool(
                 Err("park save failed".to_string())
             }
         }
+        "capture_park" => {
+            let path = args
+                .get("path")
+                .and_then(Value::as_str)
+                .ok_or("path is required")?;
+            let best = args.get("best").and_then(Value::as_bool).unwrap_or(false);
+            // The best shot was taken when the score was, so it survives a
+            // demolition; the live park is rendered on demand.
+            let png = if best {
+                session
+                    .best_shot_fit
+                    .clone()
+                    .ok_or("no rated test yet this round")?
+            } else {
+                capture_park_png(true)?
+            };
+            let bytes = png.len();
+            std::fs::write(path, png).map_err(|e| format!("write {path}: {e}"))?;
+            Ok(text_content(
+                json!({"path": path, "bytes": bytes, "best": best}),
+            ))
+        }
         "capture_replay" => {
             let out = args
                 .get("out")
@@ -667,66 +684,22 @@ fn call_control_tool(
             let frames = arg_i64(args, "frames").unwrap_or(400).clamp(1, 20_000) as usize;
             let every = arg_i64(args, "every_ticks").unwrap_or(2).clamp(1, 400) as u32;
             let zoom = arg_i64(args, "zoom").unwrap_or(0).clamp(0, 3) as i32;
-            let fps = 40.0 / f64::from(every);
-
-            // Framing is fit to the track's bounding box, which does not move
-            // while a test runs, so every frame shares a camera. That is the
-            // point: a still camera over a still park means consecutive frames
-            // differ only where the train is, which is what makes the encode
-            // small.
-            let (width, height) = host::capture_size(zoom, 0, true).ok_or("no track to film")?;
-
-            // Start where a viewer expects: the train pulling out of the
-            // station, not wherever it happened to be when the test ended.
-            let waited = session
-                .build
-                .as_ref()
-                .map(|b| b.ride_id)
-                .map(|ride| wait_for_departure(ride, every))
-                .unwrap_or(0);
-
-            let mut child = std::process::Command::new("ffmpeg")
-                .args(["-y", "-loglevel", "error"])
-                .args(["-f", "rawvideo", "-pix_fmt", "rgba"])
-                .args(["-s", &format!("{width}x{height}")])
-                .args(["-framerate", &format!("{fps}")])
-                .args(["-i", "-"])
-                .args(["-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "28"])
-                // One keyframe for the whole clip: the scene is static, so
-                // extra keyframes are pure cost.
-                .args(["-g", &frames.to_string(), "-movflags", "+faststart"])
-                .arg(out)
-                .stdin(std::process::Stdio::piped())
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .spawn()
-                .map_err(|e| format!("ffmpeg (brew install ffmpeg): {e}"))?;
-            let mut sink = child.stdin.take().ok_or("ffmpeg stdin")?;
-
-            // One buffer for the whole replay, handed to the renderer and then
-            // straight to the encoder: no PNG, no temporary files.
-            let mut buf = vec![0u8; width as usize * height as usize * 4];
-            let mut written = 0usize;
-            for _ in 0..frames {
-                host::run_ticks(every);
-                let n = host::capture_frame(zoom, 0, true, &mut buf);
-                if n == 0 || sink.write_all(&buf[..n]).is_err() {
-                    break;
-                }
-                written += 1;
-            }
-            drop(sink);
-            let status = child.wait().map_err(|e| format!("ffmpeg: {e}"))?;
-            if !status.success() {
-                return Err(format!("ffmpeg failed: {status}"));
-            }
+            let filmed = replay::film(
+                out,
+                frames,
+                every,
+                zoom,
+                session.build.as_ref().map(|b| b.ride_id),
+            )?;
             Ok(text_content(json!({
                 "out": out,
-                "frames": written,
-                "width": width,
-                "height": height,
-                "fps": fps,
-                "ticks_waited_for_station": waited,
+                "frames": filmed.frames,
+                "width": filmed.width,
+                "height": filmed.height,
+                "fps": filmed.fps,
+                "ticks_waited_for_station": filmed.ticks_waited_for_station,
+                "poster": filmed.poster,
+                "looped": filmed.looped,
             })))
         }
         other => Err(format!("unknown control tool: {other}")),
@@ -966,7 +939,8 @@ fn call_tool(name: &str, args: &Value, session: &mut Session) -> Result<Vec<Valu
                 let prev = session.best_test.as_ref().and_then(report_excitement);
                 if prev.is_none_or(|b| excitement > b) {
                     session.best_test = Some(report.clone());
-                    session.best_shot = capture_park_png().ok();
+                    session.best_shot = capture_park_png(false).ok();
+                    session.best_shot_fit = capture_park_png(true).ok();
                 }
             }
             Ok(text_content(report))
@@ -988,7 +962,7 @@ fn call_tool(name: &str, args: &Value, session: &mut Session) -> Result<Vec<Valu
                 None => Err("no rated test yet this round".into()),
             }
         }
-        "screenshot" => Ok(image_content(capture_park_png()?)),
+        "screenshot" => Ok(image_content(capture_park_png(false)?)),
         "undo_piece" => {
             let build = session.open()?;
             let last = build.placed.pop().ok_or("no pieces to undo")?;
@@ -1234,6 +1208,9 @@ mod tests {
         let agent_names = names(&dispatch(&list, &mut session, Modalities::ALL, Source::Mcp));
         assert!(names(&control).contains(&"save_park".to_string()));
         assert!(names(&control).contains(&"capture_replay".to_string()));
+        // The round's picture is a host filesystem write too, so it lives here
+        // and not in the agent's table.
+        assert!(names(&control).contains(&"capture_park".to_string()));
         assert!(
             names(&control).iter().all(|t| !agent_names.contains(t)),
             "control tools leaked into the agent table: {:?}",

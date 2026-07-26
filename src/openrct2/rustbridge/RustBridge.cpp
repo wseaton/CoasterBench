@@ -984,6 +984,11 @@ namespace OpenRCT2::RustBridge
         return orct2_agent_capture(path, zoom, rotation, fitTrack, xray);
     }
 
+    int32_t CaptureReplay(const char* path, uint32_t maxSeconds, int32_t zoom)
+    {
+        return orct2_agent_capture_replay(path, maxSeconds, zoom);
+    }
+
     bool SavePark(std::string_view path)
     {
         try

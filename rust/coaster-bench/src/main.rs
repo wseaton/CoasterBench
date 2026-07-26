@@ -1170,27 +1170,28 @@ fn collect_round(
     write_json(&round_dir.join("program.json"), &program)?;
     write_json(&round_dir.join("report.json"), &report)?;
 
-    // Picture the scored coaster: best_screenshot when the score came from an
-    // earlier (possibly demolished) build, otherwise the current park.
-    let shot_tool = if scored_from_best {
-        "best_screenshot"
-    } else {
-        "screenshot"
-    };
-    match client.call_image(shot_tool, json!({})) {
-        Ok(png) => std::fs::write(round_dir.join("park.png"), png).map_err(|e| e.to_string())?,
-        Err(e) => eprintln!("  {shot_tool} failed: {e}"),
+    // Server-side writes from here, hence absolute paths: the game is a
+    // separate process with its own working directory. Control plane, not the
+    // agents' MCP endpoint, because these write this filesystem.
+    let dir = std::fs::canonicalize(round_dir)
+        .map_err(|e| format!("resolve {}: {e}", round_dir.display()))?;
+    let mut control = mcp::McpClient::new("127.0.0.1", args.control_port);
+
+    // Picture the scored coaster, cropped to the track: `best` when the score
+    // came from an earlier (possibly demolished) build, otherwise the park as
+    // it stands. The agent's own screenshot tool renders the whole map, which
+    // is right for building and wrong for a thumbnail.
+    let shot_path = dir.join("park.png");
+    if let Err(e) = control.call(
+        "capture_park",
+        json!({"path": shot_path, "best": scored_from_best}),
+    ) {
+        eprintln!("  capture_park failed: {e}");
     }
 
     // The park as it stands, so a result can be reopened and checked rather
-    // than taken on the report's word. Server-side write, hence an absolute
-    // path: the game is a separate process with its own working directory.
-    let park_path = std::fs::canonicalize(round_dir)
-        .map(|dir| dir.join("park.park"))
-        .map_err(|e| format!("resolve {}: {e}", round_dir.display()))?;
-    // Control plane, not the agents' MCP endpoint: save_park writes this
-    // filesystem and only exists on the loopback listener.
-    let mut control = mcp::McpClient::new("127.0.0.1", args.control_port);
+    // than taken on the report's word.
+    let park_path = dir.join("park.park");
     if let Err(e) = control.call("save_park", json!({"path": park_path})) {
         eprintln!("  save_park failed: {e}");
     }

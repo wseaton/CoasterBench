@@ -39,6 +39,8 @@ namespace OpenRCT2
     static u8string _dumpLibraryPath{};
     static u8string _renderLibraryDir{};
     static u8string _saveParkPath{};
+    static u8string _replayPath{};
+    static int32_t _replaySeconds = 90;
     static bool _captureAllRotations = false;
     static bool _captureXray = false;
 
@@ -57,6 +59,8 @@ namespace OpenRCT2
         { CMDLINE_TYPE_STRING,  &_dumpLibraryPath,      kNAC, "dump-library",       "write the stock track design library as JSON to this path and exit"      },
         { CMDLINE_TYPE_STRING,  &_renderLibraryDir,     kNAC, "render-library",     "render a preview PNG of every stock track design into this directory and exit" },
         { CMDLINE_TYPE_STRING,  &_saveParkPath,         kNAC, "save-park",          "write the finished park as a .park save to this path"   },
+        { CMDLINE_TYPE_STRING,  &_replayPath,           kNAC, "replay",             "film the ride into this .mp4 (needs ffmpeg on PATH)"     },
+        { CMDLINE_TYPE_INTEGER, &_replaySeconds,        kNAC, "replay-seconds",     "cap on --replay length; a clip normally ends at the ride's next departure (default 90)" },
         { CMDLINE_TYPE_SWITCH,  &_captureAllRotations,  kNAC, "capture-all-rotations", "with --capture, also write the other three view rotations as <name>-r1/-r2/-r3.png" },
         { CMDLINE_TYPE_SWITCH,  &_captureXray,          kNAC, "capture-xray",       "with --capture, also write a see-through verification view (terrain and supports hidden, every placed piece visible) as <name>-x.png" },
         kOptionTableEnd
@@ -212,6 +216,25 @@ namespace OpenRCT2
                     Console::Error::WriteLine("Screenshot capture failed (xray view).");
                     exitCode = ExitCode::fail;
                 }
+            }
+        }
+        // Last: filming ticks the simulation on.
+        if (!_replayPath.empty())
+        {
+            if (_replaySeconds <= 0)
+            {
+                Console::Error::WriteLine("--replay-seconds must be positive");
+                return ExitCode::fail;
+            }
+            if (RustBridge::CaptureReplay(_replayPath.c_str(), static_cast<uint32_t>(_replaySeconds), 0 /*zoom*/)
+                != 0)
+            {
+                Console::Error::WriteLine("Replay capture failed.");
+                exitCode = ExitCode::fail;
+            }
+            else
+            {
+                Console::WriteLine("Replay written to %s", _replayPath.c_str());
             }
         }
 

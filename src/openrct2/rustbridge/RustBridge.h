@@ -35,6 +35,11 @@ namespace OpenRCT2::RustBridge
     // box (full map when no track exists). Returns 0 on success.
     int32_t Capture(const char* path, int32_t zoom, uint8_t rotation, bool fitTrack, bool xray);
 
+    // Films the park's coaster into an mp4 (ffmpeg encodes), one station-to-
+    // station cycle, bounded by maxSeconds. Advances the simulation, so call it
+    // after the report and any screenshot. Returns 0 on success.
+    int32_t CaptureReplay(const char* path, uint32_t maxSeconds, int32_t zoom);
+
     // Writes the park as a .park save, the artifact that lets a result be
     // reopened and checked instead of taken on trust. Returns true on success.
     bool SavePark(std::string_view path);

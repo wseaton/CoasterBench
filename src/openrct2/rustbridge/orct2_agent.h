@@ -184,6 +184,22 @@ int32_t orct2_agent_capture(const char *path,
                             bool xray);
 
 /**
+ * Films the park's coaster into `path` as an mp4 (ffmpeg on PATH does the
+ * encoding), starting from the train leaving the station and ending at its next
+ * departure, which is one whole cycle and so loops. `max_seconds` bounds a ride
+ * that never comes back round (a valleyed circuit, or a lap longer than the
+ * cap); those clips are excerpts and say so in the sidecar. Ticks the simulation on, so
+ * call it after the report and any screenshot. Returns 0 on success.
+ *
+ * This is how a round recorded before replays existed gets one: rerun its
+ * track program through `coasterbench-cli eval --replay`.
+ *
+ * # Safety
+ * `path` must be null or a valid NUL-terminated string.
+ */
+int32_t orct2_agent_capture_replay(const char *path, uint32_t max_seconds, int32_t zoom);
+
+/**
  * Runs the MCP server on bind:port (bind defaults to 127.0.0.1 when null),
  * blocking the game thread. Tool calls execute game actions directly;
  * `finish_and_test` advances the simulation inline. Returns nonzero if the
