@@ -69,6 +69,12 @@ typedef struct Orct2RideDetail {
    * the game shows; see `report::ride_length_metres`.
    */
   int32_t ride_length;
+  /**
+   * One lap in seconds, as the game measures it during the test and shows
+   * as "Ride time" (the sum of the stations' SegmentTime). 0 until a test
+   * completes.
+   */
+  int32_t ride_time;
   int16_t max_positive_g;
   int16_t max_negative_g;
   int16_t max_lateral_g;

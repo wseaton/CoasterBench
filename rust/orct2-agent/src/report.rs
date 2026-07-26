@@ -35,6 +35,9 @@ pub struct RideReport {
     pub average_speed: i32,
     /// Total ride length in metres, matching the game's "Ride length" stat.
     pub ride_length: i32,
+    /// One lap in seconds, matching the game's "Ride time" stat. 0 until the
+    /// ride has completed a test.
+    pub ride_time: i32,
     pub max_positive_g: f32,
     pub max_negative_g: f32,
     pub max_lateral_g: f32,
@@ -143,6 +146,7 @@ pub fn build(
             max_speed: detail.max_speed,
             average_speed: detail.average_speed,
             ride_length: ride_length_metres(detail.ride_length),
+            ride_time: detail.ride_time,
             max_positive_g: fixed2dp(detail.max_positive_g),
             max_negative_g: fixed2dp(detail.max_negative_g),
             max_lateral_g: fixed2dp(detail.max_lateral_g),

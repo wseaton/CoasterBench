@@ -103,10 +103,16 @@ Non-bundled binaries look for `data/` next to the exe. One-time setup:
   count so the clip has a single keyframe) and deletes the frames. Off with
   `--replay-seconds 0`; 20s by default. The site embeds it with park.png as the
   poster.
-  - Measured on a test circuit at 672x432, 20fps, zoom 0: 4 ms and 29 KB per
-    frame to capture, and 400 frames (20s) encode to 255 KB. Ten times the
-    frames cost under four times the bytes, so length is cheap; the PNG
-    intermediate (13 MB for those 400) is transient.
+  - Length comes from the game's own measured lap ("Ride time" =
+    `Ride::getTotalTime()`, the sum of the stations' SegmentTime, in seconds)
+    plus a 3s tail, bounded by `--replay-seconds` (90 default). Report.json
+    carries it as `ride_time`. Do not guess: the test oval laps in 56s, so the
+    old fixed 20s cut it off two thirds in. A ride that never tested has no
+    measured time and falls back to the cap.
+  - Measured at 672x432, 20fps, zoom 0: 4 ms and 29 KB per frame to capture.
+    20s encodes to 255 KB, a full 59s lap to 577 KB (1180 frames, 4.5s to
+    capture). Tripling the length costs 2.3x the bytes, so length is cheap; the
+    PNG intermediate (37 MB for that lap) is transient.
   - ffmpeg comes from brew and is not vendored; a missing binary logs and skips
     the video rather than failing the round.
 - Circuit audit: `orct2_host_circuit_stats` walks a ride with the game's own

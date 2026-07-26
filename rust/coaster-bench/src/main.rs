@@ -135,9 +135,10 @@ struct Args {
     #[arg(long)]
     extra_tools: Option<String>,
 
-    /// Seconds of the finished ride to record as round_N/replay.mp4 (needs
-    /// ffmpeg on PATH). 0 records nothing.
-    #[arg(long, default_value_t = 20)]
+    /// Cap on the replay recorded as round_N/replay.mp4 (needs ffmpeg on
+    /// PATH). The length actually used is the lap time the game measured, so
+    /// this only bounds a pathological ride. 0 records nothing.
+    #[arg(long, default_value_t = 90)]
     replay_seconds: u32,
 
     /// Open note: stage a read-only checkout of the engine source the agents
@@ -1195,7 +1196,7 @@ fn collect_round(
     }
     // Saved before the replay, because capturing one ticks the simulation on.
     if args.replay_seconds > 0 {
-        if let Err(e) = capture_replay(&mut control, args, round_dir) {
+        if let Err(e) = capture_replay(&mut control, round_dir, replay_seconds(&report, args)) {
             eprintln!("  replay failed: {e}");
         }
     }
@@ -1210,14 +1211,39 @@ fn collect_round(
 /// keep: measured on a test circuit, 20 seconds came to 255 KB, and ten times
 /// the frames cost under four times the bytes. The PNGs in between are large
 /// (13 MB for those 400 frames) and are deleted once encoded.
+/// How long to record: the lap time the game itself measured during the test
+/// ("Ride time" in the ride window, the sum of the stations' segment times),
+/// plus a little so the train is seen arriving rather than cut off mid-air.
+/// Falls back to the cap when the ride never completed a test and so has no
+/// measured time.
+fn replay_seconds(report: &Value, args: &Args) -> u32 {
+    const TAIL: i64 = 3;
+    let lap = report
+        .get("rides")
+        .and_then(Value::as_array)
+        .and_then(|rides| {
+            rides
+                .iter()
+                .filter_map(|r| r.get("ride_time")?.as_i64())
+                .max()
+        })
+        .unwrap_or(0);
+    if lap <= 0 {
+        return args.replay_seconds;
+    }
+    u32::try_from(lap + TAIL)
+        .unwrap_or(args.replay_seconds)
+        .min(args.replay_seconds)
+}
+
 fn capture_replay(
     control: &mut mcp::McpClient,
-    args: &Args,
     round_dir: &Path,
+    seconds: u32,
 ) -> Result<(), String> {
     const FPS: u32 = 20;
     // 40 game ticks make a second, so every other tick is 20fps.
-    let frames = args.replay_seconds * FPS;
+    let frames = seconds * FPS;
     let dir = std::fs::canonicalize(round_dir)
         .map(|d| d.join("frames"))
         .map_err(|e| format!("resolve {}: {e}", round_dir.display()))?;
@@ -1639,6 +1665,32 @@ mod tests {
         };
         assert_eq!(claude.sandbox(&args), "coaster-sub");
         assert_eq!(opencode.sandbox(&args), "coaster-or");
+    }
+
+    #[test]
+    fn replay_length_follows_the_measured_lap() {
+        let args = Args::parse_from(["coaster-bench"]);
+        // The game measured the lap, so record that plus a tail rather than a
+        // guess: a fixed 20s cut the test oval's 56s circuit off two thirds in.
+        let report = json!({"rides": [{"ride_time": 56}]});
+        assert_eq!(replay_seconds(&report, &args), 59);
+
+        // Several rides in the park: the longest lap is the one that has to fit.
+        let two = json!({"rides": [{"ride_time": 12}, {"ride_time": 40}]});
+        assert_eq!(replay_seconds(&two, &args), 43);
+
+        // A ride that never completed a test has no measured time; fall back to
+        // the cap rather than recording nothing.
+        let untested = json!({"rides": [{"ride_time": 0}]});
+        assert_eq!(replay_seconds(&untested, &args), args.replay_seconds);
+        assert_eq!(
+            replay_seconds(&json!({"rides": []}), &args),
+            args.replay_seconds
+        );
+
+        // A pathological lap is bounded by the cap.
+        let epic = json!({"rides": [{"ride_time": 9999}]});
+        assert_eq!(replay_seconds(&epic, &args), args.replay_seconds);
     }
 
     #[test]

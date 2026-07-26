@@ -500,6 +500,7 @@ bool orct2_host_ride_detail(uint16_t ride_id, Orct2RideDetail* out)
         .max_speed = ride->maxSpeed,
         .average_speed = ride->averageSpeed,
         .ride_length = ride->getTotalLength(),
+        .ride_time = ride->getTotalTime(),
         .max_positive_g = ride->maxPositiveVerticalG,
         .max_negative_g = ride->maxNegativeVerticalG,
         .max_lateral_g = ride->maxLateralG,

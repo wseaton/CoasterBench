@@ -57,6 +57,10 @@ pub struct RideDetail {
     /// (`Ride::getTotalLength()`). Divide by 2^16 for the human-readable metres
     /// the game shows; see `report::ride_length_metres`.
     pub ride_length: i32,
+    /// One lap in seconds, as the game measures it during the test and shows
+    /// as "Ride time" (the sum of the stations' SegmentTime). 0 until a test
+    /// completes.
+    pub ride_time: i32,
     pub max_positive_g: i16,
     pub max_negative_g: i16,
     pub max_lateral_g: i16,
