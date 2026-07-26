@@ -26,6 +26,7 @@ evals/runs/**/session.err
 evals/library-previews/
 .wrangler/
 .claude/settings.local.json
+CLAUDE.local.md
 .claude/worktrees/
 bin.*/
 .cache

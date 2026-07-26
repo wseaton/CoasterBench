@@ -135,7 +135,14 @@ Non-bundled binaries look for `data/` next to the exe. One-time setup:
   renders frames straight into an ffmpeg it spawns (rawvideo rgba on stdin ->
   libx264, crf 28, `-g` = frame count so the clip has a single keyframe),
   writing `round_N/replay.mp4` with no intermediate files at all. Off with
-  `--replay-seconds 0`. The site embeds it with park.png as the poster.
+  `--replay-seconds 0`. Filming lives in `rust/orct2-agent/src/replay.rs` and has
+  two callers: that tool, and `coasterbench-cli eval --replay <path>
+  [--replay-seconds N]`, which is how a round from before videos existed gets
+  one (see backfill below).
+  - It also writes `round_N/replay.png`, a still from the same camera, which is
+    the video's poster on the site. The round's park.png frames the whole map,
+    so using it left an island in front of a clip framed to the track: the
+    coaster was a squiggle in the middle until the moment you pressed play.
   - `CaptureImageToBuffer` (a fork-only addition beside `CaptureImage` in
     Screenshot.cpp) renders to RGBA instead of writing a PNG; the palette
     lookup is the whole conversion, since the software renderer works in 8-bit
@@ -145,12 +152,20 @@ Non-bundled binaries look for `data/` next to the exe. One-time setup:
     so a clip opens on a station departure rather than mid-circuit. It gives up
     after 120s of game time: a valleyed train never departs, and that footage
     is exactly the footage worth having.
-  - Length comes from the game's own measured lap ("Ride time" =
-    `Ride::getTotalTime()`, the sum of the stations' SegmentTime, in seconds)
-    plus a 3s tail, bounded by `--replay-seconds` (90 default). Report.json
-    carries it as `ride_time`. Do not guess: the test oval laps in 56s, so the
-    old fixed 20s cut it off two thirds in. A ride that never tested has no
-    measured time and falls back to the cap.
+  - Length is one whole station-to-station cycle: filming starts at the lead
+    train's `departing` and ends at its next `departing`, so the last frame runs
+    into the first and the clip loops seamlessly. Verified by diffing them: 123
+    differing pixels out of 195k, and that residue is guests walking and water
+    shimmering, not the train. The cycle includes the dwell in the station,
+    because the ride's cycle does.
+  - `--replay-seconds` (90 default) is only the bound for a train that never
+    comes back round: a valleyed circuit, or a lap longer than the cap. Those
+    clips are excerpts, and `round_N/replay.json` records `looped: false` so the
+    site can leave the `loop` attribute off rather than jump forever. 8 of the
+    11 backfilled clips loop; the three that do not are the giant library
+    coasters, and the 6.3 km one had not come back round after five minutes of
+    filming. It used to be `ride_time` + a 3s tail, which is exactly what put
+    the train mid-track when the video restarted it at the station.
   - Frame size follows the track's footprint, so numbers vary a lot: the test
     oval crops to 672x432, the 7.39 record coaster to 2016x1552. Measured on
     the latter, 1280 frames (64s): PNG frames cost 40 ms each, 51s in total and
@@ -159,6 +174,25 @@ Non-bundled binaries look for `data/` next to the exe. One-time setup:
     (25000 ticks in 0.61s), so filming remains the slow half by far.
   - ffmpeg comes from brew and is not vendored; a missing binary logs and skips
     the video rather than failing the round.
+- Backfilling artifacts: `uv run evals/backfill_replays.py` reruns a round's
+  program.json to refilm it and re-render `park.png` cropped (best round per
+  model by default; `--all` for every round, `--no-replay` for pictures only,
+  which is seconds per round instead of tens).
+  - Reproduction is checked, not assumed, and the two artifacts are held to
+    different bars because they show different things. The **video** needs the
+    excitement to match the round's own: a clip shows the train moving, and
+    motion is exactly what changes when an inert booster starts working. The
+    **picture** only needs the program to build in full: a still shows track,
+    and the same piece list draws the same track. A program that does not build
+    writes neither. On the current build 11 of 23 best rounds reproduce exactly,
+    and 85 of 138 rounds redraw.
+  - Three reasons a rerun rates differently, all of them worth knowing
+    independently of artifacts: brake/booster speed used to be hardcoded to 0
+    (see the booster note above), so any track using them now rates differently;
+    `CheckPieceDrawable` postdates the older wooden runs, so some programs are
+    legitimately refused now; and the oldest recorded programs are bare
+    piece-name strings with no chain flags, so their lift hills do not lift. A
+    program.json from those runs is not a faithful record of its ride.
 - Circuit audit: `orct2_host_circuit_stats` walks a ride with the game's own
   TrackCircuitIterator (what findTrackGap uses), seeded from the station origin
   element, and report.json gains per-ride
@@ -265,31 +299,6 @@ Non-bundled binaries look for `data/` next to the exe. One-time setup:
   by driver.py, but any harness can drop the same file); the site shows
   per-round lookup chips, a "studied designs" preview gallery per model, and
   a full library.html gallery.
-- Heavy artifacts (PNGs, videos) are gitignored, not tracked; only run JSON
-  is. After a run, `uv run evals/publish.py` uploads them to the Cloudflare
-  R2 bucket `coasterbench` (public at https://artifacts.wseaton.com) through
-  the local `wrangler login` OAuth session (no static keys anywhere) and
-  records manifests (`runs/<run>/artifacts.json`, `evals/library-previews.json`).
-  The SSG prefers local files, falls back to manifest URLs, so the GitHub
-  Pages CI build works from JSON alone. **Both must be committed and pushed**
-  or the deployed site renders with no images at all.
-
-## Site generator (rust/coaster-site)
-
-- `cargo run --manifest-path rust/coaster-site/Cargo.toml` writes `evals/site/`
-  (own crate, askama templates in `templates/`, CSS/JS in `static/`, raster
-  work — index thumbnails, og-card, favicon — via the `image` crate). This is
-  what the Pages workflow builds. The old `evals/site.py` is gone; this crate
-  is the only site generator.
-- Three page types: `index.html` (one row per model per run, runs pivoted,
-  grouped by run, faceted by mode/coaster/harness/model), `run-<run>.html`
-  (models side by side for comparison), and `run-<run>-<model>.html` (one
-  model's whole run in detail: headline stats, chart, studied designs, every
-  round). Index rows link to the model page, the run name to the comparison.
-- Runs that never finished are skipped, with the reason on stderr and a note
-  on the page: any model short of run.json's promised `models`/`rounds` (or,
-  for runs from before run.json recorded them, short of the run's own best
-  round count). `--include-partial` renders them anyway.
 
 ## MCP server (interactive per-piece building)
 
@@ -306,10 +315,19 @@ Non-bundled binaries look for `data/` next to the exe. One-time setup:
 - Two listeners, and the one a request arrives on chooses its tool table:
   `--serve` (bind 0.0.0.0 for the sandboxes) serves the agent tools, and
   `--serve-control <port>` binds 127.0.0.1 only and serves the harness's tools
-  (`save_park`). A control tool is therefore absent from the agent's table
-  rather than filtered out of it, and the listener is not routable from a
-  container at all. coaster-bench defaults to `--control-port 8792` and only
-  ever calls save_park there. Tools: new_ride, place_piece, place_pieces (batch placement, max 200
+  (`save_park`, `capture_park`, `capture_replay`). A control tool is therefore
+  absent from the agent's table rather than filtered out of it, and the listener
+  is not routable from a container at all. coaster-bench defaults to
+  `--control-port 8792` and collects every round artifact over it.
+  The agent's `screenshot` renders the *whole map* on purpose (an agent needs
+  spatial context, not a viewport); the round's picture comes from
+  `capture_park(path, best)`, which crops to the track. coaster-bench used to
+  keep the agent's screenshot as `round_N/park.png`, which is why older rounds
+  are 9728x5008 pictures of an island with a coaster-shaped squiggle in the
+  middle. `best: true` writes the park as it stood when the best rated test was
+  taken (stashed beside the agent-facing one), so demolishing a scored coaster
+  does not lose its picture.
+  Tools: new_ride, place_piece, place_pieces (batch placement, max 200
   pieces), valid_next_pieces (game-as-oracle query of the whole catalog),
   get_state, finish_and_test, screenshot (MCP image content), demolish,
   search_track_designs + get_track_design (stock .TD6 library browsing;
