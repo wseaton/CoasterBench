@@ -53,6 +53,9 @@ struct Args {
     /// Render runs that never finished (some model short of its rounds).
     #[arg(long)]
     include_partial: bool,
+    /// Render runs withdrawn with `"published": false` in run.json.
+    #[arg(long)]
+    include_unpublished: bool,
     /// Ask Cloudflare to resize artifact-store images at the edge instead of
     /// serving them whole (`/cdn-cgi/image/...`). Needs image transformations
     /// enabled on the zone; without that, every transformed URL 404s.
@@ -1344,6 +1347,16 @@ fn main() -> Result<()> {
     let jobs = derive_jobs(&all_runs, out);
     images::derive_all(&jobs)?;
 
+    // A withdrawn run leaves the site entirely: no pages, no head-to-head, no
+    // row. The record stays in the repo, which is the point of saying so in
+    // run.json rather than deleting it.
+    let (all_runs, withdrawn): (Vec<EvalRun>, Vec<EvalRun>) = all_runs
+        .into_iter()
+        .partition(|run| run.published || args.include_unpublished);
+    for run in &withdrawn {
+        eprintln!("run {} withdrawn (published: false)", run.name);
+    }
+
     let contenders = contenders(&all_runs, &store, out)?;
 
     // A run that died (or is still going) half way through would show up as a
@@ -1378,6 +1391,7 @@ fn main() -> Result<()> {
             .map(|(mode, tagline)| (mode.to_string(), tagline.to_string()))
             .collect(),
         skipped,
+        withdrawn: withdrawn.iter().map(|run| run.name.clone()).collect(),
     };
     write_page(&out.join("index.html"), &index.render()?)?;
 

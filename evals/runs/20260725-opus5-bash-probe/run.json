@@ -1,0 +1,25 @@
+{
+  "agent_state": "fresh-sandbox",
+  "allowed_tools": "mcp__coaster__*,Bash",
+  "harness": "claude-code",
+  "harnesses": {
+    "claude-opus-5": "claude-code"
+  },
+  "modalities": {
+    "claude-opus-5": "text,image"
+  },
+  "mode": "design",
+  "models": [
+    "claude-opus-5"
+  ],
+  "open_note": false,
+  "open_note_source": null,
+  "opencode_sandbox": "coaster-or",
+  "orchestrator": "coaster-bench",
+  "published": false,
+  "ride_type": 51,
+  "rounds": 2,
+  "sandbox": "coaster-sub-64cf40",
+  "similarity_grace": 0.5,
+  "ticks": 25000
+}

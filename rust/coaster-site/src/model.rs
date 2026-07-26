@@ -49,6 +49,9 @@ struct RunMeta {
     /// Open note: the agents could read the engine source they are scored by.
     #[serde(default)]
     open_note: bool,
+    /// Set false to keep a run out of the published site. Absent means yes: a
+    /// run has to be deliberately withdrawn, never accidentally.
+    published: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -322,6 +325,9 @@ pub struct EvalRun {
     pub ride_type: i64,
     pub harness: String,
     pub open_note: bool,
+    /// Whether this run belongs on the published site; `published: false` in
+    /// run.json withdraws it without deleting the evidence.
+    pub published: bool,
     /// Models and round count run.json promised, when it recorded them.
     expected_models: Vec<String>,
     expected_rounds: Option<u32>,
@@ -600,6 +606,7 @@ pub fn load_runs(runs_dir: &Path, store: &ArtStore) -> Result<Vec<EvalRun>> {
             ride_type: meta.ride_type.unwrap_or(52),
             harness: meta.harness.unwrap_or_else(|| "driver-api".to_string()),
             open_note: meta.open_note,
+            published: meta.published.unwrap_or(true),
             expected_models: meta.models,
             expected_rounds: meta.rounds,
         });
@@ -709,6 +716,7 @@ mod tests {
             ride_type: 52,
             harness: "test".to_string(),
             open_note: false,
+            published: true,
             expected_models: expected.iter().map(|m| m.to_string()).collect(),
             expected_rounds: rounds,
         }
