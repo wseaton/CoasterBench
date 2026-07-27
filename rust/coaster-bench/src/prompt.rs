@@ -91,7 +91,8 @@ This is round {round} of {rounds}. You build interactively through the "coaster"
 - undo_piece(): remove the last piece.
 - get_state(): cursor, start, pieces placed, circuit_closed.
 - finish_and_test(ticks?): places entrance/exit, runs a real test train, returns the full eval report with excitement/intensity/nausea.
-- best_result(): the highest-excitement finish_and_test from this round so far. Your score is this, not your latest build.{screenshot}
+- best_result(): the highest adjusted-score finish_and_test from this round so far, after the stock-design similarity penalty. Your score is this, not your latest build.{screenshot}
+- style_best_ride(name, track_color, rail_color, support_color): after you have banked a score, give the winner its final name and colours. This retroactively updates the saved winner without retesting or changing its score.
 - demolish(): tear down and start over (then new_ride again).
 
 ## Rules
@@ -110,7 +111,8 @@ This is round {round} of {rounds}. You build interactively through the "coaster"
 3. Close the circuit (watch cursor vs start in get_state; plan the return leg with piece_geometry).
 4. finish_and_test as soon as you have a closed circuit, so you bank a score early.
 5. Only then experiment: demolish and rebuild to beat it. A worse or unfinished rebuild costs nothing, because best_result keeps your highest score.
-6. End with a one-line summary of your best coaster and its excitement.
+6. At the end, call best_result, then use style_best_ride to name and colour that winner.
+7. End with a one-line summary of your best coaster and its excitement.
 
 ## Budget
 You have about {budget_mins} minutes of wall-clock this round, then the session is cut off.
@@ -161,6 +163,14 @@ mod tests {
         assert!(
             one_shot.contains("finish_and_test has banked a score"),
             "the bar for stopping is a banked score, not a plan"
+        );
+        assert!(
+            one_shot.contains("highest adjusted-score"),
+            "best_result must describe the score the server actually optimises"
+        );
+        assert!(
+            one_shot.contains("retroactively updates the saved winner"),
+            "presentation must be clearly independent of scoring"
         );
     }
 

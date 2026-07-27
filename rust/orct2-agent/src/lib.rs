@@ -13,6 +13,7 @@ mod host;
 mod library;
 mod mcp;
 mod pieces;
+mod presentation;
 mod program;
 mod replay;
 mod report;

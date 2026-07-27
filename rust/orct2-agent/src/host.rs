@@ -131,6 +131,15 @@ unsafe extern "C" {
         err: *mut c_char,
         err_len: usize,
     ) -> bool;
+    fn orct2_host_ride_style(
+        ride_id: u16,
+        name: *const c_char,
+        track_color: *const c_char,
+        rail_color: *const c_char,
+        support_color: *const c_char,
+        err: *mut c_char,
+        err_len: usize,
+    ) -> bool;
     fn orct2_host_ride_detail(ride_id: u16, out: *mut RideDetail) -> bool;
     fn orct2_host_capture(
         path: *const c_char,
@@ -172,6 +181,7 @@ unsafe extern "C" {
     fn orct2_host_track_mirror(track_type: u16) -> u16;
     fn orct2_host_circuit_stats(ride_id: u16, out: *mut CircuitStats) -> bool;
     fn orct2_host_save_park(path: *const c_char) -> bool;
+    fn orct2_host_load_park(path: *const c_char) -> bool;
     fn orct2_host_capture_frame(
         zoom: i32,
         rotation: u8,
@@ -290,6 +300,39 @@ pub fn ride_set_status(ride_id: u16, status: u8) -> Result<(), String> {
     }
 }
 
+/// Names a ride and sets colour scheme zero, which is the scheme all
+/// agent-placed track uses. The C++ side validates the ordinary game actions
+/// before applying any of them.
+pub fn ride_style(
+    ride_id: u16,
+    name: &str,
+    track_color: &str,
+    rail_color: &str,
+    support_color: &str,
+) -> Result<(), String> {
+    let name = CString::new(name).map_err(|_| "ride name contains a NUL byte")?;
+    let track_color = CString::new(track_color).map_err(|_| "track color contains a NUL byte")?;
+    let rail_color = CString::new(rail_color).map_err(|_| "rail color contains a NUL byte")?;
+    let support_color =
+        CString::new(support_color).map_err(|_| "support color contains a NUL byte")?;
+    let mut err = err_buf();
+    if unsafe {
+        orct2_host_ride_style(
+            ride_id,
+            name.as_ptr(),
+            track_color.as_ptr(),
+            rail_color.as_ptr(),
+            support_color.as_ptr(),
+            err.as_mut_ptr(),
+            ERR_BUF_LEN,
+        )
+    } {
+        Ok(())
+    } else {
+        Err(err_to_string(&err))
+    }
+}
+
 pub fn ride_detail(ride_id: u16) -> Option<RideDetail> {
     let mut detail = RideDetail::default();
     unsafe { orct2_host_ride_detail(ride_id, &mut detail) }.then_some(detail)
@@ -344,6 +387,14 @@ pub fn save_park(path: &str) -> bool {
         return false;
     };
     unsafe { orct2_host_save_park(cstr.as_ptr()) }
+}
+
+/// Replaces the live game state with a previously saved .park snapshot.
+pub fn load_park(path: &str) -> bool {
+    let Ok(cstr) = CString::new(path) else {
+        return false;
+    };
+    unsafe { orct2_host_load_park(cstr.as_ptr()) }
 }
 
 /// Frame size for the current track, so a caller can size one buffer and reuse
@@ -498,6 +549,18 @@ mod test_stubs {
     pub unsafe fn orct2_host_ride_set_status(_r: u16, _s: u8, _e: *mut c_char, _l: usize) -> bool {
         false
     }
+    #[allow(clippy::too_many_arguments)] // mirrors the C ABI it stands in for
+    pub unsafe fn orct2_host_ride_style(
+        _r: u16,
+        _n: *const c_char,
+        _t: *const c_char,
+        _a: *const c_char,
+        _s: *const c_char,
+        _e: *mut c_char,
+        _l: usize,
+    ) -> bool {
+        false
+    }
     pub unsafe fn orct2_host_ride_detail(_r: u16, _o: *mut RideDetail) -> bool {
         false
     }
@@ -517,6 +580,9 @@ mod test_stubs {
         false
     }
     pub unsafe fn orct2_host_save_park(_p: *const c_char) -> bool {
+        false
+    }
+    pub unsafe fn orct2_host_load_park(_p: *const c_char) -> bool {
         false
     }
     pub unsafe fn orct2_host_capture_frame(

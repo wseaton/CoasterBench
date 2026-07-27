@@ -130,8 +130,13 @@ Non-bundled binaries look for `data/` next to the exe. One-time setup:
   handler's save does, so a park using non-standard objects still reopens.
   - `save_park` writes a host filesystem path, so it lives on the loopback
     control listener only (see the MCP section), never in the agent toolset.
-  - `evals/runs/**/*.park` is gitignored like the other heavy artifacts.
-- Replay video: the control tool `capture_replay(out, frames, every_ticks, zoom)`
+    `best: true` writes the exact serialized park captured with the winning
+    adjusted-score report, even if the live ride was later rebuilt.
+  - `evals/runs/**/*.park` is gitignored like the other heavy artifacts and
+    published to R2 by `evals/publish.py`; its full SHA-256 is recorded in the
+    per-run digest manifest and the site links it for verification.
+- Replay video: the control tool
+  `capture_replay(out, frames, every_ticks, zoom, best)`
   renders frames straight into an ffmpeg it spawns (rawvideo rgba on stdin ->
   libx264, crf 28, `-g` = frame count so the clip has a single keyframe),
   writing `round_N/replay.mp4` with no intermediate files at all. Off with
@@ -220,8 +225,10 @@ Non-bundled binaries look for `data/` next to the exe. One-time setup:
   the `claude-sub` provider) building interactively through the MCP tools;
   collects report/program/park.png per round into the same evals/runs layout.
   `./rust/coaster-bench/target/release/coaster-bench --models claude-fable-5
-  --rounds 4 --ride-type 51 --name my-run`. Port must be in the sandbox
-  policy (default 8791). `--open-note` stages upstream's tree (git archive of
+  --mode design --rounds 4 --ride-type 51 --name my-run`. `design` hides and
+  refuses stock-library lookup tools; `library` explicitly grants them;
+  `open-note` is the white-box source condition. Port must be in the sandbox
+  policy (default 8791). `--mode open-note` stages upstream's tree (git archive of
   `git merge-base HEAD origin/develop`, cached under $TMPDIR by revision) into
   the sandbox at /tmp/openrct2-src via `openshell sandbox upload`
   (exec stdin caps at 4 MiB; upload nests the local dir under its dest, so the
@@ -237,9 +244,10 @@ Non-bundled binaries look for `data/` next to the exe. One-time setup:
   session poll loop check, so the agent is killed, the sandbox swept and the
   game server dropped instead of orphaned; a run refuses to start if its port
   is already serving (use --attach deliberately).
-  Records open_note + open_note_source in run.json; the site labels those runs
-  "<mode> + open note". RideRatings.cpp is unmodified in this fork, so upstream
-  source is a faithful oracle for scoring.
+  Records the exact condition, capabilities, harness/scorer version, source and
+  scenario hashes, budgets, image ids, model/agent versions, and reset strategy
+  in run.json. RideRatings.cpp is unmodified in this fork, so upstream source
+  is a faithful oracle for scoring.
 - Second coaster-bench lane: `--models opencode:openrouter/<author>/<model>`
   runs opencode in the `coaster-or` sandbox against OpenRouter (key in the
   login keychain as `openrouter-api-key`, cost tracked by spend delta).
@@ -266,6 +274,13 @@ Non-bundled binaries look for `data/` next to the exe. One-time setup:
     `sandbox_mode = "danger-full-access"` (OpenShell is the real jail) versus
     `read-only` for a blind run, recorded as `codex_sandbox_mode` in run.json.
     A blind codex round still has a shell, unlike the other two lanes.
+    The trusted coaster MCP server is configured with
+    `default_tools_approval_mode = "approve"`; without it, headless
+    `codex exec` cancels every tool call because no user-input handler exists
+    to answer the approval prompt.
+  - `--codex-reasoning-effort` is pinned to `medium` by default and recorded
+    both per contender and at the run level. Never rely on the model catalogue
+    default for a published comparison.
   - The OpenRouter backend needs `wire_api = "responses"` (codex 0.145 dropped
     "chat") and needs `/home/sandbox/bin/codex` in the *openrouter provider
     profile's* binary list: a provider-injected policy owns its own hosts, so
@@ -315,23 +330,37 @@ Non-bundled binaries look for `data/` next to the exe. One-time setup:
 - Two listeners, and the one a request arrives on chooses its tool table:
   `--serve` (bind 0.0.0.0 for the sandboxes) serves the agent tools, and
   `--serve-control <port>` binds 127.0.0.1 only and serves the harness's tools
-  (`save_park`, `capture_park`, `capture_replay`). A control tool is therefore
+  (`reset_park`, `save_park`, `capture_park`, `capture_replay`). A control tool is therefore
   absent from the agent's table rather than filtered out of it, and the listener
   is not routable from a container at all. coaster-bench defaults to
-  `--control-port 8792` and collects every round artifact over it.
+  `--control-port 8792` and collects every round artifact over it. The control
+  listener is loopback-only and bypasses agent leases; stale leases are still
+  rejected on the sandbox-facing listener.
   The agent's `screenshot` renders the *whole map* on purpose (an agent needs
   spatial context, not a viewport); the round's picture comes from
-  `capture_park(path, best)`, which crops to the track. coaster-bench used to
+  `capture_park(path, best)`, which crops to the track. The server snapshots
+  the pristine scenario before opening either listener; `reset_park` restores
+  those exact serialized bytes before every round, including clock, RNG,
+  guests and weather.
+  coaster-bench used to
   keep the agent's screenshot as `round_N/park.png`, which is why older rounds
   are 9728x5008 pictures of an island with a coaster-shaped squiggle in the
   middle. `best: true` writes the park as it stood when the best rated test was
   taken (stashed beside the agent-facing one), so demolishing a scored coaster
-  does not lose its picture.
+  does not lose its picture. The best candidate is selected by adjusted score,
+  not raw excitement, and atomically owns its report, program state, park bytes,
+  screenshots and replay source. `style_best_ride` is deliberately non-scoring:
+  after a model banks a result it can name that saved winner and choose the
+  main-track, rail and support colours. The server temporarily restores the
+  winner, applies ordinary ride game actions, refreshes its park/screenshots,
+  then restores the live work-in-progress; ratings and score stay unchanged.
+  That presentation follows a later candidate if it beats the styled winner.
   Tools: new_ride, place_piece, place_pieces (batch placement, max 200
   pieces), valid_next_pieces (game-as-oracle query of the whole catalog),
-  get_state, finish_and_test, screenshot (MCP image content), demolish,
+  get_state, finish_and_test, style_best_ride, screenshot (MCP image content), demolish,
   search_track_designs + get_track_design (stock .TD6 library browsing;
-  recorded ratings deliberately hidden).
+  recorded ratings deliberately hidden). Those two tools are absent and
+  refused for `condition=design`, and available only for `condition=library`.
 - Cursor state now tracks bank (TrackRoll: 0=none, 2=left, 4=right, 15=upside_down)
   and slope (TrackPitch: 0=none, 2=up25, 4=up60, 6=down25, 8=down60); circuit
   closure check compares full cursor (x/y/z/dir/bank/slope) to catch incomplete
@@ -342,6 +371,8 @@ Non-bundled binaries look for `data/` next to the exe. One-time setup:
   dropped from tools/list and refused on call, so a text-only model never sees
   screenshot — one image content block fails the whole upstream request
   (Poolside answers "please check the model you provided").
+- Clients also advertise the benchmark condition as `condition=design` or
+  `condition=library`; absent and unknown values default to design.
 - Register with Claude Code:
   `claude mcp add --transport http coaster http://127.0.0.1:8791/mcp`
 - Rust unit tests link against `#[cfg(test)]` stubs in host.rs (the C++ host

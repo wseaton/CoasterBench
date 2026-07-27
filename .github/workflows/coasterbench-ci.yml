@@ -70,12 +70,19 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cbindgen@0.29.4
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust/orct2-agent
       - uses: hendrikmuhs/ccache-action@v1.2.23
         with:
           key: linux-x86_64-coasterbench
+      - name: Generated Rust header is current
+        run: |
+          ./scripts/generate-rust-header.sh
+          git diff --exit-code -- src/openrct2/rustbridge/orct2_agent.h
       - name: Build
         run: |
           cmake -S . -B build -G Ninja \

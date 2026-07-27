@@ -22,8 +22,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
+
+const RUN_SCHEMA_VERSION: u32 = 2;
+const SCORER_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Parser, Debug)]
 #[command(version, about)]
@@ -38,6 +42,11 @@ struct Args {
     /// Competition ride type (51 steel twister, 52 wooden).
     #[arg(long, default_value_t = 51)]
     ride_type: u16,
+
+    /// Benchmark condition. Design is MCP-only, library exposes stock-design
+    /// lookup, and open-note stages the scorer's upstream engine source.
+    #[arg(long, value_enum, default_value_t = BenchmarkMode::Design)]
+    mode: BenchmarkMode,
 
     /// Test simulation budget passed to finish_and_test.
     #[arg(long, default_value_t = 25000)]
@@ -130,6 +139,11 @@ struct Args {
     #[arg(long, default_value = "/home/sandbox/bin/codex")]
     codex_bin: String,
 
+    /// Reasoning effort for Codex contenders. Pin this instead of inheriting
+    /// the model catalogue default so public runs remain reproducible.
+    #[arg(long, value_enum, default_value_t = CodexReasoningEffort::Medium)]
+    codex_reasoning_effort: CodexReasoningEffort,
+
     /// Extra tools to allow the agent, comma separated (e.g. "Bash"). Open note
     /// implies the file tools; this grants them without staging any source.
     #[arg(long)]
@@ -141,11 +155,65 @@ struct Args {
     #[arg(long, default_value_t = 90)]
     replay_seconds: u32,
 
-    /// Open note: stage a read-only checkout of the engine source the agents
-    /// are scored by into their sandbox. Upstream OpenRCT2 at this fork's
-    /// merge-base, so the harness and its scoring are not in it.
+    /// Compatibility spelling for `--mode open-note`.
     #[arg(long)]
     open_note: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum BenchmarkMode {
+    Design,
+    Library,
+    OpenNote,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum CodexReasoningEffort {
+    Low,
+    Medium,
+    High,
+    Xhigh,
+    Max,
+    Ultra,
+}
+
+impl CodexReasoningEffort {
+    fn as_str(self) -> &'static str {
+        match self {
+            CodexReasoningEffort::Low => "low",
+            CodexReasoningEffort::Medium => "medium",
+            CodexReasoningEffort::High => "high",
+            CodexReasoningEffort::Xhigh => "xhigh",
+            CodexReasoningEffort::Max => "max",
+            CodexReasoningEffort::Ultra => "ultra",
+        }
+    }
+}
+
+impl BenchmarkMode {
+    /// Wire condition understood by the MCP server. Open note remains a
+    /// from-scratch design condition; its extra capability is local source.
+    fn mcp_condition(self) -> &'static str {
+        match self {
+            BenchmarkMode::Design | BenchmarkMode::OpenNote => "design",
+            BenchmarkMode::Library => "library",
+        }
+    }
+
+    fn base_mode(self) -> &'static str {
+        match self {
+            BenchmarkMode::Library => "library",
+            BenchmarkMode::Design | BenchmarkMode::OpenNote => "design",
+        }
+    }
+
+    fn condition_name(self) -> &'static str {
+        match self {
+            BenchmarkMode::Design => "design",
+            BenchmarkMode::Library => "library",
+            BenchmarkMode::OpenNote => "open-note",
+        }
+    }
 }
 
 const OPEN_NOTE_DIR: &str = "/tmp/openrct2-src";
@@ -187,22 +255,31 @@ impl Drop for EphemeralSandbox {
 }
 
 /// The policy file pins the MCP port, and a mismatch fails as a silent network
-/// denial inside the sandbox, so rewrite it to the port this run serves on.
-fn policy_with_port(policy: &str, port: u16) -> String {
-    policy
-        .lines()
-        .map(|line| {
-            let trimmed = line.trim_start();
-            if let Some(rest) = trimmed.strip_prefix("port:") {
-                if rest.trim().parse::<u16>().is_ok() {
-                    let indent = &line[..line.len() - trimmed.len()];
-                    return format!("{indent}port: {port}");
-                }
-            }
-            line.to_string()
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
+/// denial inside the sandbox. Parse the policy and touch only the coaster-game
+/// endpoint; inference endpoints such as api.openai.com:443 are unrelated.
+fn policy_with_port(policy: &str, port: u16) -> Result<String, String> {
+    let mut document: serde_norway::Value =
+        serde_norway::from_str(policy).map_err(|e| format!("parse sandbox policy: {e}"))?;
+    let endpoints = document
+        .get_mut("network_policies")
+        .and_then(|v| v.get_mut("coaster_game"))
+        .and_then(|v| v.get_mut("endpoints"))
+        .and_then(serde_norway::Value::as_sequence_mut)
+        .ok_or("sandbox policy has no network_policies.coaster_game.endpoints")?;
+    let mut changed = false;
+    for endpoint in endpoints {
+        if endpoint.get("host").and_then(serde_norway::Value::as_str)
+            == Some("host.containers.internal")
+        {
+            endpoint["port"] =
+                serde_norway::to_value(port).map_err(|e| format!("serialize MCP port: {e}"))?;
+            changed = true;
+        }
+    }
+    if !changed {
+        return Err("coaster_game policy has no host.containers.internal endpoint".into());
+    }
+    serde_norway::to_string(&document).map_err(|e| format!("serialize sandbox policy: {e}"))
 }
 
 struct SandboxRecipe<'a> {
@@ -221,7 +298,7 @@ fn create_sandbox(
     let policy = std::fs::read_to_string(&policy_path)
         .map_err(|e| format!("read {}: {e}", policy_path.display()))?;
     let staged = std::env::temp_dir().join(format!("coaster-policy-{name}.yaml"));
-    std::fs::write(&staged, policy_with_port(&policy, port))
+    std::fs::write(&staged, policy_with_port(&policy, port)?)
         .map_err(|e| format!("write {}: {e}", staged.display()))?;
 
     // `sandbox create` attaches and never returns, but the sandbox is up long
@@ -367,6 +444,12 @@ impl GameServer {
             return Err(format!(
                 "port {} is already serving; kill the stale server (lsof -ti:{}) or pass --attach to use it deliberately",
                 args.port, args.port
+            ));
+        }
+        if port_in_use(args.control_port) {
+            return Err(format!(
+                "control port {} is already serving; kill the stale server (lsof -ti:{}) or choose another --control-port",
+                args.control_port, args.control_port
             ));
         }
         let child = Command::new(cli)
@@ -549,13 +632,23 @@ impl Contender {
         (self.harness == Harness::Codex).then(|| self.model.strip_prefix("openrouter/"))?
     }
 
+    fn provider<'a>(&self, args: &'a Args) -> &'a str {
+        match self.harness {
+            Harness::ClaudeCode => &args.sandbox_provider,
+            Harness::Opencode => &args.opencode_sandbox_provider,
+            Harness::Codex if self.codex_openrouter_model().is_some() => "openrouter",
+            Harness::Codex => &args.codex_sandbox_provider,
+        }
+    }
+
     /// MCP endpoint this contender's harness should connect to. The server
     /// hides tools answering outside the advertised modality set, and refuses
     /// anyone whose lease is not the one that currently owns the park.
-    fn mcp_url(&self, port: u16, lease: &str) -> String {
+    fn mcp_url(&self, port: u16, lease: &str, mode: BenchmarkMode) -> String {
         format!(
-            "http://host.containers.internal:{port}/mcp?modalities={}&lease={lease}",
-            self.modalities.as_query_value()
+            "http://host.containers.internal:{port}/mcp?modalities={}&condition={}&lease={lease}",
+            self.modalities.as_query_value(),
+            mode.mcp_condition(),
         )
     }
 }
@@ -651,7 +744,7 @@ fn write_opencode_config(args: &Args, contender: &Contender, lease: &str) -> Res
         "model": contender.model,
         "permission": opencode_permissions(args),
         "mcp": {
-            "coaster": {"type": "remote", "url": contender.mcp_url(args.port, lease), "enabled": true}
+            "coaster": {"type": "remote", "url": contender.mcp_url(args.port, lease, args.mode), "enabled": true}
         }
     })
     .to_string();
@@ -712,14 +805,15 @@ fn codex_config(args: &Args, contender: &Contender, lease: &str) -> String {
              # Codex has no metadata for an \"openai/...\"-prefixed id, and its\n\
              # fallback assumes the model cannot reason, which OpenRouter\n\
              # rejects for models where reasoning is mandatory.\n\
-             model_reasoning_effort = \"medium\"\n\
              model_reasoning_summary = \"auto\"\n"
         ),
         None => format!("model = \"{}\"\n", contender.model),
     };
     config.push_str(&format!(
-        "approval_policy = \"never\"\n\
-         sandbox_mode = \"{sandbox_mode}\"\n"
+        "model_reasoning_effort = \"{}\"\n\
+         approval_policy = \"never\"\n\
+         sandbox_mode = \"{sandbox_mode}\"\n",
+        args.codex_reasoning_effort.as_str()
     ));
     if contender.codex_openrouter_model().is_some() {
         config.push_str(
@@ -736,8 +830,12 @@ fn codex_config(args: &Args, contender: &Contender, lease: &str) -> String {
          trust_level = \"trusted\"\n\
          \n\
          [mcp_servers.coaster]\n\
-         url = \"{}\"\n",
-        contender.mcp_url(args.port, lease)
+         url = \"{}\"\n\
+         # Headless `codex exec` has no user-input handler for MCP approval\n\
+         # prompts. This server is the benchmark's deliberately trusted tool\n\
+         # boundary, so pre-approve it while leaving the filesystem read-only.\n\
+         default_tools_approval_mode = \"approve\"\n",
+        contender.mcp_url(args.port, lease, args.mode)
     )
 }
 
@@ -983,7 +1081,7 @@ fn run_agent_session(
         Harness::ClaudeCode => {
             let mcp_config = json!({
                 "mcpServers": {
-                    "coaster": {"type": "http", "url": contender.mcp_url(args.port, lease)}
+                    "coaster": {"type": "http", "url": contender.mcp_url(args.port, lease, args.mode)}
                 }
             });
             cmd.args(["sandbox", "exec", "-n", &args.sandbox, "--"])
@@ -1107,6 +1205,7 @@ fn run_agent_session(
 /// finish_and_test itself (calling it again only adds test ticks).
 fn collect_round(
     client: &mut mcp::McpClient,
+    control: &mut mcp::McpClient,
     args: &Args,
     round_dir: &Path,
 ) -> Result<Value, String> {
@@ -1137,7 +1236,7 @@ fn collect_round(
     // should keep the good score. best_result errors when nothing rated, in
     // which case the final-park report (with its error) is what we record.
     let (report, scored_from_best) = match client.call("best_result", json!({})) {
-        Ok(best) if best_excitement(&best) >= best_excitement(&final_report) => (best, true),
+        Ok(best) => (best, true),
         _ => (final_report, false),
     };
 
@@ -1175,29 +1274,35 @@ fn collect_round(
     // agents' MCP endpoint, because these write this filesystem.
     let dir = std::fs::canonicalize(round_dir)
         .map_err(|e| format!("resolve {}: {e}", round_dir.display()))?;
-    let mut control = mcp::McpClient::new("127.0.0.1", args.control_port);
-
     // Picture the scored coaster, cropped to the track: `best` when the score
     // came from an earlier (possibly demolished) build, otherwise the park as
     // it stands. The agent's own screenshot tool renders the whole map, which
     // is right for building and wrong for a thumbnail.
     let shot_path = dir.join("park.png");
-    if let Err(e) = control.call(
-        "capture_park",
-        json!({"path": shot_path, "best": scored_from_best}),
-    ) {
-        eprintln!("  capture_park failed: {e}");
-    }
+    control
+        .call(
+            "capture_park",
+            json!({"path": shot_path, "best": scored_from_best}),
+        )
+        .map_err(|e| format!("capture scored park: {e}"))?;
 
-    // The park as it stands, so a result can be reopened and checked rather
-    // than taken on the report's word.
+    // Save the same candidate as the report and picture, so the result can be
+    // reopened and checked rather than taken on the report's word.
     let park_path = dir.join("park.park");
-    if let Err(e) = control.call("save_park", json!({"path": park_path})) {
-        eprintln!("  save_park failed: {e}");
-    }
+    control
+        .call(
+            "save_park",
+            json!({"path": park_path, "best": scored_from_best}),
+        )
+        .map_err(|e| format!("save scored park: {e}"))?;
     // Saved before the replay, because capturing one ticks the simulation on.
     if args.replay_seconds > 0 {
-        if let Err(e) = capture_replay(&mut control, round_dir, replay_seconds(&report, args)) {
+        if let Err(e) = capture_replay(
+            control,
+            round_dir,
+            replay_seconds(&report, args),
+            scored_from_best,
+        ) {
             eprintln!("  replay failed: {e}");
         }
     }
@@ -1241,6 +1346,7 @@ fn capture_replay(
     control: &mut mcp::McpClient,
     round_dir: &Path,
     seconds: u32,
+    best: bool,
 ) -> Result<(), String> {
     const FPS: u32 = 20;
     // 40 game ticks make a second, so every other tick is 20fps.
@@ -1252,7 +1358,7 @@ fn capture_replay(
     // clean up and nothing is PNG-encoded on the way.
     control.call(
         "capture_replay",
-        json!({"out": out, "frames": frames, "every_ticks": 2, "zoom": 0}),
+        json!({"out": out, "frames": frames, "every_ticks": 2, "zoom": 0, "best": best}),
     )?;
     Ok(())
 }
@@ -1262,7 +1368,144 @@ fn write_json(path: &Path, value: &Value) -> Result<(), String> {
     std::fs::write(path, text).map_err(|e| format!("{}: {e}", path.display()))
 }
 
+fn sha256_file(path: &Path) -> Result<String, String> {
+    use std::io::Read;
+
+    let mut file = File::open(path).map_err(|e| format!("open {}: {e}", path.display()))?;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0u8; 64 * 1024];
+    loop {
+        let read = file
+            .read(&mut buffer)
+            .map_err(|e| format!("read {}: {e}", path.display()))?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+fn sha256_bytes(bytes: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    format!("{:x}", hasher.finalize())
+}
+
+fn command_stdout(program: &str, args: &[&str], cwd: &Path) -> Option<String> {
+    let output = Command::new(program)
+        .args(args)
+        .current_dir(cwd)
+        .output()
+        .ok()?;
+    output
+        .status
+        .success()
+        .then(|| String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+fn git_provenance(root: &Path) -> Value {
+    let commit = command_stdout("git", &["rev-parse", "HEAD"], root);
+    let diff = Command::new("git")
+        .args([
+            "diff",
+            "--binary",
+            "HEAD",
+            "--",
+            "rust/coaster-bench",
+            "rust/orct2-agent",
+            "src/openrct2/rustbridge",
+            "src/openrct2/command_line/EvalCommands.cpp",
+            "src/openrct2/interface/Screenshot.cpp",
+        ])
+        .current_dir(root)
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .map(|output| output.stdout)
+        .unwrap_or_default();
+    json!({
+        "commit": commit,
+        "dirty": !diff.is_empty(),
+        "dirty_diff_sha256": (!diff.is_empty()).then(|| sha256_bytes(&diff)),
+    })
+}
+
+fn image_id(image: &str, root: &Path) -> Option<String> {
+    ["podman", "docker"].iter().find_map(|runtime| {
+        command_stdout(
+            runtime,
+            &["image", "inspect", "--format", "{{.Id}}", image],
+            root,
+        )
+        .filter(|id| !id.is_empty())
+    })
+}
+
+fn bounded_output(mut command: Command, budget: Duration) -> Option<std::process::Output> {
+    let mut child = command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .ok()?;
+    let deadline = Instant::now() + budget;
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => return child.wait_with_output().ok(),
+            Ok(None) if Instant::now() >= deadline => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+            Ok(None) => std::thread::sleep(Duration::from_millis(100)),
+            Err(_) => return None,
+        }
+    }
+}
+
+fn agent_version(args: &Args, contender: &Contender) -> Option<String> {
+    // Read Node package metadata instead of invoking those agents: notably,
+    // `opencode --version` performs network startup and can hang behind a
+    // restricted policy.
+    let (binary, version_args): (&str, Vec<&str>) = match contender.harness {
+        Harness::ClaudeCode => (
+            "/usr/local/bin/node",
+            vec![
+                "-p",
+                "require('/usr/local/lib/node_modules/@anthropic-ai/claude-code/package.json').version",
+            ],
+        ),
+        Harness::Opencode => (
+            "/usr/local/bin/node",
+            vec![
+                "-p",
+                "require('/usr/local/lib/node_modules/opencode-ai/package.json').version",
+            ],
+        ),
+        Harness::Codex => (args.codex_bin.as_str(), vec!["--version"]),
+    };
+    let mut command = Command::new("openshell");
+    command
+        .args(["sandbox", "exec", "-n", contender.sandbox(args), "--"])
+        .arg(binary)
+        .args(version_args);
+    let output = bounded_output(command, Duration::from_secs(15))?;
+    if !output.status.success() {
+        return None;
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    Some(if stdout.is_empty() { stderr } else { stdout }).filter(|v| !v.is_empty())
+}
+
 fn best_excitement(report: &Value) -> Option<f64> {
+    // Interactive reports carry the scorer's authoritative value. Historical
+    // and whole-program driver reports predate it, so retain the exact fallback
+    // formula for those artifacts.
+    if let Some(score) = report.get("score").and_then(Value::as_f64) {
+        return Some(score);
+    }
     let rides = report.get("rides")?.as_array()?;
     let raw = rides
         .iter()
@@ -1316,6 +1559,25 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
 
 fn main() -> Result<(), String> {
     let mut args = Args::parse();
+    if args.control_port == 0 {
+        return Err(
+            "--control-port must be non-zero: round reset and artifact collection require it"
+                .into(),
+        );
+    }
+    if args.control_port == args.port {
+        return Err("agent and control ports must be different".into());
+    }
+    if args.open_note {
+        if args.mode == BenchmarkMode::Library {
+            return Err(
+                "--open-note cannot be combined with --mode library; use one benchmark condition"
+                    .into(),
+            );
+        }
+        args.mode = BenchmarkMode::OpenNote;
+    }
+    args.open_note = args.mode == BenchmarkMode::OpenNote;
     let root = repo_root();
     let shutdown = install_shutdown_flag()?;
 
@@ -1355,6 +1617,8 @@ fn main() -> Result<(), String> {
     };
     let mut client = mcp::McpClient::new("127.0.0.1", args.port);
     wait_for_server(&mut client, Duration::from_secs(120))?;
+    let mut control = mcp::McpClient::new("127.0.0.1", args.control_port);
+    wait_for_server(&mut control, Duration::from_secs(120))?;
     println!("game server ready on port {}", args.port);
 
     let contenders: Vec<Contender> = args.models.iter().map(|s| Contender::parse(s)).collect();
@@ -1470,34 +1734,102 @@ fn main() -> Result<(), String> {
     } else {
         "mixed".to_string()
     };
+    let mut capabilities = Vec::new();
+    if args.mode == BenchmarkMode::Library {
+        capabilities.push("track_library");
+    }
+    if args.open_note {
+        capabilities.extend(["engine_source", "file_tools", "python3", "shell"]);
+    }
+    let model_specs: Value = contenders
+        .iter()
+        .map(|contender| {
+            (
+                contender.display(),
+                json!({
+                    "id": contender.model,
+                    "harness": contender.harness.name(),
+                    "provider": contender.provider(&args),
+                    "modalities": contender.modalities.as_query_value(),
+                    "agent_version": agent_version(&args, contender),
+                    "reasoning_effort": (contender.harness == Harness::Codex)
+                        .then(|| args.codex_reasoning_effort.as_str()),
+                }),
+            )
+        })
+        .collect::<serde_json::Map<_, _>>()
+        .into();
+    let scenario_path = expand_home(&args.scenario);
+    let scenario_sha256 = sha256_file(&scenario_path)?;
+    let sandbox_images = json!({
+        "claude_code": {
+            "reference": args.sandbox_image,
+            "image_id": image_id(&args.sandbox_image, &root),
+        },
+        "opencode": {
+            "reference": args.opencode_sandbox_image,
+            "image_id": image_id(&args.opencode_sandbox_image, &root),
+        },
+        "codex": {
+            "reference": args.codex_sandbox_image,
+            "image_id": image_id(&args.codex_sandbox_image, &root),
+        },
+    });
     write_json(
         &run_dir.join("run.json"),
         &json!({
-            "mode": "design",
+            "schema_version": RUN_SCHEMA_VERSION,
+            "condition": args.mode.condition_name(),
+            "mode": args.mode.base_mode(),
             "orchestrator": "coaster-bench",
+            "harness_version": env!("CARGO_PKG_VERSION"),
+            "scorer": {
+                "name": "adjusted_excitement",
+                "version": SCORER_VERSION,
+                "similarity_grace": 0.5,
+            },
+            "source": git_provenance(&root),
             "harness": run_harness,
             "harnesses": harnesses,
             "models": contenders.iter().map(Contender::display).collect::<Vec<_>>(),
+            "model_specs": model_specs,
             "modalities": modalities,
             "rounds": args.rounds,
             "ticks": args.ticks,
             "ride_type": args.ride_type,
             "similarity_grace": 0.5,
+            "scenario": {
+                "path": args.scenario,
+                "sha256": scenario_sha256,
+            },
+            "budgets": {
+                "rounds": args.rounds,
+                "simulation_ticks": args.ticks,
+                "session_timeout_seconds": args.session_timeout,
+                "max_agent_turns": args.max_turns,
+                "replay_cap_seconds": args.replay_seconds,
+                "replay_fps": 20,
+            },
+            "environment": {
+                "os": std::env::consts::OS,
+                "arch": std::env::consts::ARCH,
+                "rustc": command_stdout("rustc", &["--version"], &root),
+                "sandbox_images": sandbox_images,
+            },
             "open_note": args.open_note,
             // What the condition actually granted, so a run explains itself
             // without cross-referencing the harness version.
-            "capabilities": if args.open_note {
-                json!(["engine_source", "file_tools", "python3"])
-            } else {
-                json!([])
-            },
+            "capabilities": capabilities,
             "agent_state": if args.fresh_sandbox { "fresh-sandbox" } else { "reset-per-run" },
+            "round_reset": "baseline-park-snapshot",
+            "artifact_integrity": "sha256",
             "sandbox": args.sandbox,
             "opencode_sandbox": args.opencode_sandbox,
             "codex_sandbox": args.codex_sandbox,
             "allowed_tools": allowed_tools(&args),
             "opencode_permission": opencode_permissions(&args),
             "codex_sandbox_mode": codex_sandbox_mode(&args),
+            "codex_reasoning_effort": args.codex_reasoning_effort.as_str(),
             "open_note_source": open_note_sha,
         }),
     )?;
@@ -1512,12 +1844,16 @@ fn main() -> Result<(), String> {
                 eprintln!("interrupted: stopping before {model} round {round}");
                 break 'contenders;
             }
+            // Restore the exact pre-round-one scenario before taking the new
+            // lease, so clock, RNG, guests, and weather do not depend on
+            // contender order.
+            control
+                .call("reset_park", json!({}))
+                .map_err(|e| format!("reset park before {model} round {round}: {e}"))?;
             // One lease per round: claiming it evicts any agent still alive
             // from an earlier round, which would otherwise build in this park.
             let lease = format!("{}-r{round}-{}", model, epoch_secs());
             client.claim("127.0.0.1", args.port, &lease);
-            // A fresh park state for every round.
-            let _ = client.call("demolish", json!({}));
             let prompt = prompt::round_prompt(&prompt::Round {
                 ride_type: args.ride_type,
                 round,
@@ -1558,7 +1894,7 @@ fn main() -> Result<(), String> {
                     eprintln!("[{model}] round {round}: usage write failed: {e}");
                 }
             }
-            match collect_round(&mut client, &args, &round_dir) {
+            match collect_round(&mut client, &mut control, &args, &round_dir) {
                 Ok(report) => {
                     let score = best_excitement(&report);
                     println!(
@@ -1631,11 +1967,11 @@ mod tests {
             modalities: Modalities::TEXT | Modalities::IMAGE,
         };
         assert!(text_only
-            .mcp_url(8791, "lease-1")
-            .ends_with("/mcp?modalities=text&lease=lease-1"));
+            .mcp_url(8791, "lease-1", BenchmarkMode::Design)
+            .ends_with("/mcp?modalities=text&condition=design&lease=lease-1"));
         assert!(multimodal
-            .mcp_url(8791, "lease-1")
-            .ends_with("/mcp?modalities=text,image&lease=lease-1"));
+            .mcp_url(8791, "lease-1", BenchmarkMode::Library)
+            .ends_with("/mcp?modalities=text,image&condition=library&lease=lease-1"));
     }
 
     #[test]
@@ -1749,6 +2085,10 @@ mod tests {
         assert!(config.contains("wire_api = \"responses\""), "chat is gone");
         assert!(config.contains("[mcp_servers.coaster]"));
         assert!(config.contains("lease=l1"), "per-round lease reaches codex");
+        assert!(
+            config.contains("default_tools_approval_mode = \"approve\""),
+            "headless codex must not cancel coaster calls for lack of a user-input handler"
+        );
     }
 
     #[test]
@@ -1756,6 +2096,10 @@ mod tests {
         let args = Args::parse_from(["coaster-bench"]);
         let config = codex_config(&args, &Contender::parse("codex:gpt-5.6-sol"), "l1");
         assert!(config.starts_with("model = \"gpt-5.6-sol\""));
+        assert!(
+            config.contains("model_reasoning_effort = \"medium\""),
+            "published runs pin the declared effort instead of inheriting low"
+        );
         assert!(
             !config.contains("model_provider"),
             "own login, not OpenRouter"
@@ -1797,6 +2141,12 @@ mod tests {
         assert!((score - 4.0).abs() < 1e-9);
         let free = json!({"rides": [{"excitement": 8.0}], "similarity": {"similarity": 0.4}});
         assert!((best_excitement(&free).expect("scored") - 8.0).abs() < 1e-9);
+        let authoritative = json!({
+            "score": 3.5,
+            "rides": [{"excitement": 8.0}],
+            "similarity": {"similarity": 0.0}
+        });
+        assert_eq!(best_excitement(&authoritative), Some(3.5));
     }
 
     #[test]
@@ -1847,11 +2197,8 @@ mod tests {
     #[test]
     fn policy_port_is_rewritten_to_the_running_port() {
         let policy = "network_policies:\n  coaster_game:\n    endpoints:\n      - host: host.containers.internal\n        port: 8791\n        protocol: rest\n";
-        let out = policy_with_port(policy, 8899);
-        assert!(
-            out.contains("        port: 8899"),
-            "port rewritten in place: {out}"
-        );
+        let out = policy_with_port(policy, 8899).expect("valid policy");
+        assert!(out.contains("port: 8899"), "port rewritten in place: {out}");
         assert!(
             out.contains("host: host.containers.internal"),
             "rest untouched"
@@ -1860,9 +2207,18 @@ mod tests {
     }
 
     #[test]
-    fn policy_rewrite_leaves_non_port_lines_alone() {
-        let policy = "process:\n  run_as_user: sandbox\n  # port: not a real key\n";
-        assert_eq!(policy_with_port(policy, 1234), policy.trim_end());
+    fn policy_rewrite_does_not_touch_inference_ports() {
+        let policy = "network_policies:\n  coaster_game:\n    endpoints:\n      - host: host.containers.internal\n        port: 8791\n  inference:\n    endpoints:\n      - host: api.openai.com\n        port: 443\n";
+        let out = policy_with_port(policy, 1234).expect("valid policy");
+        assert!(out.contains("port: 1234"), "{out}");
+        assert!(out.contains("port: 443"), "{out}");
+        assert!(out.contains("api.openai.com"), "{out}");
+    }
+
+    #[test]
+    fn policy_rewrite_requires_the_named_game_endpoint() {
+        let policy = "process:\n  run_as_user: sandbox\n";
+        assert!(policy_with_port(policy, 1234).is_err());
     }
 
     #[test]

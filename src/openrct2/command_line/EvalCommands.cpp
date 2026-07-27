@@ -132,10 +132,12 @@ namespace OpenRCT2
         {
             // Interactive mode: the MCP server owns the game loop from here.
             // Blocks until the process is terminated.
-            RustBridge::Serve(
-                _serveBind.empty() ? nullptr : _serveBind.c_str(), static_cast<uint16_t>(_servePort),
-                static_cast<uint16_t>(_serveControlPort));
-            return ExitCode::ok;
+            return RustBridge::Serve(
+                       _serveBind.empty() ? nullptr : _serveBind.c_str(), static_cast<uint16_t>(_servePort),
+                       static_cast<uint16_t>(_serveControlPort))
+                    == 0
+                ? ExitCode::ok
+                : ExitCode::fail;
         }
 
         Orct2ProgramOutcome* outcome = nullptr;

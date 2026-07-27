@@ -30,6 +30,7 @@ use serde_json::{json, Value};
 use crate::host;
 use crate::library::{self, LibraryDesign};
 use crate::pieces;
+use crate::presentation::{self, RidePresentation};
 use crate::program;
 use crate::replay;
 use crate::report;
@@ -89,6 +90,34 @@ impl std::ops::BitOr for Modalities {
     }
 }
 
+/// Benchmark condition advertised by the harness. Design mode deliberately
+/// removes the stock-design lookup capability; library mode is the separate
+/// retrieval-and-adaptation condition.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Condition {
+    Design,
+    Library,
+}
+
+impl Condition {
+    fn from_request_target(target: &str) -> Condition {
+        let Some((_, query)) = target.split_once('?') else {
+            return Condition::Design;
+        };
+        match query
+            .split('&')
+            .find_map(|param| param.strip_prefix("condition="))
+        {
+            Some("library") => Condition::Library,
+            _ => Condition::Design,
+        }
+    }
+
+    fn allows_library(self) -> bool {
+        self == Condition::Library
+    }
+}
+
 /// A request's claim on the park, read from the query string.
 struct Claim {
     lease: Option<String>,
@@ -116,11 +145,10 @@ impl Claim {
     fn authorise(&self, session: &mut Session) -> bool {
         if self.takes_ownership {
             // A new round takes the park, so the previous round's best test
-            // must not carry over into it.
+            // and its authored presentation must not carry over into it.
             session.lease = self.lease.clone();
-            session.best_test = None;
-            session.best_shot = None;
-            session.best_shot_fit = None;
+            session.best = None;
+            session.presentation = None;
             return true;
         }
         match (&session.lease, &self.lease) {
@@ -134,12 +162,41 @@ impl Claim {
 /// Render the park to a PNG. The agent's screenshots are deliberately the whole
 /// map (spatial context); the harness keeps the `fit_track` crop.
 fn capture_park_png(fit_track: bool) -> Result<Vec<u8>, String> {
-    let path = std::env::temp_dir().join("orct2_mcp_capture.png");
+    let path = std::env::temp_dir().join(format!("orct2-agent-capture-{}.png", std::process::id()));
     let path_str = path.to_string_lossy();
     if !host::capture(&path_str, 0, 0, fit_track, false) {
         return Err("capture failed".into());
     }
-    std::fs::read(&path).map_err(|e| format!("read capture: {e}"))
+    let result = std::fs::read(&path).map_err(|e| format!("read capture: {e}"));
+    let _ = std::fs::remove_file(path);
+    result
+}
+
+fn park_snapshot_path(label: &str) -> std::path::PathBuf {
+    std::env::temp_dir().join(format!("orct2-agent-{label}-{}.park", std::process::id()))
+}
+
+fn snapshot_park(label: &str) -> Result<Vec<u8>, String> {
+    let path = park_snapshot_path(label);
+    let path_str = path.to_string_lossy();
+    if !host::save_park(&path_str) {
+        return Err("park snapshot failed".into());
+    }
+    let result = std::fs::read(&path).map_err(|e| format!("read park snapshot: {e}"));
+    let _ = std::fs::remove_file(path);
+    result
+}
+
+fn load_park_snapshot(label: &str, bytes: &[u8]) -> Result<(), String> {
+    let path = park_snapshot_path(label);
+    std::fs::write(&path, bytes).map_err(|e| format!("write park snapshot: {e}"))?;
+    let loaded = host::load_park(&path.to_string_lossy());
+    let _ = std::fs::remove_file(path);
+    if loaded {
+        Ok(())
+    } else {
+        Err("park snapshot load failed".into())
+    }
 }
 
 fn image_content(bytes: Vec<u8>) -> Vec<Value> {
@@ -156,6 +213,7 @@ fn tool_modality(name: &str) -> Modalities {
 }
 
 /// One placed piece: what and where, so it can be undone.
+#[derive(Clone)]
 struct Placed {
     name: &'static str,
     track_type: u16,
@@ -187,6 +245,7 @@ fn placed_pieces_json(placed: &[Placed]) -> Vec<Value> {
 }
 
 /// Build state for the ride currently under construction.
+#[derive(Clone)]
 struct Build {
     ride_id: u16,
     start: host::TrackCursor,
@@ -236,6 +295,23 @@ impl Build {
     }
 }
 
+struct BestCandidate {
+    /// Final benchmark score, including the stock-design similarity penalty.
+    score: f64,
+    report: Value,
+    build: Build,
+    /// Exact serialized park at the same instant as the report.
+    park: Option<Vec<u8>>,
+    shot: Option<Vec<u8>>,
+    shot_fit: Option<Vec<u8>>,
+}
+
+struct CandidateArtifacts {
+    park: Vec<u8>,
+    shot: Vec<u8>,
+    shot_fit: Vec<u8>,
+}
+
 #[derive(Default)]
 struct Session {
     build: Option<Build>,
@@ -250,30 +326,116 @@ struct Session {
     /// refused instead of silently sharing the park. Unleased servers stay
     /// open, so an interactive session needs no ceremony.
     lease: Option<String>,
-    /// The highest-excitement finish_and_test report seen this lease. A model
+    /// The highest-scoring finish_and_test candidate seen this lease. A model
     /// that tests a good coaster then demolishes it to chase a better one used
     /// to be scored on whatever it was mid-building at the timeout, which
     /// punished iterating; the round is scored on this instead. Reset when a
     /// new round claims the park.
-    best_test: Option<Value>,
-    /// Park PNG captured at the moment `best_test` was set, so the scored
-    /// coaster can be pictured even after it was demolished. Reset with it.
-    best_shot: Option<Vec<u8>>,
-    /// The same moment cropped to the track: the round's picture. Taken then,
-    /// not later, because the coaster may be gone by the end of the round.
-    best_shot_fit: Option<Vec<u8>>,
+    best: Option<BestCandidate>,
+    /// The model's non-scoring name and colours for its winner. Once chosen,
+    /// these follow a later candidate that beats the current best.
+    presentation: Option<RidePresentation>,
+    /// Exact scenario state before the first round, used to make every later
+    /// round begin from the same clock, RNG, guests, weather, and park state.
+    baseline_park: Option<Vec<u8>>,
 }
 
-/// Best-ride excitement in a finish_and_test report, if any ride was rated.
-fn report_excitement(report: &Value) -> Option<f64> {
-    report
+/// Benchmark score for a finish_and_test report: best raw excitement scaled by
+/// the same stock-design similarity penalty used by the public harness.
+fn report_score(report: &Value) -> Option<f64> {
+    let raw = report
         .get("rides")?
         .as_array()?
         .iter()
         .filter_map(|r| r.get("excitement").and_then(Value::as_f64))
         .fold(None, |best: Option<f64>, e| {
             Some(best.map_or(e, |b| b.max(e)))
+        })?;
+    let similarity = report
+        .pointer("/similarity/similarity")
+        .and_then(Value::as_f64)
+        .unwrap_or(0.0);
+    let multiplier = if similarity <= 0.5 {
+        1.0
+    } else {
+        ((1.0 - similarity) / 0.5).max(0.0)
+    };
+    Some(raw * multiplier)
+}
+
+fn apply_presentation(ride_id: u16, presentation: &RidePresentation) -> Result<(), String> {
+    host::ride_style(
+        ride_id,
+        &presentation.name,
+        &presentation.track_color,
+        &presentation.rail_color,
+        &presentation.support_color,
+    )
+}
+
+/// Restyles the already-banked winner without disturbing the coaster the model
+/// is currently building. The winner's park bytes and both screenshots are
+/// replaced as one unit only after the live park has been restored.
+fn style_best_ride(session: &mut Session, presentation: RidePresentation) -> Result<Value, String> {
+    let candidate = session
+        .best
+        .as_ref()
+        .ok_or("no rated test yet this round; call finish_and_test first")?;
+    let best_park = candidate
+        .park
+        .clone()
+        .ok_or("best result has no park snapshot")?;
+    let best_build = candidate.build.clone();
+    let live_park = snapshot_park("before-style")?;
+    let live_build = session.build.clone();
+
+    let styled: Result<CandidateArtifacts, String> = (|| {
+        load_park_snapshot("best-style", &best_park)?;
+        apply_presentation(best_build.ride_id, &presentation)?;
+        Ok(CandidateArtifacts {
+            park: snapshot_park("best-styled")?,
+            shot: capture_park_png(false)?,
+            shot_fit: capture_park_png(true)?,
         })
+    })();
+
+    // Restoration is mandatory even when styling or capture failed: the model
+    // may be halfway through a different build.
+    let restored = load_park_snapshot("after-style", &live_park);
+    session.build = live_build;
+    if let Err(error) = restored {
+        return Err(format!(
+            "failed to restore the live park after styling: {error}"
+        ));
+    }
+    let styled = styled?;
+
+    // Presentation follows the live candidate too, so screenshot remains
+    // intuitive and a later winning finish can inherit the same choice.
+    if let Some(build) = session.build.as_ref() {
+        if let Err(error) = apply_presentation(build.ride_id, &presentation) {
+            host::log(&format!(
+                "orct2-agent: styled the saved winner but not the live ride: {error}"
+            ));
+        }
+    }
+
+    let best = session
+        .best
+        .as_mut()
+        .ok_or("best result disappeared while styling")?;
+    presentation.annotate(&mut best.report)?;
+    best.park = Some(styled.park);
+    best.shot = Some(styled.shot);
+    best.shot_fit = Some(styled.shot_fit);
+    let score = best.score;
+    session.presentation = Some(presentation.clone());
+    Ok(json!({
+        "styled": "best_result",
+        "presentation": presentation,
+        "score": score,
+        "score_changed": false,
+    }))
 }
 
 const NO_RIDE: &str = "no active ride; call new_ride first";
@@ -328,6 +490,9 @@ struct Request {
 /// this is generous; it exists so a wedged game cannot leak connection threads
 /// forever.
 const REPLY_TIMEOUT: Duration = Duration::from_secs(600);
+const SOCKET_TIMEOUT: Duration = Duration::from_secs(30);
+const MAX_HEADER_BYTES: usize = 64 * 1024;
+const MAX_BODY_BYTES: usize = 1024 * 1024;
 
 /// Runs the server until the process is killed. Never panics; per-request
 /// failures are reported to the client and the listeners keep accepting.
@@ -341,6 +506,13 @@ const REPLY_TIMEOUT: Duration = Duration::from_secs(600);
 /// simulation stays as deterministic as it was.
 pub fn serve(bind: &str, port: u16, control_port: u16) -> Result<(), String> {
     let (tx, rx) = mpsc::channel::<Request>();
+    // Capture before either listener exists, so a stale client cannot race the
+    // first reset and accidentally turn a modified park into the baseline.
+    let baseline_park = if control_port > 0 {
+        Some(snapshot_park("baseline")?)
+    } else {
+        None
+    };
 
     let listener =
         TcpListener::bind((bind, port)).map_err(|e| format!("bind {bind}:{port}: {e}"))?;
@@ -364,7 +536,10 @@ pub fn serve(bind: &str, port: u16, control_port: u16) -> Result<(), String> {
     // could never see a disconnect.
     drop(tx);
 
-    let mut session = Session::default();
+    let mut session = Session {
+        baseline_park,
+        ..Default::default()
+    };
     while let Ok(request) = rx.recv() {
         let response = handle_request(&request, &mut session);
         // A connection that gave up while we worked is not an error worth
@@ -378,6 +553,8 @@ fn spawn_listener(listener: TcpListener, source: Source, tx: mpsc::Sender<Reques
     std::thread::spawn(move || {
         for stream in listener.incoming() {
             let Ok(stream) = stream else { continue };
+            let _ = stream.set_read_timeout(Some(SOCKET_TIMEOUT));
+            let _ = stream.set_write_timeout(Some(SOCKET_TIMEOUT));
             let tx = tx.clone();
             // Per connection, so a client that stalls mid-request stalls only
             // itself. These threads never call host::*, including the logger:
@@ -436,10 +613,15 @@ fn pump_connection(
     }
 }
 
-/// Game-thread side of one request: claim the park, then dispatch. Everything
-/// reachable from here may call host functions.
+/// Game-thread side of one request: authorise agent claims, then dispatch.
+/// Everything reachable from here may call host functions.
 fn handle_request(request: &Request, session: &mut Session) -> Value {
-    if !Claim::from_request_target(&request.target).authorise(session) {
+    // The loopback-only control listener is the harness capability boundary.
+    // It must remain able to collect a round after the agent listener has
+    // claimed the park; requiring an agent lease here bricks save/capture.
+    if request.source == Source::Mcp
+        && !Claim::from_request_target(&request.target).authorise(session)
+    {
         // A stale agent from a finished round: refuse rather than let it
         // build in a park that now belongs to someone else.
         return rpc_error(
@@ -449,7 +631,14 @@ fn handle_request(request: &Request, session: &mut Session) -> Value {
         );
     }
     let modalities = Modalities::from_request_target(&request.target);
-    dispatch(&request.message, session, modalities, request.source)
+    let condition = Condition::from_request_target(&request.target);
+    dispatch(
+        &request.message,
+        session,
+        modalities,
+        condition,
+        request.source,
+    )
 }
 
 fn read_http_request(
@@ -462,6 +651,10 @@ fn read_http_request(
     if n == 0 {
         return Ok(None);
     }
+    if n > MAX_HEADER_BYTES {
+        return Err("HTTP request line too large".into());
+    }
+    let mut header_bytes = n;
     let mut parts = request_line.split_whitespace();
     let method = parts.next().unwrap_or("").to_string();
     let target = parts.next().unwrap_or("").to_string();
@@ -472,15 +665,27 @@ fn read_http_request(
         if n == 0 {
             return Ok(None);
         }
+        header_bytes = header_bytes.saturating_add(n);
+        if header_bytes > MAX_HEADER_BYTES {
+            return Err("HTTP headers too large".into());
+        }
         let line = line.trim_end();
         if line.is_empty() {
             break;
         }
         if let Some((name, value)) = line.split_once(':') {
             if name.eq_ignore_ascii_case("content-length") {
-                content_length = value.trim().parse().unwrap_or(0);
+                content_length = value
+                    .trim()
+                    .parse()
+                    .map_err(|_| "invalid Content-Length".to_string())?;
             }
         }
+    }
+    if content_length > MAX_BODY_BYTES {
+        return Err(format!(
+            "HTTP body too large ({content_length} > {MAX_BODY_BYTES})"
+        ));
     }
     let mut body = vec![0u8; content_length];
     reader.read_exact(&mut body).map_err(|e| e.to_string())?;
@@ -527,6 +732,7 @@ fn dispatch(
     message: &Value,
     session: &mut Session,
     modalities: Modalities,
+    condition: Condition,
     source: Source,
 ) -> Value {
     let id = message.get("id").cloned().unwrap_or(Value::Null);
@@ -549,7 +755,7 @@ fn dispatch(
         "ping" => rpc_result(id, json!({})),
         "tools/list" => {
             let tools = match source {
-                Source::Mcp => tool_definitions(modalities),
+                Source::Mcp => tool_definitions(modalities, condition),
                 Source::Control => control_tool_definitions(),
             };
             rpc_result(id, json!({"tools": tools}))
@@ -581,6 +787,17 @@ fn dispatch(
                     }),
                 );
             }
+            if matches!(name, "search_track_designs" | "get_track_design")
+                && !condition.allows_library()
+            {
+                return rpc_result(
+                    id,
+                    json!({
+                        "content": [{"type": "text", "text": format!("{name} is unavailable in the design condition")}],
+                        "isError": true,
+                    }),
+                );
+            }
             match call_tool(name, &args, session) {
                 Ok(content) => rpc_result(id, json!({"content": content, "isError": false})),
                 Err(text) => rpc_result(
@@ -593,12 +810,14 @@ fn dispatch(
     }
 }
 
-fn tool_definitions(modalities: Modalities) -> Value {
+fn tool_definitions(modalities: Modalities, condition: Condition) -> Value {
     let mut tools = all_tool_definitions();
     if let Some(list) = tools.as_array_mut() {
         list.retain(|t| {
             let name = t.get("name").and_then(Value::as_str).unwrap_or_default();
             modalities.contains(tool_modality(name))
+                && (condition.allows_library()
+                    || !matches!(name, "search_track_designs" | "get_track_design"))
         });
     }
     tools
@@ -613,7 +832,8 @@ fn control_tool_definitions() -> Value {
             "name": "save_park",
             "description": "Write the park to a .park save on the machine running the game.",
             "inputSchema": {"type": "object", "required": ["path"], "properties": {
-                "path": {"type": "string", "description": "Filesystem path to write"}
+                "path": {"type": "string", "description": "Filesystem path to write"},
+                "best": {"type": "boolean", "description": "Write the exact park snapshot belonging to best_result (default false)"}
             }}
         },
         {
@@ -626,12 +846,19 @@ fn control_tool_definitions() -> Value {
         },
         {
             "name": "capture_replay",
-            "description": "Film the running ride straight into an mp4: ticks the simulation, renders frames, and pipes them to ffmpeg. Starts from the train leaving the station.",
+            "description": "Film a ride straight into an mp4: optionally restores the exact best-result park first, then ticks the simulation, renders frames, and pipes them to ffmpeg.",
             "inputSchema": {"type": "object", "required": ["out"], "properties": {
                 "out": {"type": "string", "description": "Path of the .mp4 to write"},
                 "frames": {"type": "integer", "description": "How many frames to capture (default 400)"},
                 "every_ticks": {"type": "integer", "description": "Game ticks between frames; 40 ticks = 1 second (default 2, so 20fps)"},
-                "zoom": {"type": "integer", "description": "Zoom level; higher is smaller and cheaper (default 0)"}
+                "zoom": {"type": "integer", "description": "Zoom level; higher is smaller and cheaper (default 0)"},
+                "best": {"type": "boolean", "description": "Restore and film the exact park snapshot belonging to best_result (default false)"}
+            }}
+        },
+        {
+            "name": "reset_park",
+            "description": "Restore the exact scenario state captured before round one, including simulation clock, RNG, guests, and weather.",
+            "inputSchema": {"type": "object", "properties": {
             }}
         }
     ])
@@ -648,8 +875,20 @@ fn call_control_tool(
                 .get("path")
                 .and_then(Value::as_str)
                 .ok_or("path is required")?;
-            if host::save_park(path) {
-                Ok(text_content(json!({"saved": path})))
+            let best = args.get("best").and_then(Value::as_bool).unwrap_or(false);
+            let saved = if best {
+                let park = session
+                    .best
+                    .as_ref()
+                    .and_then(|candidate| candidate.park.as_ref())
+                    .ok_or("best result has no park snapshot")?;
+                std::fs::write(path, park).map_err(|e| format!("write {path}: {e}"))?;
+                true
+            } else {
+                host::save_park(path)
+            };
+            if saved {
+                Ok(text_content(json!({"saved": path, "best": best})))
             } else {
                 Err("park save failed".to_string())
             }
@@ -664,8 +903,9 @@ fn call_control_tool(
             // demolition; the live park is rendered on demand.
             let png = if best {
                 session
-                    .best_shot_fit
-                    .clone()
+                    .best
+                    .as_ref()
+                    .and_then(|candidate| candidate.shot_fit.clone())
                     .ok_or("no rated test yet this round")?
             } else {
                 capture_park_png(true)?
@@ -684,6 +924,20 @@ fn call_control_tool(
             let frames = arg_i64(args, "frames").unwrap_or(400).clamp(1, 20_000) as usize;
             let every = arg_i64(args, "every_ticks").unwrap_or(2).clamp(1, 400) as u32;
             let zoom = arg_i64(args, "zoom").unwrap_or(0).clamp(0, 3) as i32;
+            let best = args.get("best").and_then(Value::as_bool).unwrap_or(false);
+            if best {
+                let candidate = session
+                    .best
+                    .as_ref()
+                    .ok_or("no rated test yet this round")?;
+                let park = candidate
+                    .park
+                    .clone()
+                    .ok_or("best result has no park snapshot")?;
+                let build = candidate.build.clone();
+                load_park_snapshot("best-replay", &park)?;
+                session.build = Some(build);
+            }
             let filmed = replay::film(
                 out,
                 frames,
@@ -700,13 +954,26 @@ fn call_control_tool(
                 "ticks_waited_for_station": filmed.ticks_waited_for_station,
                 "poster": filmed.poster,
                 "looped": filmed.looped,
+                "best": best,
             })))
+        }
+        "reset_park" => {
+            let park = session
+                .baseline_park
+                .clone()
+                .ok_or("baseline park snapshot unavailable")?;
+            load_park_snapshot("baseline", &park)?;
+            session.build = None;
+            session.best = None;
+            session.presentation = None;
+            Ok(text_content(json!({"reset": true})))
         }
         other => Err(format!("unknown control tool: {other}")),
     }
 }
 
 fn all_tool_definitions() -> Value {
+    let colours = json!(presentation::COLOURS);
     json!([
         {
             "name": "new_ride",
@@ -746,8 +1013,18 @@ fn all_tool_definitions() -> Value {
         },
         {
             "name": "best_result",
-            "description": "Return the highest-excitement finish_and_test result from this round, even if the park has since been demolished or rebuilt. Your round is scored on this, so demolishing a tested coaster to try something better never loses the earlier score.",
+            "description": "Return the highest-scoring finish_and_test result from this round after the stock-design similarity penalty, even if the park has since been demolished or rebuilt. Your round is scored on this, so demolishing a tested coaster to try something better never loses the earlier score.",
             "inputSchema": {"type": "object", "properties": {}}
+        },
+        {
+            "name": "style_best_ride",
+            "description": "Name and recolour the already-banked best_result without retesting or changing its score. This retroactively updates the saved winner park and screenshots even if that coaster has since been demolished. The choice follows any later candidate that beats it.",
+            "inputSchema": {"type": "object", "required": ["name", "track_color", "rail_color", "support_color"], "properties": {
+                "name": {"type": "string", "minLength": 1, "maxLength": 32, "description": "Final coaster name"},
+                "track_color": {"type": "string", "enum": colours.clone(), "description": "Main track/spine colour"},
+                "rail_color": {"type": "string", "enum": colours.clone(), "description": "Rails or secondary track colour"},
+                "support_color": {"type": "string", "enum": colours, "description": "Support structure colour"}
+            }}
         },
         {
             "name": "best_screenshot",
@@ -931,35 +1208,57 @@ fn call_tool(name: &str, args: &Value, session: &mut Session) -> Result<Vec<Valu
                 );
                 obj.insert("start".into(), cursor_json(&build.start));
             }
-            // Remember the best rated test this round, so demolishing a good
-            // coaster to chase a better one can't lose the good one. Snapshot
-            // the park at the same moment so the scored ride can still be
-            // pictured after a later rebuild replaces it.
-            if let Some(excitement) = report_excitement(&report) {
-                let prev = session.best_test.as_ref().and_then(report_excitement);
-                if prev.is_none_or(|b| excitement > b) {
-                    session.best_test = Some(report.clone());
-                    session.best_shot = capture_park_png(false).ok();
-                    session.best_shot_fit = capture_park_png(true).ok();
+            let score = report_score(&report);
+            if let Some(obj) = report.as_object_mut() {
+                obj.insert("score".into(), json!(score));
+            }
+            // Remember one atomic winning candidate. Selection uses the final
+            // benchmark score (including similarity), and every artifact is
+            // captured from the same game state as its report.
+            if let Some(score) = score {
+                if session.best.as_ref().is_none_or(|best| score > best.score) {
+                    if let Some(presentation) = session.presentation.as_ref() {
+                        match apply_presentation(build.ride_id, presentation) {
+                            Ok(()) => presentation.annotate(&mut report)?,
+                            Err(error) => host::log(&format!(
+                                "orct2-agent: could not carry presentation to new winner: {error}"
+                            )),
+                        }
+                    }
+                    session.best = Some(BestCandidate {
+                        score,
+                        report: report.clone(),
+                        build: build.clone(),
+                        park: snapshot_park("best").ok(),
+                        shot: capture_park_png(false).ok(),
+                        shot_fit: capture_park_png(true).ok(),
+                    });
                 }
             }
             Ok(text_content(report))
+        }
+        "style_best_ride" => {
+            let presentation = RidePresentation::from_args(args)?;
+            Ok(text_content(style_best_ride(session, presentation)?))
         }
         "best_result" => {
             // The best rated test of the round, regardless of what currently
             // stands in the park. The harness scores this; a model may also
             // call it to see whether a rebuild actually beat its earlier work.
-            match &session.best_test {
-                Some(report) => Ok(text_content(report.clone())),
+            match &session.best {
+                Some(best) => Ok(text_content(best.report.clone())),
                 None => Err("no rated test yet this round".into()),
             }
         }
         "best_screenshot" => {
-            // The park as it stood when best_test was set; the harness saves
+            // The park as it stood when the best candidate was set; the harness saves
             // this as the round's artifact so the picture matches the score.
-            match &session.best_shot {
-                Some(bytes) => Ok(image_content(bytes.clone())),
+            match &session.best {
+                Some(best) if best.shot.is_some() => {
+                    Ok(image_content(best.shot.clone().unwrap_or_default()))
+                }
                 None => Err("no rated test yet this round".into()),
+                Some(_) => Err("best-result screenshot capture failed".into()),
             }
         }
         "screenshot" => Ok(image_content(capture_park_png(false)?)),
@@ -1110,12 +1409,36 @@ fn cursor_json(c: &host::TrackCursor) -> Value {
 mod tests {
     use crate::mcp::*;
 
+    fn test_build() -> Build {
+        let cursor = host::TrackCursor {
+            x: 0,
+            y: 0,
+            z: 0,
+            direction: 0,
+            bank: 0,
+            slope: 0,
+        };
+        Build {
+            ride_id: 1,
+            start: cursor,
+            cursor,
+            placed: Vec::new(),
+            finalized: true,
+        }
+    }
+
     #[test]
     fn dispatch_initialize_echoes_protocol_version() {
         let mut session = Session::default();
         let msg = json!({"jsonrpc": "2.0", "id": 1, "method": "initialize",
                          "params": {"protocolVersion": "2025-03-26"}});
-        let resp = dispatch(&msg, &mut session, Modalities::ALL, Source::Mcp);
+        let resp = dispatch(
+            &msg,
+            &mut session,
+            Modalities::ALL,
+            Condition::Design,
+            Source::Mcp,
+        );
         assert_eq!(
             resp.pointer("/result/protocolVersion")
                 .and_then(Value::as_str),
@@ -1174,7 +1497,13 @@ mod tests {
     fn dispatch_unknown_method_is_rpc_error() {
         let mut session = Session::default();
         let msg = json!({"jsonrpc": "2.0", "id": 2, "method": "bogus"});
-        let resp = dispatch(&msg, &mut session, Modalities::ALL, Source::Mcp);
+        let resp = dispatch(
+            &msg,
+            &mut session,
+            Modalities::ALL,
+            Condition::Design,
+            Source::Mcp,
+        );
         assert_eq!(
             resp.pointer("/error/code").and_then(Value::as_i64),
             Some(-32601)
@@ -1204,8 +1533,20 @@ mod tests {
         // The two tables are disjoint: everything the harness can ask for
         // writes this filesystem or drives the clock, and nothing an agent can
         // ask for does.
-        let control = dispatch(&list, &mut session, Modalities::ALL, Source::Control);
-        let agent_names = names(&dispatch(&list, &mut session, Modalities::ALL, Source::Mcp));
+        let control = dispatch(
+            &list,
+            &mut session,
+            Modalities::ALL,
+            Condition::Design,
+            Source::Control,
+        );
+        let agent_names = names(&dispatch(
+            &list,
+            &mut session,
+            Modalities::ALL,
+            Condition::Design,
+            Source::Mcp,
+        ));
         assert!(names(&control).contains(&"save_park".to_string()));
         assert!(names(&control).contains(&"capture_replay".to_string()));
         // The round's picture is a host filesystem write too, so it lives here
@@ -1217,7 +1558,13 @@ mod tests {
             names(&control)
         );
 
-        let agent = dispatch(&list, &mut session, Modalities::ALL, Source::Mcp);
+        let agent = dispatch(
+            &list,
+            &mut session,
+            Modalities::ALL,
+            Condition::Design,
+            Source::Mcp,
+        );
         assert!(
             !names(&agent).contains(&"save_park".to_string()),
             "a sandboxed agent must not be offered a host filesystem write"
@@ -1230,7 +1577,13 @@ mod tests {
             "jsonrpc": "2.0", "id": 2, "method": "tools/call",
             "params": {"name": "save_park", "arguments": {"path": "/tmp/should-not-happen.park"}}
         });
-        let refused = dispatch(&call, &mut session, Modalities::ALL, Source::Mcp);
+        let refused = dispatch(
+            &call,
+            &mut session,
+            Modalities::ALL,
+            Condition::Design,
+            Source::Mcp,
+        );
         assert_eq!(
             refused.pointer("/result/isError").and_then(Value::as_bool),
             Some(true)
@@ -1241,7 +1594,13 @@ mod tests {
             "jsonrpc": "2.0", "id": 3, "method": "tools/call",
             "params": {"name": "get_state", "arguments": {}}
         });
-        let wrong_plane = dispatch(&build, &mut session, Modalities::ALL, Source::Control);
+        let wrong_plane = dispatch(
+            &build,
+            &mut session,
+            Modalities::ALL,
+            Condition::Design,
+            Source::Control,
+        );
         assert_eq!(
             wrong_plane
                 .pointer("/result/isError")
@@ -1251,10 +1610,116 @@ mod tests {
     }
 
     #[test]
+    fn leased_round_does_not_lock_out_the_loopback_control_plane() {
+        let mut session = Session::default();
+        assert!(Claim::from_request_target("/mcp?lease=round1&claim=1").authorise(&mut session));
+
+        let (reply, _rx) = mpsc::channel();
+        let request = Request {
+            source: Source::Control,
+            target: "/mcp".to_string(),
+            message: json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}),
+            reply,
+        };
+        let response = handle_request(&request, &mut session);
+        assert!(
+            response.get("error").is_none(),
+            "control request was rejected after a lease claim: {response}"
+        );
+        assert!(
+            response
+                .pointer("/result/tools")
+                .and_then(Value::as_array)
+                .is_some_and(|tools| {
+                    tools
+                        .iter()
+                        .any(|tool| tool.get("name") == Some(&json!("save_park")))
+                }),
+            "control tool table was not returned: {response}"
+        );
+    }
+
+    #[test]
+    fn leased_control_request_succeeds_through_the_http_transport() {
+        use std::net::Shutdown;
+
+        let listener = TcpListener::bind(("127.0.0.1", 0)).expect("bind test listener");
+        let address = listener.local_addr().expect("listener address");
+        let (request_tx, request_rx) = mpsc::channel();
+        let connection = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().expect("accept test request");
+            pump_connection(stream, Source::Control, &request_tx)
+        });
+        let game = std::thread::spawn(move || {
+            let request = request_rx.recv().expect("request reaches game thread");
+            let mut session = Session {
+                lease: Some("round1".into()),
+                ..Default::default()
+            };
+            let response = handle_request(&request, &mut session);
+            request
+                .reply
+                .send(response)
+                .expect("reply reaches connection");
+        });
+
+        let message = json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}).to_string();
+        let request = format!(
+            "POST /mcp HTTP/1.1\r\nHost: localhost\r\nContent-Length: {}\r\n\r\n{message}",
+            message.len()
+        );
+        let mut client = TcpStream::connect(address).expect("connect test client");
+        client
+            .write_all(request.as_bytes())
+            .expect("write test request");
+        client
+            .shutdown(Shutdown::Write)
+            .expect("finish test request");
+        let mut response = String::new();
+        client
+            .read_to_string(&mut response)
+            .expect("read test response");
+
+        game.join().expect("game thread");
+        connection
+            .join()
+            .expect("connection thread")
+            .expect("HTTP transport");
+        assert!(response.starts_with("HTTP/1.1 200 OK"), "{response}");
+        assert!(response.contains("\"name\":\"save_park\""), "{response}");
+        assert!(!response.contains("stale"), "{response}");
+    }
+
+    #[test]
+    fn leased_round_still_rejects_stale_agent_requests() {
+        let mut session = Session::default();
+        assert!(Claim::from_request_target("/mcp?lease=round1&claim=1").authorise(&mut session));
+
+        let (reply, _rx) = mpsc::channel();
+        let request = Request {
+            source: Source::Mcp,
+            target: "/mcp?lease=round0".to_string(),
+            message: json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}),
+            reply,
+        };
+        let response = handle_request(&request, &mut session);
+        assert_eq!(
+            response.pointer("/error/code").and_then(Value::as_i64),
+            Some(-32000)
+        );
+    }
+
+    #[test]
     fn tools_list_contains_the_full_toolset() {
         let mut session = Session::default();
         let msg = json!({"jsonrpc": "2.0", "id": 3, "method": "tools/list"});
-        let resp = dispatch(&msg, &mut session, Modalities::ALL, Source::Mcp);
+        let resp = dispatch(
+            &msg,
+            &mut session,
+            Modalities::ALL,
+            Condition::Library,
+            Source::Mcp,
+        );
         let tools = resp
             .pointer("/result/tools")
             .and_then(Value::as_array)
@@ -1271,6 +1736,7 @@ mod tests {
             "get_state",
             "finish_and_test",
             "best_result",
+            "style_best_ride",
             "best_screenshot",
             "screenshot",
             "demolish",
@@ -1282,10 +1748,120 @@ mod tests {
     }
 
     #[test]
+    fn style_tool_exposes_only_canonical_visible_colours() {
+        let tools = all_tool_definitions();
+        let style = tools
+            .as_array()
+            .and_then(|tools| {
+                tools
+                    .iter()
+                    .find(|tool| tool.get("name") == Some(&json!("style_best_ride")))
+            })
+            .expect("style tool");
+        let colours = style
+            .pointer("/inputSchema/properties/track_color/enum")
+            .and_then(Value::as_array)
+            .expect("colour enum");
+        assert_eq!(colours.len(), 32);
+        assert!(colours.contains(&json!("bright_red")));
+        assert!(!colours.contains(&json!("invisible")));
+    }
+
+    #[test]
+    fn styling_requires_a_banked_result() {
+        let mut session = Session::default();
+        let msg = json!({
+            "jsonrpc": "2.0", "id": 3, "method": "tools/call",
+            "params": {"name": "style_best_ride", "arguments": {
+                "name": "Lake Effect",
+                "track_color": "bright_red",
+                "rail_color": "white",
+                "support_color": "dark_blue"
+            }}
+        });
+        let response = dispatch(
+            &msg,
+            &mut session,
+            Modalities::ALL,
+            Condition::Design,
+            Source::Mcp,
+        );
+        assert_eq!(
+            response.pointer("/result/isError").and_then(Value::as_bool),
+            Some(true)
+        );
+        assert!(response
+            .pointer("/result/content/0/text")
+            .and_then(Value::as_str)
+            .is_some_and(|text| text.contains("finish_and_test first")));
+    }
+
+    #[test]
+    fn design_condition_hides_and_refuses_library_tools() {
+        let mut session = Session::default();
+        let list = json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list"});
+        let response = dispatch(
+            &list,
+            &mut session,
+            Modalities::ALL,
+            Condition::Design,
+            Source::Mcp,
+        );
+        let names: Vec<&str> = response
+            .pointer("/result/tools")
+            .and_then(Value::as_array)
+            .expect("tools array")
+            .iter()
+            .filter_map(|tool| tool.get("name").and_then(Value::as_str))
+            .collect();
+        assert!(!names.contains(&"search_track_designs"));
+        assert!(!names.contains(&"get_track_design"));
+
+        let call = json!({
+            "jsonrpc": "2.0", "id": 2, "method": "tools/call",
+            "params": {"name": "search_track_designs", "arguments": {}}
+        });
+        let refused = dispatch(
+            &call,
+            &mut session,
+            Modalities::ALL,
+            Condition::Design,
+            Source::Mcp,
+        );
+        assert_eq!(
+            refused.pointer("/result/isError").and_then(Value::as_bool),
+            Some(true)
+        );
+        assert!(refused
+            .pointer("/result/content/0/text")
+            .and_then(Value::as_str)
+            .is_some_and(|text| text.contains("design condition")));
+    }
+
+    #[test]
+    fn condition_is_explicit_and_defaults_to_design() {
+        assert_eq!(Condition::from_request_target("/mcp"), Condition::Design);
+        assert_eq!(
+            Condition::from_request_target("/mcp?modalities=text&condition=library&lease=r1"),
+            Condition::Library
+        );
+        assert_eq!(
+            Condition::from_request_target("/mcp?condition=unknown"),
+            Condition::Design
+        );
+    }
+
+    #[test]
     fn text_only_clients_never_see_the_screenshot_tool() {
         let mut session = Session::default();
         let msg = json!({"jsonrpc": "2.0", "id": 3, "method": "tools/list"});
-        let resp = dispatch(&msg, &mut session, Modalities::TEXT, Source::Mcp);
+        let resp = dispatch(
+            &msg,
+            &mut session,
+            Modalities::TEXT,
+            Condition::Design,
+            Source::Mcp,
+        );
         let names: Vec<&str> = resp
             .pointer("/result/tools")
             .and_then(Value::as_array)
@@ -1302,7 +1878,13 @@ mod tests {
         let mut session = Session::default();
         let msg = json!({"jsonrpc": "2.0", "id": 6, "method": "tools/call",
                          "params": {"name": "screenshot", "arguments": {}}});
-        let resp = dispatch(&msg, &mut session, Modalities::TEXT, Source::Mcp);
+        let resp = dispatch(
+            &msg,
+            &mut session,
+            Modalities::TEXT,
+            Condition::Design,
+            Source::Mcp,
+        );
         assert_eq!(
             resp.pointer("/result/isError").and_then(Value::as_bool),
             Some(true)
@@ -1315,33 +1897,57 @@ mod tests {
     }
 
     #[test]
-    fn report_excitement_picks_the_best_rated_ride() {
-        assert_eq!(report_excitement(&json!({"rides": []})), None);
+    fn report_score_picks_the_best_rated_ride_and_applies_similarity() {
+        assert_eq!(report_score(&json!({"rides": []})), None);
         assert_eq!(
-            report_excitement(&json!({"rides": [{"excitement": null}]})),
+            report_score(&json!({"rides": [{"excitement": null}]})),
             None,
             "an unrated ride does not count"
         );
         assert_eq!(
-            report_excitement(&json!({"rides": [{"excitement": 5.89}, {"excitement": 6.08}]})),
+            report_score(&json!({"rides": [{"excitement": 5.89}, {"excitement": 6.08}]})),
             Some(6.08)
+        );
+        assert_eq!(
+            report_score(&json!({
+                "rides": [{"excitement": 8.0}],
+                "similarity": {"similarity": 0.75}
+            })),
+            Some(4.0)
         );
     }
 
     #[test]
     fn claiming_the_park_clears_the_previous_rounds_best() {
         let mut session = Session {
-            best_test: Some(json!({"rides": [{"excitement": 6.08}]})),
+            best: Some(BestCandidate {
+                score: 6.08,
+                report: json!({"rides": [{"excitement": 6.08}]}),
+                build: test_build(),
+                park: None,
+                shot: None,
+                shot_fit: None,
+            }),
+            presentation: Some(RidePresentation {
+                name: "Old Winner".into(),
+                track_color: "bright_red".into(),
+                rail_color: "white".into(),
+                support_color: "black".into(),
+            }),
             ..Default::default()
         };
         // A same-lease request (no claim) leaves the best in place.
         Claim::from_request_target("/mcp").authorise(&mut session);
-        assert!(session.best_test.is_some());
+        assert!(session.best.is_some());
         // The next round claiming the park wipes it.
         Claim::from_request_target("/mcp?lease=r2&claim=1").authorise(&mut session);
         assert!(
-            session.best_test.is_none(),
+            session.best.is_none(),
             "a fresh round must not inherit the last round's score"
+        );
+        assert!(
+            session.presentation.is_none(),
+            "a fresh round must not inherit the last round's presentation"
         );
     }
 
@@ -1422,7 +2028,13 @@ mod tests {
         let mut session = Session::default();
         let msg = json!({"jsonrpc": "2.0", "id": 5, "method": "tools/call",
                          "params": {"name": "search_track_designs", "arguments": {}}});
-        let resp = dispatch(&msg, &mut session, Modalities::ALL, Source::Mcp);
+        let resp = dispatch(
+            &msg,
+            &mut session,
+            Modalities::ALL,
+            Condition::Library,
+            Source::Mcp,
+        );
         assert_eq!(
             resp.pointer("/result/isError").and_then(Value::as_bool),
             Some(true)
@@ -1434,7 +2046,13 @@ mod tests {
         let mut session = Session::default();
         let msg = json!({"jsonrpc": "2.0", "id": 4, "method": "tools/call",
                          "params": {"name": "get_state", "arguments": {}}});
-        let resp = dispatch(&msg, &mut session, Modalities::ALL, Source::Mcp);
+        let resp = dispatch(
+            &msg,
+            &mut session,
+            Modalities::ALL,
+            Condition::Design,
+            Source::Mcp,
+        );
         assert_eq!(
             resp.pointer("/result/isError").and_then(Value::as_bool),
             Some(true)

@@ -82,10 +82,7 @@ agent state or wiping it between rounds has to be `$HOME`-relative.
 
 ### codex
 
-The codex lane is the weak one and is still unbuilt. The base image ships codex 0.117 at
-`/usr/bin/codex`, while the live `codex-arena` runs a 263 MB build at
-`/home/sandbox/bin/codex` that was placed there by hand, leaving no record of
-its origin (no tarball, and npm global holds only 0.117). `codex.Dockerfile`
-pins `0.145.0-alpha.18` from npm and copies it to the same path, which matches
-the policy but has not been built or run. Expect the copy step to need the
-package's real binary layout.
+The codex lane was rebuilt and verified on arm64 on 2026-07-26. The image and
+live `codex-arena` both run `codex-cli 0.145.0-alpha.18`; their copied
+`/home/sandbox/bin/codex` binaries have the same SHA-256. The copy is necessary
+because policy attribution follows the resolved executable path.

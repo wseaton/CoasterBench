@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.11"
 # ///
-"""Upload run artifacts (screenshots, videos) to the Cloudflare R2 bucket.
+"""Upload run artifacts (screenshots, videos, parks) to the Cloudflare R2 bucket.
 
 Heavy artifacts live in R2 (served at https://artifacts.wseaton.com), not in
 git; only the JSON metadata is tracked. This script uploads every artifact
@@ -43,6 +43,7 @@ CONTENT_TYPES = {
     ".png": "image/png",
     ".mp4": "video/mp4",
     ".webm": "video/webm",
+    ".park": "application/octet-stream",
 }
 
 
@@ -107,7 +108,8 @@ def write_digests(manifest_path: Path, digests: dict[str, str]) -> None:
 
 
 def digest(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()[:16]
+    """Full SHA-256 used as the durable artifact-integrity manifest."""
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def needs_upload(rel: str, path: Path, manifest: set[str], digests: dict[str, str]) -> bool:

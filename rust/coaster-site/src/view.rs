@@ -19,7 +19,7 @@ pub const MODE_TAGLINES: [(&str, &str); 3] = [
     ),
     (
         "open note",
-        "a modifier on either mode — the agent is also given the engine source it is scored by, so it can read the ratings code instead of guessing; scores are not comparable with black-box runs",
+        "open-note condition — the agent is given the engine source it is scored by, so it can read the ratings code instead of guessing; scores are not comparable with black-box runs",
     ),
 ];
 
@@ -208,6 +208,8 @@ pub struct Facet {
 /// The record coaster, headlining the index: footage rather than a still,
 /// unlabelled beyond its caption.
 pub struct Featured {
+    /// Model-authored ride name, when the run recorded one.
+    pub name: Option<String>,
     pub model: String,
     pub model_href: String,
     pub replay: String,
@@ -268,6 +270,18 @@ pub struct Badge {
     pub class: String,
 }
 
+pub struct Swatch {
+    pub name: String,
+    pub class: String,
+}
+
+pub struct Presentation {
+    pub name: String,
+    pub track: Swatch,
+    pub rail: Swatch,
+    pub support: Swatch,
+}
+
 pub struct RoundView {
     pub number: u32,
     /// Link to this round's trace page, when a trace was recorded.
@@ -279,6 +293,8 @@ pub struct RoundView {
     /// is track a train actually rides. Absent on rounds recorded before the
     /// audit existed, which is different from a round that has no orphans.
     pub circuit: Option<Badge>,
+    /// Model-authored name and colours; absent on runs made before the tool.
+    pub presentation: Option<Presentation>,
     /// The build failure, kept to one clamped line (full text in the tooltip).
     pub build_error: Option<String>,
     /// Rating line, absent when the round produced no rated ride.
@@ -293,6 +309,8 @@ pub struct RoundView {
     pub dna_caption: String,
     /// Replay video source, when the round recorded one.
     pub replay: Option<String>,
+    /// Download URL for the exact scored .park save.
+    pub park: Option<String>,
     /// Poster still framed like the replay, written beside it while filming.
     pub replay_poster: Option<String>,
     /// Whether the clip runs a whole cycle, and so can be looped.

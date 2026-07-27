@@ -12,6 +12,10 @@
     <source src="{{ top.replay }}" type="video/mp4">
   </video>
   <figcaption class="hero-meta">
+    {%- match top.name %}
+    {%- when Some(name) %}<strong class="hero-name">{{ name }}</strong>
+    {%- when None %}
+    {%- endmatch %}
     <a href="{{ top.model_href }}">{{ top.model }}</a>
     {%- for stat in top.stats %}
     <span class="hero-stat"><span class="dim">{{ stat.label }}</span> <b class="{{ stat.class }}">{{ stat.value }}</b></span>

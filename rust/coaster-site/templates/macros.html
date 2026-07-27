@@ -44,6 +44,16 @@
      (a build error, full ratings, nothing), and letting that set the card
      height leaves the grid ragged. #}
   <div class="round-meta">
+  {%- match round.presentation %}
+  {%- when Some(presentation) %}
+  <div class="ride-presentation">
+    <b>{{ presentation.name }}</b>
+    <span title="track: {{ presentation.track.name }}"><i class="swatch {{ presentation.track.class }}"></i>track</span>
+    <span title="rails: {{ presentation.rail.name }}"><i class="swatch {{ presentation.rail.class }}"></i>rails</span>
+    <span title="supports: {{ presentation.support.name }}"><i class="swatch {{ presentation.support.class }}"></i>supports</span>
+  </div>
+  {%- when None %}
+  {%- endmatch %}
   {%- match round.build_error %}
   {%- when Some(error) %}
   <p class="fail clamp" title="{{ error }}">{{ error }}</p>
@@ -95,6 +105,11 @@
   {%- match round.program_json %}
   {%- when Some(program) %}
   <details><summary>track program ({{ round.program_pieces }} pieces)</summary><pre>{{ program }}</pre></details>
+  {%- when None %}
+  {%- endmatch %}
+  {%- match round.park %}
+  {%- when Some(park) %}
+  <p><a href="{{ park }}" download>download scored .park</a></p>
   {%- when None %}
   {%- endmatch %}
   {%- match round.replay %}

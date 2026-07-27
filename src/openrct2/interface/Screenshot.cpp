@@ -636,8 +636,13 @@ static Viewport ViewportForCapture(const CaptureOptions& options)
     Viewport viewport{};
     if (options.View.has_value())
     {
-        viewport.width = options.View->Width;
-        viewport.height = options.View->Height;
+        // CaptureView dimensions describe the world-space extent to frame.
+        // Viewport dimensions are screen pixels, so zoom must reduce them;
+        // ViewWidth/ViewHeight apply the zoom again while rendering. Keeping
+        // the unscaled dimensions here made non-zero-zoom buffer captures
+        // larger than orct2_host_capture_size reported, yielding zero frames.
+        viewport.width = options.Zoom.ApplyInversedTo(options.View->Width);
+        viewport.height = options.Zoom.ApplyInversedTo(options.View->Height);
 
         auto z = TileElementHeight(options.View->Position);
         CoordsXYZ coords3d(options.View->Position, z);

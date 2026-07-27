@@ -39,11 +39,6 @@ network_policies:
         protocol: rest
         enforcement: enforce
         access: read-write
-      - host: host.containers.internal
-        port: 8792
-        protocol: rest
-        enforcement: enforce
-        access: read-write
     binaries:
       - path: /usr/local/bin/codex
       - path: /usr/bin/codex

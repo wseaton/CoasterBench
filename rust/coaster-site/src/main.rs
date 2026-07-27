@@ -24,7 +24,7 @@ use art::{Art, ArtStore};
 use model::{Circuit, EvalRun, ModelRun, Round};
 use view::{
     Badge, Chrome, Facet, Figure, IndexBoard, IndexGroup, IndexPage, IndexRow, LibraryPage,
-    ModelPage, ModelView, RoundStats, RoundView, RunPage, Shot, StandingRow, Stat,
+    ModelPage, ModelView, RoundStats, RoundView, RunPage, Shot, StandingRow, Stat, Swatch,
 };
 
 #[derive(Parser)]
@@ -207,6 +207,25 @@ fn circuit_badge(circuit: Option<&Circuit>) -> Option<Badge> {
         format!("verified circuit ({} pieces)", circuit.walked_pieces),
         "badge-ok",
     )
+}
+
+fn presentation_view(presentation: Option<&model::Presentation>) -> Option<view::Presentation> {
+    let presentation = presentation?;
+    let swatch = |name: &str| Swatch {
+        name: name.replace('_', " "),
+        class: format!(
+            "swatch-{}",
+            name.chars()
+                .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+                .collect::<String>()
+        ),
+    };
+    Some(view::Presentation {
+        name: presentation.name.clone(),
+        track: swatch(&presentation.track_color),
+        rail: swatch(&presentation.rail_color),
+        support: swatch(&presentation.support_color),
+    })
 }
 
 fn lookups_line(round: &Round) -> Option<String> {
@@ -568,6 +587,7 @@ fn build_model_view(
             trace_rejections: round.trace.iter().filter(|e| e.is_rejection()).count(),
             badge: round_badge(round, stats.as_ref()),
             circuit: circuit_badge(round.ride.as_ref().and_then(|r| r.circuit.as_ref())),
+            presentation: presentation_view(round.presentation.as_ref()),
             build_error: round.build_error.clone(),
             unrated_note: stats.is_none() && round.build_error.is_none(),
             stats,
@@ -586,6 +606,7 @@ fn build_model_view(
             ),
             dna_caption: dna_caption(&round.pieces, previous),
             replay: round_asset(round.replay.as_ref(), out, run, &model.model, round.number)?,
+            park: round_asset(round.park.as_ref(), out, run, &model.model, round.number)?,
             replay_poster: poster(round, out, run, &model.model, store)?,
             // A clip cut at the cap jumps rather than loops.
             replay_loops: round.replay_looped.unwrap_or(true),
@@ -712,7 +733,11 @@ fn build_model_page(
             run.mode_label(),
             run.ride_name(),
             run.harness,
-            view::mode_tagline(run.base_mode())
+            view::mode_tagline(if run.open_note {
+                "open note"
+            } else {
+                run.base_mode()
+            })
         ),
         stats: model_stats(model),
         model: view,
@@ -756,7 +781,11 @@ fn build_run_page(
     .maybe_og_card(card.as_deref());
     let page = RunPage {
         chrome,
-        mode_tagline: view::mode_tagline(run.base_mode()),
+        mode_tagline: view::mode_tagline(if run.open_note {
+            "open note"
+        } else {
+            run.base_mode()
+        }),
         grace: format!("{}", run.grace),
         standings: standings(run),
         models,
@@ -898,13 +927,19 @@ fn featured(runs: &[EvalRun], store: &ArtStore, out: &Path) -> Result<Option<vie
     ];
 
     Ok(Some(view::Featured {
+        name: round.presentation.as_ref().map(|p| p.name.clone()),
         model: model.model.clone(),
         model_href: model_href(run, &model.model),
         replay,
         poster,
         loops: round.replay_looped.unwrap_or(true),
         alt: format!(
-            "A lap of the {} {} designed by {} in round {} of {}, rated {:.2} excitement by the game.",
+            "A lap of {}the {} {} designed by {} in round {} of {}, rated {:.2} excitement by the game.",
+            round
+                .presentation
+                .as_ref()
+                .map(|p| format!("{} — ", p.name))
+                .unwrap_or_default(),
             run.mode_label(),
             run.ride_name(),
             model.model,
@@ -926,7 +961,12 @@ fn featured(runs: &[EvalRun], store: &ArtStore, out: &Path) -> Result<Option<vie
 fn index_boards(rows: Vec<IndexRow>) -> Vec<IndexBoard> {
     // Blind design first: it is the benchmark. The rest are their own
     // experiments, and say so.
-    let order = ["design", "library", "design + open note"];
+    let order = [
+        "design",
+        "library",
+        "design + open note",
+        "library + open note",
+    ];
     let mut boards: Vec<IndexBoard> = Vec::new();
     let mut conditions: Vec<String> = rows.iter().map(|r| r.mode.clone()).collect();
     conditions.sort_by_key(|c| order.iter().position(|o| o == c).unwrap_or(usize::MAX));
@@ -966,7 +1006,11 @@ fn index_boards(rows: Vec<IndexRow>) -> Vec<IndexBoard> {
             .collect();
         boards.push(IndexBoard {
             headline: condition == "design",
-            tagline: view::mode_tagline(condition.split(" + ").next().unwrap_or(&condition)),
+            tagline: view::mode_tagline(if condition.contains("open note") {
+                "open note"
+            } else {
+                condition.split(" + ").next().unwrap_or(&condition)
+            }),
             condition,
             groups,
         });
@@ -1506,5 +1550,20 @@ mod tests {
             circuit_badge(None).is_none(),
             "runs predating the audit claim nothing either way"
         );
+    }
+
+    #[test]
+    fn presentation_becomes_safe_named_swatches() {
+        let presentation = model::Presentation {
+            name: "Retro Rocket".into(),
+            track_color: "bright_red".into(),
+            rail_color: "white".into(),
+            support_color: "dark_blue".into(),
+        };
+        let view = presentation_view(Some(&presentation)).expect("presentation view");
+        assert_eq!(view.name, "Retro Rocket");
+        assert_eq!(view.track.name, "bright red");
+        assert_eq!(view.track.class, "swatch-bright-red");
+        assert_eq!(view.support.class, "swatch-dark-blue");
     }
 }

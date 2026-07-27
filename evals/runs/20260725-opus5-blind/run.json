@@ -1,6 +1,8 @@
 {
   "agent_state": "fresh-sandbox",
   "allowed_tools": "mcp__coaster__*",
+  "capabilities": ["track_library"],
+  "condition": "library",
   "harness": "claude-code",
   "harnesses": {
     "claude-opus-5": "claude-code"
@@ -8,7 +10,7 @@
   "modalities": {
     "claude-opus-5": "text,image"
   },
-  "mode": "design",
+  "mode": "library",
   "models": [
     "claude-opus-5"
   ],

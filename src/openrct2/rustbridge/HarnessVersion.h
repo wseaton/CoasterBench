@@ -8,4 +8,4 @@
 
 #pragma once
 
-#define kCoasterBenchVersion "0.1.0"
+#define kCoasterBenchVersion "0.2.0"

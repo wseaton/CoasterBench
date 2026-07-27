@@ -255,6 +255,14 @@ extern bool orct2_host_ride_set_status(uint16_t ride_id,
                                        char *err,
                                        uintptr_t err_len);
 
+extern bool orct2_host_ride_style(uint16_t ride_id,
+                                  const char *name,
+                                  const char *track_color,
+                                  const char *rail_color,
+                                  const char *support_color,
+                                  char *err,
+                                  uintptr_t err_len);
+
 extern bool orct2_host_ride_detail(uint16_t ride_id, struct Orct2RideDetail *out);
 
 extern bool orct2_host_capture(const char *path,
@@ -304,6 +312,8 @@ extern uint16_t orct2_host_track_mirror(uint16_t track_type);
 extern bool orct2_host_circuit_stats(uint16_t ride_id, struct Orct2CircuitStats *out);
 
 extern bool orct2_host_save_park(const char *path);
+
+extern bool orct2_host_load_park(const char *path);
 
 extern uintptr_t orct2_host_capture_frame(int32_t zoom,
                                           uint8_t rotation,

@@ -21,9 +21,12 @@
     #include "../actions/ride/RideCreateAction.h"
     #include "../actions/ride/RideDemolishAction.h"
     #include "../actions/ride/RideEntranceExitPlaceAction.h"
+    #include "../actions/ride/RideSetAppearanceAction.h"
+    #include "../actions/ride/RideSetNameAction.h"
     #include "../actions/ride/RideSetStatusAction.h"
     #include "../actions/track/TrackPlaceAction.h"
     #include "../actions/track/TrackRemoveAction.h"
+    #include "../drawing/Colour.h"
     #include "../drawing/Drawing.h"
     #include "../OpenRCT2.h"
     #include "../core/Console.hpp"
@@ -53,6 +56,7 @@
     #include "orct2_agent.h"
 
     #include <algorithm>
+    #include <array>
     #include <cctype>
     #include <cstdlib>
     #include <cstring>
@@ -487,6 +491,69 @@ bool orct2_host_ride_set_status(uint16_t ride_id, uint8_t status, char* err, siz
     return ExecuteForBridge(action, err, err_len, result);
 }
 
+bool orct2_host_ride_style(
+    uint16_t ride_id, const char* name, const char* track_color, const char* rail_color, const char* support_color,
+    char* err, size_t err_len)
+{
+    if (name == nullptr || track_color == nullptr || rail_color == nullptr || support_color == nullptr)
+    {
+        CopyError(err, err_len, "name and all three colours are required");
+        return false;
+    }
+
+    const auto parseColour = [err, err_len](const char* value, const char* field, Drawing::Colour& out) {
+        out = Drawing::colourFromString(value, Drawing::kColourNull);
+        if (out == Drawing::kColourNull || EnumValue(out) >= Drawing::kColourNumNormal)
+        {
+            CopyError(err, err_len, std::string("invalid ") + field + ": " + value);
+            return false;
+        }
+        return true;
+    };
+    Drawing::Colour track;
+    Drawing::Colour rails;
+    Drawing::Colour supports;
+    if (!parseColour(track_color, "track colour", track) || !parseColour(rail_color, "rail colour", rails)
+        || !parseColour(support_color, "support colour", supports))
+    {
+        return false;
+    }
+
+    const auto rideId = RideId::FromUnderlying(ride_id);
+    auto nameAction = GameActions::RideSetNameAction(rideId, name);
+    auto trackAction = GameActions::RideSetAppearanceAction(
+        rideId, GameActions::RideSetAppearanceType::trackColourMain, EnumValue(track), 0);
+    auto railAction = GameActions::RideSetAppearanceAction(
+        rideId, GameActions::RideSetAppearanceType::trackColourAdditional, EnumValue(rails), 0);
+    auto supportAction = GameActions::RideSetAppearanceAction(
+        rideId, GameActions::RideSetAppearanceType::trackColourSupports, EnumValue(supports), 0);
+
+    // Query every action before executing any of them: a duplicate name or
+    // invalid ride must not leave a partially styled candidate.
+    const std::array<GameActions::GameAction*, 4> actions = {
+        &nameAction,
+        &trackAction,
+        &railAction,
+        &supportAction,
+    };
+    for (auto* action : actions)
+    {
+        if (!QueryForBridge(*action, err, err_len))
+        {
+            return false;
+        }
+    }
+    GameActions::Result result;
+    for (auto* action : actions)
+    {
+        if (!ExecuteForBridge(*action, err, err_len, result))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
 bool orct2_host_ride_detail(uint16_t ride_id, Orct2RideDetail* out)
 {
     if (out == nullptr)
@@ -875,6 +942,15 @@ bool orct2_host_save_park(const char* path)
         return false;
     }
     return RustBridge::SavePark(path);
+}
+
+bool orct2_host_load_park(const char* path)
+{
+    if (path == nullptr)
+    {
+        return false;
+    }
+    return GetContext()->LoadParkFromFile(path);
 }
 
 void orct2_host_string_free(char* s)

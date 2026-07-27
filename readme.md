@@ -27,7 +27,7 @@ flowchart LR
     bench -->|spawns| game
     bench -->|one session per model per round| agent
     agent <-->|Model Context Protocol over HTTP| game
-    bench -->|report.json, program.json, park.png, usage.json| runs
+    bench -->|report, program, exact park, image, replay, usage| runs
     runs --> site["coaster-site → evals/site/ → GitHub Pages"]
 ```
 
@@ -97,18 +97,21 @@ cd rust/orct2-agent && cargo fmt && cargo clippy --all-targets && cargo test
 ```bash
 ./rust/coaster-bench/target/release/coaster-bench \
   --models claude-sonnet-5 \
-  --rounds 6 --ride-type 51 --name my-run
+  --mode design --rounds 6 --ride-type 51 --name my-run
 ```
 
-`--open-note` grants the white-box condition: a read-only checkout of the engine
+`--mode design` is the from-scratch benchmark and server-side removes the stock
+track-library tools. `--mode library` explicitly enables those tools as a
+separate retrieval-and-adaptation condition. `--mode open-note` grants the
+white-box condition: a read-only checkout of the engine
 source in the agent's sandbox (upstream OpenRCT2 at this fork's merge-base, so
 the harness and its scoring are absent, but `RideRatings.cpp` is byte-identical
 to the code that rates the ride), the file tools to read it, and `python3` for
 working out geometry offline. Python has no network and cannot reach the game, so
 park state stays knowable only through the MCP tools; `run.json` records the
-granted `capabilities`. It is a modifier on either mode, and its scores are not
-comparable with black-box ones, so the site labels and facets those runs
-separately.
+granted capabilities. `--open-note` remains as a compatibility spelling.
+Open-note scores are not comparable with black-box ones, so the site labels and
+facets those runs separately.
 
 A six-round run takes hours, so launch it detached with
 `scripts/detach.py <log> <cmd...>`: a shell or agent harness that reaps its
@@ -140,7 +143,7 @@ sequenceDiagram
     participant A as agent session
     participant G as game (MCP)
 
-    B->>G: demolish (empty the park)
+    B->>G: reset_park (restore the baseline scenario snapshot)
     B->>A: round prompt + previous round's report
     loop until the model stops
         A->>G: new_ride / place_pieces
@@ -151,11 +154,12 @@ sequenceDiagram
     A->>G: finish_and_test
     G-->>A: excitement / intensity / nausea
     B->>G: get_state + finish_and_test (authoritative)
-    B->>B: writes report.json, program.json, park.png, usage.json
+    B->>B: writes one candidate's report, program, park, image, replay, usage
 ```
 
-Each round starts from an empty park and receives the previous round's report as
-feedback. A model's highest-scoring round is its score for the run.
+Each round starts from the exact same serialized scenario state, including its
+clock, random state, guests, and weather, and receives the previous round's
+report as feedback. A model's highest-scoring round is its score for the run.
 
 ### Scoring
 
@@ -194,11 +198,12 @@ claude mcp add --transport http coaster http://127.0.0.1:8791/mcp
 This exposes the benchmark tool set to an interactive session against a loaded
 park.
 
-The server is implemented directly in `rust/orct2-agent/src/mcp.rs` and runs on
-the game thread, because the game API is single-threaded. A tool call invokes
-game functions directly and `run_ticks` advances the simulation inline, with no
-async runtime and no cross-thread marshaling. It implements the streamable-HTTP
-JSON response mode with `initialize`, `tools/list`, and `tools/call`.
+The server is implemented directly in `rust/orct2-agent/src/mcp.rs`. Socket I/O
+runs on per-connection threads, while every request crosses one channel to the
+game thread, which owns the session and is the only thread allowed to call the
+game API. Tool calls remain serialized, and `run_ticks` advances the simulation
+inline. It implements the streamable-HTTP JSON response mode with `initialize`,
+`tools/list`, and `tools/call`.
 
 | Tool | Behaviour |
 | --- | --- |
@@ -209,8 +214,9 @@ JSON response mode with `initialize`, `tools/list`, and `tools/call`.
 | `undo_piece` / `demolish` | Removes the last piece, or the entire ride |
 | `get_state` | Returns cursor, start, piece count, and circuit closure |
 | `finish_and_test` | Places entrance and exit, runs a test train, returns ratings |
+| `style_best_ride` | Retroactively names and recolours the banked winner without retesting or changing its score |
 | `screenshot` | Returns a park image |
-| `search_track_designs` / `get_track_design` | Browses the stock .TD6 library; recorded ratings are withheld |
+| `search_track_designs` / `get_track_design` | Browses the stock .TD6 library; present only when `condition=library` |
 
 `valid_next_pieces` and `piece_geometry` make the game the authority on track
 geometry, so models query placement rules rather than recalling them.
@@ -227,9 +233,11 @@ banked or sloped is treated as open.
 Clients declare the content types they accept in the request target:
 
 ```
-/mcp?modalities=text,image     # all tools
+/mcp?modalities=text,image     # all supported content types
 /mcp?modalities=text           # screenshot hidden and refused
-/mcp                           # unspecified: all tools
+/mcp                           # all content types; design condition
+/mcp?condition=design          # stock-library tools hidden and refused
+/mcp?condition=library         # stock-library tools enabled
 ```
 
 The vocabulary matches OpenRouter's `input_modalities` field, allowing a harness
@@ -250,13 +258,15 @@ with one row per model, a page per run, and a page per model per run containing
 the track, piece list, ratings, and token and cost totals. Incomplete runs are
 skipped unless `--include-partial` is passed.
 
-Screenshots are excluded from Git. `uv run evals/publish.py` uploads them to a
+Screenshots, videos, and `.park` saves are excluded from Git.
+`uv run evals/publish.py` uploads them to a
 Cloudflare R2 bucket through the local `wrangler login` session, so no static
 credentials are stored in the repository, and writes a manifest alongside the
-run. The generator prefers local images and falls back to manifest URLs, which
-allows a continuous integration (CI) build to work from JSON alone. Both the run
-JSON and the manifest must be committed; otherwise the published site renders
-without images.
+run. Its digest manifest records a full SHA-256 for every artifact. The
+generator prefers local artifacts and falls back to manifest URLs, which allows
+a continuous integration (CI) build to work from JSON alone. Both the run JSON
+and the manifests must be committed; otherwise the published site renders
+without artifacts.
 
 Pushes to the `eval` branch touching `evals/` or `rust/coaster-site/` trigger a
 GitHub Pages deployment.

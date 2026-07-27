@@ -73,6 +73,15 @@ pub struct Ride {
     pub circuit: Option<Circuit>,
 }
 
+/// Non-scoring name and colours the model chose for its banked winner.
+#[derive(Debug, Deserialize)]
+pub struct Presentation {
+    pub name: String,
+    pub track_color: String,
+    pub rail_color: String,
+    pub support_color: String,
+}
+
 /// The game's own walk of the ride's track. Absent from runs made before the
 /// audit existed, which is why the whole field is optional rather than zeroed.
 #[derive(Debug, Deserialize)]
@@ -128,6 +137,8 @@ struct Report {
     rides: Vec<Ride>,
     #[serde(default)]
     similarity: Option<Similarity>,
+    #[serde(default)]
+    presentation: Option<Presentation>,
 }
 
 /// One library tool call a model made before submitting a round.
@@ -167,6 +178,7 @@ pub struct Round {
     /// The rated ride of the round, when the test circuit completed.
     pub ride: Option<Ride>,
     pub similarity: Option<Similarity>,
+    pub presentation: Option<Presentation>,
     pub build_error: Option<String>,
     /// Pretty-printed program.json, shown in a <details> block.
     pub program_json: Option<String>,
@@ -174,6 +186,8 @@ pub struct Round {
     /// Parsed, for the elevation profile.
     pub pieces: Vec<crate::dna::Piece>,
     pub screenshot: Option<Art>,
+    /// Exact scored park save, reopenable in OpenRCT2.
+    pub park: Option<Art>,
     /// Replay of the finished ride, when one was recorded.
     pub replay: Option<Art>,
     /// Still from the replay's own camera; park screenshots frame the whole map.
@@ -532,11 +546,13 @@ fn load_round(
         number,
         ride: report.rides.into_iter().find(|r| r.excitement.is_some()),
         similarity: report.similarity,
+        presentation: report.presentation,
         build_error: build_error(report.program.as_ref()),
         program_json,
         program_pieces,
         pieces,
         screenshot,
+        park: art("park.park"),
         replay: art("replay.mp4"),
         replay_poster: art("replay.png"),
         replay_looped: read_json_opt::<ReplayMeta>(&round_dir.join("replay.json"))?
@@ -684,11 +700,13 @@ mod tests {
                 circuit: None,
             }),
             similarity: None,
+            presentation: None,
             build_error: None,
             program_json: None,
             program_pieces: 0,
             pieces: Vec::new(),
             screenshot: None,
+            park: None,
             replay: None,
             replay_poster: None,
             replay_looped: None,
