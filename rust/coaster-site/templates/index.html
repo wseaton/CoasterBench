@@ -161,7 +161,7 @@
 {% for run in skipped %}{% if !loop.first %}, {% endif %}{{ run }}{% endfor %}</p>
 {%- endif %}
 {%- if !withdrawn.is_empty() %}
-<p class="dim footnote">withdrawn from the site (smoke tests and probes; the records are still in the repo):
+<p class="dim footnote">withdrawn from the board (the records are still in the repo):
 {% for run in withdrawn %}{% if !loop.first %}, {% endif %}{{ run }}{% endfor %}</p>
 {%- endif %}
 {%- endif %}
