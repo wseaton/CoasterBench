@@ -131,7 +131,7 @@ def build(
     return result.returncode == 0
 
 
-def deploy(project: str, base_url: str, cf_images: bool = False) -> int:
+def deploy(project: str, base_url: str, cf_images: bool = False, branch: str = "preview") -> int:
     """Publishes artifacts to R2, then the pages themselves to Cloudflare Pages."""
     print("publishing artifacts to R2 ...", flush=True)
     if subprocess.run([sys.executable, str(EVALS_DIR / "publish.py")], cwd=REPO).returncode:
@@ -142,7 +142,7 @@ def deploy(project: str, base_url: str, cf_images: bool = False) -> int:
 
     # A no-op error when the project exists, which is fine.
     subprocess.run(
-        ["wrangler", "pages", "project", "create", project, "--production-branch", "preview"],
+        ["wrangler", "pages", "project", "create", project, "--production-branch", branch],
         cwd=REPO,
         capture_output=True,
         text=True,
@@ -156,7 +156,7 @@ def deploy(project: str, base_url: str, cf_images: bool = False) -> int:
             "--project-name",
             project,
             "--branch",
-            "preview",
+            branch,
             "--commit-dirty",
             "true",
         ],
@@ -214,6 +214,12 @@ def main() -> int:
     )
     parser.add_argument("--project", default=PAGES_PROJECT, help="Cloudflare Pages project")
     parser.add_argument(
+        "--branch",
+        default="preview",
+        help="Pages branch to deploy as. A custom domain serves the project's "
+        "production branch, so publishing to coasterbench needs --branch eval",
+    )
+    parser.add_argument(
         "--preview-url",
         default=PREVIEW_URL,
         help="where the deploy will be reachable (used for the unfurl tags)",
@@ -221,7 +227,7 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.deploy:
-        return deploy(args.project, args.preview_url.rstrip("/"), args.cf_images)
+        return deploy(args.project, args.preview_url.rstrip("/"), args.cf_images, args.branch)
 
     if not args.no_build and not build():
         return 1

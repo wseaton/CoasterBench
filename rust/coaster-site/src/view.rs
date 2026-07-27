@@ -133,9 +133,10 @@ impl Chrome {
     }
 
     pub fn og_url(&self) -> Option<String> {
-        self.base_url
-            .as_ref()
-            .map(|base| format!("{base}/{}", self.path))
+        // The home page is the bare directory, not /index.html: this is the
+        // canonical URL as well as the unfurl one.
+        let path = self.path.strip_suffix("index.html").unwrap_or(&self.path);
+        self.base_url.as_ref().map(|base| format!("{base}/{path}"))
     }
 
     pub fn og_image(&self) -> Option<String> {

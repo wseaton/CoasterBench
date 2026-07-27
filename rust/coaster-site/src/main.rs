@@ -42,9 +42,10 @@ struct Args {
     /// Manifest of previews uploaded to the artifact store.
     #[arg(long, default_value = "evals/library-previews.json")]
     previews_manifest: PathBuf,
-    /// Public URL the site deploys to; required for Slack unfurl images,
-    /// which must be absolute URLs. Pass an empty string to omit them.
-    #[arg(long, default_value = "https://wseaton.github.io/CoasterBench")]
+    /// Canonical public URL. The site is published to two hosts (Cloudflare
+    /// Pages and GitHub Pages); this is the one they both point at, and the one
+    /// Slack unfurls resolve against. Pass an empty string to omit both.
+    #[arg(long, default_value = "https://coasterbench.wseaton.com")]
     base_url: String,
     /// Public URL of the R2 artifact store holding screenshots not present
     /// locally (see evals/publish.py).
