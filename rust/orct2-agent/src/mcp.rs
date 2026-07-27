@@ -97,6 +97,7 @@ impl std::ops::BitOr for Modalities {
 enum Condition {
     Design,
     Library,
+    Presentation,
 }
 
 impl Condition {
@@ -109,12 +110,28 @@ impl Condition {
             .find_map(|param| param.strip_prefix("condition="))
         {
             Some("library") => Condition::Library,
+            Some("presentation") => Condition::Presentation,
             _ => Condition::Design,
         }
     }
 
     fn allows_library(self) -> bool {
         self == Condition::Library
+    }
+
+    fn allows_tool(self, name: &str) -> bool {
+        if self == Condition::Presentation {
+            return matches!(name, "best_result" | "best_screenshot" | "style_best_ride");
+        }
+        self.allows_library() || !matches!(name, "search_track_designs" | "get_track_design")
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            Condition::Design => "design",
+            Condition::Library => "library",
+            Condition::Presentation => "presentation",
+        }
     }
 }
 
@@ -787,13 +804,11 @@ fn dispatch(
                     }),
                 );
             }
-            if matches!(name, "search_track_designs" | "get_track_design")
-                && !condition.allows_library()
-            {
+            if !condition.allows_tool(name) {
                 return rpc_result(
                     id,
                     json!({
-                        "content": [{"type": "text", "text": format!("{name} is unavailable in the design condition")}],
+                        "content": [{"type": "text", "text": format!("{name} is unavailable in the {} condition", condition.name())}],
                         "isError": true,
                     }),
                 );
@@ -815,9 +830,7 @@ fn tool_definitions(modalities: Modalities, condition: Condition) -> Value {
     if let Some(list) = tools.as_array_mut() {
         list.retain(|t| {
             let name = t.get("name").and_then(Value::as_str).unwrap_or_default();
-            modalities.contains(tool_modality(name))
-                && (condition.allows_library()
-                    || !matches!(name, "search_track_designs" | "get_track_design"))
+            modalities.contains(tool_modality(name)) && condition.allows_tool(name)
         });
     }
     tools
@@ -1846,9 +1859,60 @@ mod tests {
             Condition::Library
         );
         assert_eq!(
+            Condition::from_request_target("/mcp?condition=presentation&lease=r2"),
+            Condition::Presentation
+        );
+        assert_eq!(
             Condition::from_request_target("/mcp?condition=unknown"),
             Condition::Design
         );
+    }
+
+    #[test]
+    fn presentation_condition_exposes_only_the_frozen_winner() {
+        let mut session = Session::default();
+        let list = dispatch(
+            &json!({"jsonrpc": "2.0", "id": 3, "method": "tools/list"}),
+            &mut session,
+            Modalities::ALL,
+            Condition::Presentation,
+            Source::Mcp,
+        );
+        let names: Vec<&str> = list
+            .pointer("/result/tools")
+            .and_then(Value::as_array)
+            .expect("tools array")
+            .iter()
+            .filter_map(|tool| tool.get("name").and_then(Value::as_str))
+            .collect();
+        assert_eq!(
+            names,
+            vec!["best_result", "style_best_ride", "best_screenshot"]
+        );
+
+        let build = dispatch(
+            &json!({
+                "jsonrpc": "2.0",
+                "id": 4,
+                "method": "tools/call",
+                "params": {
+                    "name": "new_ride",
+                    "arguments": {"ride_type": 51, "x": 50, "y": 50, "dir": 0}
+                }
+            }),
+            &mut session,
+            Modalities::ALL,
+            Condition::Presentation,
+            Source::Mcp,
+        );
+        assert_eq!(
+            build.pointer("/result/isError").and_then(Value::as_bool),
+            Some(true)
+        );
+        assert!(build
+            .pointer("/result/content/0/text")
+            .and_then(Value::as_str)
+            .is_some_and(|text| text.contains("presentation condition")));
     }
 
     #[test]

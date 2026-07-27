@@ -203,6 +203,12 @@
     "right_turn_3",
     "flat"
   ],
+  "presentation": {
+    "name": "Alpine Maelstrom",
+    "rail_color": "icy_blue",
+    "support_color": "grey",
+    "track_color": "dark_blue"
+  },
   "program": null,
   "rides": [
     {

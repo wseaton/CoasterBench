@@ -221,6 +221,21 @@ inline. It implements the streamable-HTTP JSON response mode with `initialize`,
 `valid_next_pieces` and `piece_geometry` make the game the authority on track
 geometry, so models query placement rules rather than recalling them.
 
+An older scored round can receive the same model-authored presentation without
+rerunning the competition:
+
+```bash
+./rust/coaster-bench/target/release/coaster-bench \
+  --present-round evals/runs/<run>/<model>/round_<N>
+```
+
+The harness reconstructs the archived program and refuses to continue unless
+its score matches the recorded result. The model then sees only
+`best_result`, `best_screenshot`, and `style_best_ride`; it cannot alter the
+layout. Refreshed park, image, and replay artifacts replace the old set only
+after all captures succeed, and `presentation/pass.json` records the separate
+turn and before/after hashes.
+
 ### Cursor semantics
 
 Direction 0 faces -x, 1 faces +y, 2 faces +x, 3 faces -y. The cursor z step is

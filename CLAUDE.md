@@ -355,6 +355,14 @@ Non-bundled binaries look for `data/` next to the exe. One-time setup:
   winner, applies ordinary ride game actions, refreshes its park/screenshots,
   then restores the live work-in-progress; ratings and score stay unchanged.
   That presentation follows a later candidate if it beats the styled winner.
+  A completed result can receive the same pass through
+  `coaster-bench --present-round evals/runs/<run>/<model>/round_<N>`. It
+  reconstructs and score-checks the archived program before invoking the
+  original model under `condition=presentation`, where the server exposes only
+  `best_result`, `best_screenshot` and `style_best_ride`. Park, picture and
+  replay are staged before replacement, while
+  `presentation/{trace.jsonl,usage.json,pass.json}` preserves the post-hoc turn
+  and artifact hashes separately from the scoring transcript.
   Tools: new_ride, place_piece, place_pieces (batch placement, max 200
   pieces), valid_next_pieces (game-as-oracle query of the whole catalog),
   get_state, finish_and_test, style_best_ride, screenshot (MCP image content), demolish,

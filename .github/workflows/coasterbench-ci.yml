@@ -81,8 +81,14 @@ jobs:
           key: linux-x86_64-coasterbench
       - name: Generated Rust header is current
         run: |
+          committed_header="$RUNNER_TEMP/orct2_agent.h"
+          cp src/openrct2/rustbridge/orct2_agent.h "$committed_header"
           ./scripts/generate-rust-header.sh
-          git diff --exit-code -- src/openrct2/rustbridge/orct2_agent.h
+          if ! cmp --silent "$committed_header" src/openrct2/rustbridge/orct2_agent.h; then
+            diff --unified "$committed_header" src/openrct2/rustbridge/orct2_agent.h || true
+            echo "Generated Rust header is stale; run ./scripts/generate-rust-header.sh"
+            exit 1
+          fi
       - name: Build
         run: |
           cmake -S . -B build -G Ninja \

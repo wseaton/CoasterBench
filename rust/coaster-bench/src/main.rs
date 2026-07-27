@@ -36,6 +36,11 @@ struct Args {
     #[arg(long, num_args = 1.., default_values_t = vec!["claude-sonnet-5".to_string()])]
     models: Vec<String>,
 
+    /// Reopen one archived round for a presentation-only model pass. The
+    /// original model chooses a name and colours; score and layout must match.
+    #[arg(long, value_name = "ROUND_DIR")]
+    present_round: Option<PathBuf>,
+
     #[arg(long, default_value_t = 4)]
     rounds: u32,
 
@@ -165,6 +170,10 @@ enum BenchmarkMode {
     Design,
     Library,
     OpenNote,
+    /// Internal mode selected by --present-round. It is a capability boundary,
+    /// not a standalone benchmark condition.
+    #[value(skip)]
+    Presentation,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -197,6 +206,7 @@ impl BenchmarkMode {
         match self {
             BenchmarkMode::Design | BenchmarkMode::OpenNote => "design",
             BenchmarkMode::Library => "library",
+            BenchmarkMode::Presentation => "presentation",
         }
     }
 
@@ -204,6 +214,7 @@ impl BenchmarkMode {
         match self {
             BenchmarkMode::Library => "library",
             BenchmarkMode::Design | BenchmarkMode::OpenNote => "design",
+            BenchmarkMode::Presentation => "presentation",
         }
     }
 
@@ -212,6 +223,7 @@ impl BenchmarkMode {
             BenchmarkMode::Design => "design",
             BenchmarkMode::Library => "library",
             BenchmarkMode::OpenNote => "open-note",
+            BenchmarkMode::Presentation => "presentation",
         }
     }
 }
@@ -1543,6 +1555,312 @@ fn today() -> String {
     format!("{y:04}{m:02}{d:02}")
 }
 
+fn read_json(path: &Path) -> Result<Value, String> {
+    let raw = std::fs::read_to_string(path).map_err(|e| format!("read {}: {e}", path.display()))?;
+    serde_json::from_str(&raw).map_err(|e| format!("parse {}: {e}", path.display()))
+}
+
+fn archived_contender(round_dir: &Path) -> Result<Contender, String> {
+    let usage = read_json(&round_dir.join("usage.json"))?;
+    let model = usage
+        .get("model")
+        .and_then(Value::as_str)
+        .ok_or("archived usage.json has no model")?;
+    let harness = usage
+        .get("harness")
+        .and_then(Value::as_str)
+        .ok_or("archived usage.json has no harness")?;
+    let spec = match harness {
+        "codex" => format!("codex:{model}"),
+        "opencode" => format!("opencode:{model}"),
+        "claude-code" => model.to_string(),
+        other => return Err(format!("unsupported archived harness: {other}")),
+    };
+    Ok(Contender::parse(&spec))
+}
+
+fn archived_run_path(round_dir: &Path) -> Result<PathBuf, String> {
+    let model_dir = round_dir
+        .parent()
+        .ok_or("round directory has no model parent")?;
+    let run_dir = model_dir
+        .parent()
+        .ok_or("round directory has no run parent")?;
+    let path = run_dir.join("run.json");
+    path.is_file()
+        .then_some(path)
+        .ok_or_else(|| "archived run.json not found two levels above round".to_string())
+}
+
+fn use_archived_settings(args: &mut Args, run: &Value) {
+    if let Some(scenario) = run.pointer("/scenario/path").and_then(Value::as_str) {
+        args.scenario = scenario.to_string();
+    }
+    if let Some(ticks) = run.get("ticks").and_then(Value::as_u64) {
+        args.ticks = ticks.min(u32::MAX as u64) as u32;
+    }
+    if let Some(seconds) = run
+        .pointer("/budgets/replay_cap_seconds")
+        .and_then(Value::as_u64)
+    {
+        args.replay_seconds = seconds.min(u32::MAX as u64) as u32;
+    }
+    if let Some(effort) = run.get("codex_reasoning_effort").and_then(Value::as_str) {
+        args.codex_reasoning_effort = match effort {
+            "low" => CodexReasoningEffort::Low,
+            "high" => CodexReasoningEffort::High,
+            "xhigh" => CodexReasoningEffort::Xhigh,
+            "max" => CodexReasoningEffort::Max,
+            "ultra" => CodexReasoningEffort::Ultra,
+            _ => CodexReasoningEffort::Medium,
+        };
+    }
+}
+
+fn presentation_prompt(model: &str, source_report: &Value) -> String {
+    let ride = source_report
+        .get("rides")
+        .and_then(Value::as_array)
+        .and_then(|rides| rides.first())
+        .cloned()
+        .unwrap_or(Value::Null);
+    format!(
+        "This is a presentation-only epilogue for the roller coaster you already designed in a \
+         completed CoasterBench run. You are {model}. The layout and its score are frozen. Only \
+         three coaster tools are available: inspect best_result, inspect best_screenshot, then call \
+         style_best_ride exactly once with a distinctive final name (32 characters maximum) and a \
+         cohesive track, rail, and support colour scheme that suits what you built. Do not ask for \
+         confirmation; make the creative decision yourself. End with one sentence explaining the \
+         name and palette.\n\nOriginal ride measurements: {ride}"
+    )
+}
+
+fn write_presentation_usage(
+    path: &Path,
+    contender: &Contender,
+    session: &SessionResult,
+) -> Result<(), String> {
+    write_json(
+        path,
+        &json!({
+            "harness": contender.harness.name(),
+            "model": contender.model,
+            "input_tokens": session.usage.get("input_tokens"),
+            "output_tokens": session.usage.get("output_tokens"),
+            "cache_read_tokens": session.usage.get("cache_read_tokens"),
+            "cost_usd": session.usage.get("cost_usd"),
+            "num_turns": session.usage.get("num_turns"),
+        }),
+    )
+}
+
+struct PresentationStage(PathBuf);
+
+impl Drop for PresentationStage {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+/// Reconstructs an archived winner, proves it still has the recorded score,
+/// then gives the original model a capability-limited naming/colour pass.
+/// Artifacts are staged and replace the published set only after every capture
+/// succeeds, so a failed model turn cannot damage the scored result.
+fn present_archived_round(
+    args: &mut Args,
+    root: &Path,
+    round_arg: &Path,
+    shutdown: &AtomicBool,
+) -> Result<(), String> {
+    let round_dir = std::fs::canonicalize(round_arg)
+        .map_err(|e| format!("resolve {}: {e}", round_arg.display()))?;
+    let program = read_json(&round_dir.join("program.json"))?;
+    let source_report_path = round_dir.join("report.json");
+    let source_report = read_json(&source_report_path)?;
+    let source_score =
+        best_excitement(&source_report).ok_or("archived report has no scored ride")?;
+    let source_report_sha256 = sha256_file(&source_report_path)?;
+    let source_park_sha256 = sha256_file(&round_dir.join("park.park")).ok();
+    let run = read_json(&archived_run_path(&round_dir)?)?;
+    use_archived_settings(args, &run);
+    if let Some(expected) = run.pointer("/scenario/sha256").and_then(Value::as_str) {
+        let scenario = expand_home(&args.scenario);
+        let actual = sha256_file(&scenario)?;
+        if actual != expected {
+            return Err(format!(
+                "scenario hash mismatch for {}: archived {expected}, current {actual}",
+                scenario.display()
+            ));
+        }
+    }
+    args.mode = BenchmarkMode::Presentation;
+    args.open_note = false;
+    args.extra_tools = None;
+
+    let contender = archived_contender(&round_dir)?;
+    let model = contender.display();
+    println!(
+        "presentation pass: {model}, archived score {source_score:.2}, {}",
+        round_dir.display()
+    );
+
+    let _server = GameServer::spawn(args, root)?;
+    let mut client = mcp::McpClient::new("127.0.0.1", args.port);
+    wait_for_server(&mut client, Duration::from_secs(120))?;
+    let mut control = mcp::McpClient::new("127.0.0.1", args.control_port);
+    wait_for_server(&mut control, Duration::from_secs(120))?;
+
+    let lease = format!("present-{model}-{}", epoch_secs());
+    client.claim("127.0.0.1", args.port, &lease);
+    let start = program
+        .get("start")
+        .ok_or("archived program has no start")?;
+    client.call(
+        "new_ride",
+        json!({
+            "ride_type": program.get("ride_type").and_then(Value::as_u64)
+                .ok_or("archived program has no ride_type")?,
+            "x": start.get("x").and_then(Value::as_i64).ok_or("program start has no x")?,
+            "y": start.get("y").and_then(Value::as_i64).ok_or("program start has no y")?,
+            "dir": start.get("dir").and_then(Value::as_i64).ok_or("program start has no dir")?,
+        }),
+    )?;
+    let pieces = program
+        .get("pieces")
+        .and_then(Value::as_array)
+        .ok_or("archived program has no piece array")?;
+    let placed = client.call("place_pieces", json!({"pieces": pieces}))?;
+    let placed_count = placed
+        .get("placed_this_call")
+        .and_then(Value::as_u64)
+        .unwrap_or(0) as usize;
+    if placed_count != pieces.len() {
+        return Err(format!(
+            "archived reconstruction placed {placed_count}/{} pieces: {placed}",
+            pieces.len()
+        ));
+    }
+    let rebuilt = client.call("finish_and_test", json!({"ticks": args.ticks}))?;
+    let rebuilt_score =
+        best_excitement(&rebuilt).ok_or("archived reconstruction did not produce a score")?;
+    if (rebuilt_score - source_score).abs() > 0.005 {
+        return Err(format!(
+            "archived score mismatch: recorded {source_score:.2}, rebuilt {rebuilt_score:.2}; \
+             refusing to restyle different ride physics"
+        ));
+    }
+    println!("reconstruction verified at {rebuilt_score:.2}");
+
+    let presentation_dir = round_dir.join("presentation");
+    std::fs::create_dir_all(&presentation_dir)
+        .map_err(|e| format!("create {}: {e}", presentation_dir.display()))?;
+    reset_agent_state(contender.sandbox(args))?;
+    let version = agent_version(args, &contender);
+    let prompt = presentation_prompt(&model, &source_report);
+    let session = run_agent_session(
+        args,
+        &contender,
+        &prompt,
+        &presentation_dir,
+        &lease,
+        shutdown,
+    );
+    write_presentation_usage(&presentation_dir.join("usage.json"), &contender, &session)?;
+
+    let styled_report = client.call("best_result", json!({}))?;
+    let presentation = styled_report.get("presentation").cloned().ok_or_else(|| {
+        format!(
+            "model did not style the ride{}",
+            session
+                .error
+                .as_deref()
+                .map(|e| format!(": {e}"))
+                .unwrap_or_default()
+        )
+    })?;
+    let styled_score = best_excitement(&styled_report).ok_or("styled report lost its score")?;
+    if (styled_score - source_score).abs() > f64::EPSILON {
+        return Err(format!(
+            "presentation changed the score from {source_score} to {styled_score}"
+        ));
+    }
+    if args.replay_seconds == 0 {
+        return Err("presentation pass requires replay capture to refresh coaster colours".into());
+    }
+
+    let stage = round_dir.join(format!(
+        ".presentation-stage-{}-{}",
+        std::process::id(),
+        epoch_secs()
+    ));
+    std::fs::create_dir(&stage).map_err(|e| format!("create {}: {e}", stage.display()))?;
+    let _stage_cleanup = PresentationStage(stage.clone());
+    write_json(&stage.join("report.json"), &styled_report)?;
+    control.call(
+        "capture_park",
+        json!({"path": stage.join("park.png"), "best": true}),
+    )?;
+    control.call(
+        "save_park",
+        json!({"path": stage.join("park.park"), "best": true}),
+    )?;
+    capture_replay(
+        &mut control,
+        &stage,
+        replay_seconds(&styled_report, args),
+        true,
+    )?;
+    for name in [
+        "report.json",
+        "park.png",
+        "park.park",
+        "replay.mp4",
+        "replay.png",
+        "replay.json",
+    ] {
+        let staged = stage.join(name);
+        if !staged.is_file() {
+            return Err(format!(
+                "presentation artifact missing: {}",
+                staged.display()
+            ));
+        }
+    }
+    for name in [
+        "report.json",
+        "park.png",
+        "park.park",
+        "replay.mp4",
+        "replay.png",
+        "replay.json",
+    ] {
+        std::fs::rename(stage.join(name), round_dir.join(name))
+            .map_err(|e| format!("install presentation artifact {name}: {e}"))?;
+    }
+    std::fs::remove_dir(&stage).map_err(|e| format!("remove {}: {e}", stage.display()))?;
+
+    let provenance = json!({
+        "kind": "posthoc-presentation",
+        "model": contender.model,
+        "harness": contender.harness.name(),
+        "agent_version": version,
+        "reasoning_effort": (contender.harness == Harness::Codex)
+            .then(|| args.codex_reasoning_effort.as_str()),
+        "score_before": source_score,
+        "score_after": styled_score,
+        "source_report_sha256": source_report_sha256,
+        "source_park_sha256": source_park_sha256,
+        "styled_report_sha256": sha256_file(&round_dir.join("report.json"))?,
+        "styled_park_sha256": sha256_file(&round_dir.join("park.park"))?,
+        "presentation": presentation,
+        "session_error": session.error,
+        "completed_at": rfc3339_now(),
+    });
+    write_json(&presentation_dir.join("pass.json"), &provenance)?;
+    println!("model-authored presentation committed locally: {presentation}");
+    Ok(())
+}
+
 /// Howard Hinnant's days-from-civil inverse, public domain algorithm.
 fn civil_from_days(z: i64) -> (i64, u32, u32) {
     let z = z + 719_468;
@@ -1580,6 +1898,9 @@ fn main() -> Result<(), String> {
     args.open_note = args.mode == BenchmarkMode::OpenNote;
     let root = repo_root();
     let shutdown = install_shutdown_flag()?;
+    if let Some(round_dir) = args.present_round.clone() {
+        return present_archived_round(&mut args, &root, &round_dir, &shutdown);
+    }
 
     // Debug aid: print the round-1 prompt verbatim and exit.
     if std::env::var_os("COASTER_BENCH_PRINT_PROMPT").is_some() {
@@ -2046,6 +2367,33 @@ mod tests {
             Contender::parse("codex:gpt-5.6-sol").sandbox(&args),
             "codex-arena"
         );
+    }
+
+    #[test]
+    fn archived_presentation_is_a_distinct_capability_condition() {
+        let args = Args::try_parse_from([
+            "coaster-bench",
+            "--present-round",
+            "evals/runs/example/model/round_6",
+        ])
+        .expect("presentation args");
+        assert_eq!(
+            args.present_round.as_deref(),
+            Some(Path::new("evals/runs/example/model/round_6"))
+        );
+        assert_eq!(BenchmarkMode::Presentation.mcp_condition(), "presentation");
+    }
+
+    #[test]
+    fn presentation_prompt_freezes_the_layout_and_requires_one_style() {
+        let prompt = presentation_prompt(
+            "gpt-5.6-sol",
+            &json!({"rides": [{"excitement": 7.81, "num_inversions": 5}]}),
+        );
+        assert!(prompt.contains("layout and its score are frozen"));
+        assert!(prompt.contains("style_best_ride exactly once"));
+        assert!(prompt.contains("\"excitement\":7.81"));
+        assert!(prompt.contains("\"num_inversions\":5"));
     }
 
     #[test]
