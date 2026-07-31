@@ -58,6 +58,19 @@ pub fn round_prompt(round_spec: &Round) -> String {
     } else {
         ""
     };
+    // Naming and colours are presentation, not score, so they are worth exactly
+    // one round's attention: the last one, whose park is the one that gets shown.
+    let final_round = round == rounds;
+    let style_tool = if final_round {
+        " Do this in this round, the last one."
+    } else {
+        " Not this round: leave it for the final round."
+    };
+    let style_step = if final_round {
+        "6. This is the FINAL round. Call best_result, then style_best_ride once to give that winner its name and colours.\n"
+    } else {
+        "6. Call best_result to confirm your banked score. Do NOT name or colour anything; style_best_ride is for the final round only, so spend this round's time on the track.\n"
+    };
     let feedback = match previous_feedback {
         Some(report) => format!(
             "\n## Previous round result\nYour previous attempt's eval report (learn from it):\n{report}\n"
@@ -92,7 +105,7 @@ This is round {round} of {rounds}. You build interactively through the "coaster"
 - get_state(): cursor, start, pieces placed, circuit_closed.
 - finish_and_test(ticks?): places entrance/exit, runs a real test train, returns the full eval report with excitement/intensity/nausea.
 - best_result(): the highest adjusted-score finish_and_test from this round so far, after the stock-design similarity penalty. Your score is this, not your latest build.{screenshot}
-- style_best_ride(name, track_color, rail_color, support_color): after you have banked a score, give the winner its final name and colours. This retroactively updates the saved winner without retesting or changing its score.
+- style_best_ride(name, track_color, rail_color, support_color): after you have banked a score, give the winner its final name and colours. This retroactively updates the saved winner without retesting or changing its score.{style_tool}
 - demolish(): tear down and start over (then new_ride again).
 
 ## Rules
@@ -111,8 +124,7 @@ This is round {round} of {rounds}. You build interactively through the "coaster"
 3. Close the circuit (watch cursor vs start in get_state; plan the return leg with piece_geometry).
 4. finish_and_test as soon as you have a closed circuit, so you bank a score early.
 5. Only then experiment: demolish and rebuild to beat it. A worse or unfinished rebuild costs nothing, because best_result keeps your highest score.
-6. At the end, call best_result, then use style_best_ride to name and colour that winner.
-7. End with a one-line summary of your best coaster and its excitement.
+{style_step}7. End with a one-line summary of your best coaster and its excitement.
 
 ## Budget
 You have about {budget_mins} minutes of wall-clock this round, then the session is cut off.
@@ -312,6 +324,39 @@ mod tests {
         assert!(p.contains("python3"));
         assert!(p.contains("no network access"), "isolation stated");
         assert!(p.contains("occupied"), "collision blind spot called out");
+    }
+
+    /// Naming and colours change nothing about the score, so they are a
+    /// distraction in every round but the one whose park gets shown.
+    #[test]
+    fn styling_is_deferred_to_the_final_round() {
+        let mid = round_prompt(&Round {
+            ride_type: 51,
+            round: 3,
+            rounds: 6,
+            previous_feedback: None,
+            modalities: both(),
+            budget_secs: 1800,
+            open_note_dir: None,
+            single_turn: false,
+        });
+        assert!(mid.contains("Not this round"));
+        assert!(mid.contains("Do NOT name or colour anything"));
+        assert!(!mid.contains("FINAL round"));
+
+        let last = round_prompt(&Round {
+            ride_type: 51,
+            round: 6,
+            rounds: 6,
+            previous_feedback: None,
+            modalities: both(),
+            budget_secs: 1800,
+            open_note_dir: None,
+            single_turn: false,
+        });
+        assert!(last.contains("FINAL round"));
+        assert!(last.contains("style_best_ride once"));
+        assert!(!last.contains("Not this round"));
     }
 
     #[test]

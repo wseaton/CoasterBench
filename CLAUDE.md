@@ -248,6 +248,19 @@ Non-bundled binaries look for `data/` next to the exe. One-time setup:
   scenario hashes, budgets, image ids, model/agent versions, and reset strategy
   in run.json. RideRatings.cpp is unmodified in this fork, so upstream source
   is a faithful oracle for scoring.
+- `--resume <run-dir>` continues a run that died partway instead of losing the
+  rounds it did finish: each model picks up at its first missing round (counted
+  as the unbroken prefix of rounds holding both `report.json` and `park.png`, the latter written last so a round that died collecting does not count), carrying the archived best
+  score and the previous round's report as feedback, so the winner survives the
+  gap and the next prompt still quotes the round before it. Raise `--rounds` to
+  add more. An unrated round counts as done, because it had its turn and its
+  logs are the evidence of what went wrong; delete a round directory to have it
+  built again. Condition, ride type and lineup must match or it refuses, since
+  mixing those in one standings table would corrupt the record. run.json grows a
+  `segments` array, one entry per time someone pressed go (harness version,
+  commit, image ids, first round per model): a continued run is built by more
+  than one harness build, and a single source field would claim rounds it never
+  produced. Runs from before this gain a synthesized first segment.
 - Second coaster-bench lane: `--models opencode:openrouter/<author>/<model>`
   runs opencode in the `coaster-or` sandbox against OpenRouter (key in the
   login keychain as `openrouter-api-key`, cost tracked by spend delta).
@@ -281,6 +294,18 @@ Non-bundled binaries look for `data/` next to the exe. One-time setup:
   - `--codex-reasoning-effort` is pinned to `medium` by default and recorded
     both per contender and at the run level. Never rely on the model catalogue
     default for a published comparison.
+  - Reasoning in traces: codex assumes an unknown model slug cannot reason and
+    then never requests reasoning summaries, so `model_reasoning_summary =
+    "auto"` is set unconditionally in the generated config (the published
+    gpt-5.6-sol run predates that and traced zero reasoning). Separately,
+    `codex exec --json` only builds reasoning items from OpenAI-style *summary*
+    parts; kimi-k3's reasoning comes back from OpenRouter with an empty summary
+    and the text under `content` (`reasoning_text`), so kimi-on-codex traces
+    have no thinking events even though the model reasons. No config flag fixes
+    that (`show_raw_agent_reasoning` and `model_supports_reasoning_summaries`
+    verified to not change the --json stream); the text only exists in the
+    session rollout jsonl under `$CODEX_HOME/sessions/**`, which the harness
+    deliberately does not collect. Known gap, not a silent model behavior.
   - The OpenRouter backend needs `wire_api = "responses"` (codex 0.145 dropped
     "chat") and needs `/home/sandbox/bin/codex` in the *openrouter provider
     profile's* binary list: a provider-injected policy owns its own hosts, so

@@ -104,7 +104,7 @@ struct Args {
     attach: bool,
 
     /// Create a throwaway sandbox for this run and delete it afterwards, so no
-    /// state survives between runs. Claude Code lane only for now.
+    /// state survives between runs. Covers every lane a contender uses.
     #[arg(long)]
     fresh_sandbox: bool,
 
@@ -128,6 +128,20 @@ struct Args {
 
     #[arg(long, default_value = "openrouter")]
     opencode_sandbox_provider: String,
+
+    /// Continue an existing run directory instead of starting a dated one:
+    /// rounds already archived there are kept, and the loop picks up at the
+    /// first round each model is missing. Raise --rounds to add more. Ignores
+    /// --name. Delete a round directory to have it built again.
+    #[arg(long, value_name = "RUN_DIR")]
+    resume: Option<PathBuf>,
+
+    /// Pin the upstream OpenRouter routes an opencode contender to (e.g.
+    /// "baseten"). OpenRouter serves one model from several upstreams that do
+    /// not validate requests identically, so leaving it open makes the serving
+    /// stack a lottery the run record cannot describe.
+    #[arg(long)]
+    openrouter_provider: Option<String>,
 
     #[arg(long, default_value = "codex-arena")]
     codex_sandbox: String,
@@ -747,19 +761,165 @@ fn opencode_permissions(args: &Args) -> Value {
         "external_directory": verdict,
         "webfetch": "deny",
         "websearch": "deny",
+        // opencode asks before letting a model repeat a tool call it thinks is
+        // looping. Headless, "ask" auto-rejects and the rejection kills the
+        // session, so a model that undoes several pieces in a row loses the
+        // round. Repetition is normal here (undo_piece, valid_next_pieces), and
+        // the real bound on a runaway session is --session-timeout.
+        "doom_loop": "allow",
     })
 }
 
+/// How many rounds this model has already banked in a run directory, counted
+/// as the unbroken run from round 1. A round counts as done once it archived a
+/// report, whatever that report says: an unrated round still spent the agent's
+/// turn at the park, and rerunning it would overwrite the evidence of what went
+/// wrong. Deleting a round directory is how you ask for it to be built again.
+fn completed_rounds(run_dir: &Path, model: &str) -> u32 {
+    let mut done = 0;
+    loop {
+        let round = run_dir.join(model).join(format!("round_{}", done + 1));
+        // report.json is written partway through collection, so on its own it
+        // also marks a round that died collecting: the kimi run that lost
+        // round 6 to a SIGTERM left an empty report behind, and counting it
+        // would have made the resume a no-op. park.png is written last, so it
+        // is the archive's own record that the round finished.
+        if !round.join("report.json").is_file() || !round.join("park.png").is_file() {
+            return done;
+        }
+        done += 1;
+    }
+}
+
+/// Rebuild what the round loop carries forward, from the archive rather than
+/// from memory: the previous round's report (which the next prompt quotes back
+/// to the model) and the best score so far (which is the run's actual result).
+/// Without this a continued run would restart the model cold and could crown a
+/// later, worse round as its best.
+fn resumed_state(
+    run_dir: &Path,
+    model: &str,
+    through: u32,
+) -> (Option<(u32, f64)>, Option<String>) {
+    let mut best: Option<(u32, f64)> = None;
+    let mut feedback = None;
+    for round in 1..=through {
+        let path = run_dir
+            .join(model)
+            .join(format!("round_{round}"))
+            .join("report.json");
+        let Ok(report) = read_json(&path) else {
+            continue;
+        };
+        if let Some(s) = best_excitement(&report) {
+            if best.is_none_or(|(_, b)| s > b) {
+                best = Some((round, s));
+            }
+        }
+        feedback = serde_json::to_string(&report).ok();
+    }
+    (best, feedback)
+}
+
+/// Describe a run that predates the segment log as its own first segment, from
+/// what it did record, so a continued run has one shape whatever it grew from.
+fn original_segment(existing: &Value) -> Value {
+    let carry = |key: &str| existing.get(key).cloned().unwrap_or(Value::Null);
+    json!({
+        "started_at": Value::Null,
+        "first_round": Value::Null,
+        "rounds": carry("rounds"),
+        "harness_version": carry("harness_version"),
+        "source": carry("source"),
+        "environment": carry("environment"),
+        "openrouter_provider": carry("openrouter_provider"),
+    })
+}
+
+/// Refuse to continue a run under different terms. Everything checked here is
+/// something that would silently corrupt the record: rounds built blind sitting
+/// beside rounds built with the library, or two ride types in one standings
+/// table. Rounds may grow, and the harness build may differ (that is what the
+/// segment log is for), but the experiment may not change underneath it.
+fn check_resume_compatible(
+    existing: &Value,
+    args: &Args,
+    contenders: &[Contender],
+) -> Result<(), String> {
+    let str_field = |key: &str| existing.get(key).and_then(Value::as_str).unwrap_or("");
+    let mismatch = |what: &str, was: String, now: String| {
+        Err(format!(
+            "resume: this run was {what} {was}, not {now}; start a new run instead"
+        ))
+    };
+    if str_field("condition") != args.mode.condition_name() {
+        return mismatch(
+            "built under condition",
+            str_field("condition").into(),
+            args.mode.condition_name().into(),
+        );
+    }
+    let ride = existing.get("ride_type").and_then(Value::as_u64);
+    if ride != Some(args.ride_type as u64) {
+        return mismatch(
+            "built for ride_type",
+            ride.map_or("unknown".into(), |r| r.to_string()),
+            args.ride_type.to_string(),
+        );
+    }
+    let was: Vec<String> = existing
+        .get("models")
+        .and_then(Value::as_array)
+        .map(|m| {
+            m.iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    let now: Vec<String> = contenders.iter().map(Contender::display).collect();
+    if was != now {
+        return mismatch("run with models", was.join(","), now.join(","));
+    }
+    Ok(())
+}
+
+/// Route this contender to one named OpenRouter upstream. Moonshot's own
+/// endpoint rejects an empty assistant message with a non-retryable 400, and
+/// kimi-k3 emits one often enough to lose rounds to it; the other upstreams
+/// serving the same weights do not. Returns None when nothing is pinned, which
+/// leaves OpenRouter's own routing alone.
+fn opencode_provider_routing(args: &Args, contender: &Contender) -> Option<Value> {
+    let upstream = args.openrouter_provider.as_deref()?;
+    // opencode keys models by their OpenRouter slug, without the provider it
+    // already nests them under.
+    let model = contender.model.strip_prefix("openrouter/")?;
+    Some(json!({
+        "openrouter": {
+            "models": {
+                model: {"options": {"provider": {
+                    "order": [upstream],
+                    // A dead upstream should cost a retry, not the round.
+                    "allow_fallbacks": true,
+                }}}
+            }
+        }
+    }))
+}
+
 fn write_opencode_config(args: &Args, contender: &Contender, lease: &str) -> Result<(), String> {
-    let config = json!({
+    let mut config = json!({
         "$schema": "https://opencode.ai/config.json",
         "model": contender.model,
         "permission": opencode_permissions(args),
         "mcp": {
             "coaster": {"type": "remote", "url": contender.mcp_url(args.port, lease, args.mode), "enabled": true}
         }
-    })
-    .to_string();
+    });
+    if let Some(routing) = opencode_provider_routing(args, contender) {
+        config["provider"] = routing;
+    }
+    let config = config.to_string();
     let script = format!(
         "mkdir -p ~/.config/opencode && cat > ~/.config/opencode/opencode.json <<'OPENCODE_EOF'\n{config}\nOPENCODE_EOF"
     );
@@ -813,16 +973,18 @@ fn codex_config(args: &Args, contender: &Contender, lease: &str) -> String {
     let mut config = match contender.codex_openrouter_model() {
         Some(model) => format!(
             "model = \"{model}\"\n\
-             model_provider = \"openrouter\"\n\
-             # Codex has no metadata for an \"openai/...\"-prefixed id, and its\n\
-             # fallback assumes the model cannot reason, which OpenRouter\n\
-             # rejects for models where reasoning is mandatory.\n\
-             model_reasoning_summary = \"auto\"\n"
+             model_provider = \"openrouter\"\n"
         ),
         None => format!("model = \"{}\"\n", contender.model),
     };
     config.push_str(&format!(
-        "model_reasoning_effort = \"{}\"\n\
+        "# Codex has no metadata for an \"openai/...\"-prefixed id or a model\n\
+         # newer than its own table, and its fallback assumes the model cannot\n\
+         # reason: OpenRouter rejects that for models where reasoning is\n\
+         # mandatory, and the subscription backend silently returns no\n\
+         # reasoning summaries at all (the gpt-5.6-sol run traced zero).\n\
+         model_reasoning_summary = \"auto\"\n\
+         model_reasoning_effort = \"{}\"\n\
          approval_policy = \"never\"\n\
          sandbox_mode = \"{sandbox_mode}\"\n",
         args.codex_reasoning_effort.as_str()
@@ -1920,15 +2082,36 @@ fn main() -> Result<(), String> {
         return Ok(());
     }
 
-    let suffix = args.name.clone().unwrap_or_else(|| "bench".into());
-    let run_dir = root
-        .join("evals/runs")
-        .join(format!("{}-{}", today(), suffix));
-    std::fs::create_dir_all(&run_dir).map_err(|e| e.to_string())?;
+    // A resumed run keeps its original directory, and with it the rounds
+    // already in the archive; a fresh one is always dated today. Reusing
+    // --name on the same day would land in an existing run and overwrite its
+    // rounds one at a time, so resuming is deliberate rather than implied.
+    let (run_dir, resuming) = match &args.resume {
+        Some(dir) => {
+            let dir =
+                std::fs::canonicalize(dir).map_err(|e| format!("resume {}: {e}", dir.display()))?;
+            if !dir.join("run.json").is_file() {
+                return Err(format!(
+                    "resume {}: no run.json, so this is not a run directory",
+                    dir.display()
+                ));
+            }
+            (dir, true)
+        }
+        None => {
+            let suffix = args.name.clone().unwrap_or_else(|| "bench".into());
+            let dir = root
+                .join("evals/runs")
+                .join(format!("{}-{}", today(), suffix));
+            std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+            (dir, false)
+        }
+    };
     println!(
-        "run dir: {} (ride_type {})",
+        "run dir: {} (ride_type {}){}",
         run_dir.display(),
-        args.ride_type
+        args.ride_type,
+        if resuming { ", resuming" } else { "" }
     );
 
     let _server = if args.attach {
@@ -2096,9 +2279,53 @@ fn main() -> Result<(), String> {
             "image_id": image_id(&args.codex_sandbox_image, &root),
         },
     });
-    write_json(
-        &run_dir.join("run.json"),
-        &json!({
+    let environment = json!({
+        "os": std::env::consts::OS,
+        "arch": std::env::consts::ARCH,
+        "rustc": command_stdout("rustc", &["--version"], &root),
+        "sandbox_images": sandbox_images,
+    });
+    // Where each model picks up. Read before run.json is rewritten, because on
+    // a resume that file is the thing being extended.
+    let resume_points: Vec<(String, u32)> = contenders
+        .iter()
+        .map(|c| {
+            let model = c.display();
+            let done = if resuming {
+                completed_rounds(&run_dir, &model)
+            } else {
+                0
+            };
+            (model, done)
+        })
+        .collect();
+    let existing_run = resuming
+        .then(|| read_json(&run_dir.join("run.json")))
+        .transpose()?;
+    if let Some(existing) = &existing_run {
+        check_resume_compatible(existing, &args, &contenders)?;
+        for (model, done) in &resume_points {
+            println!(
+                "[{model}] resuming: {done} rounds archived, building {done_plus}..={total}",
+                done_plus = done + 1,
+                total = args.rounds
+            );
+        }
+    }
+    // One entry per time someone pressed go. A continued run is built by more
+    // than one harness build, and averaging that away in a single source field
+    // would make the record claim rounds it did not produce.
+    let segment = json!({
+        "started_at": rfc3339_now(),
+        "first_round": resume_points.iter().map(|(m, done)| (m.clone(), json!(done + 1)))
+            .collect::<serde_json::Map<_, _>>(),
+        "rounds": args.rounds,
+        "harness_version": env!("CARGO_PKG_VERSION"),
+        "source": git_provenance(&root),
+        "environment": environment.clone(),
+        "openrouter_provider": args.openrouter_provider,
+    });
+    let mut run_json = json!({
             "schema_version": RUN_SCHEMA_VERSION,
             "condition": args.mode.condition_name(),
             "mode": args.mode.base_mode(),
@@ -2131,12 +2358,7 @@ fn main() -> Result<(), String> {
                 "replay_cap_seconds": args.replay_seconds,
                 "replay_fps": 20,
             },
-            "environment": {
-                "os": std::env::consts::OS,
-                "arch": std::env::consts::ARCH,
-                "rustc": command_stdout("rustc", &["--version"], &root),
-                "sandbox_images": sandbox_images,
-            },
+            "environment": environment,
             "open_note": args.open_note,
             // What the condition actually granted, so a run explains itself
             // without cross-referencing the harness version.
@@ -2149,18 +2371,41 @@ fn main() -> Result<(), String> {
             "codex_sandbox": args.codex_sandbox,
             "allowed_tools": allowed_tools(&args),
             "opencode_permission": opencode_permissions(&args),
+            "openrouter_provider": args.openrouter_provider,
             "codex_sandbox_mode": codex_sandbox_mode(&args),
             "codex_reasoning_effort": args.codex_reasoning_effort.as_str(),
             "open_note_source": open_note_sha,
-        }),
-    )?;
+    });
+    if let Some(mut existing) = existing_run {
+        // Keep the original record and extend it. Rewriting it from today's
+        // flags would restamp rounds this build never produced with this
+        // build's commit, images and version.
+        let mut segments = existing
+            .get("segments")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_else(|| vec![original_segment(&existing)]);
+        segments.push(segment);
+        existing["segments"] = Value::Array(segments);
+        existing["rounds"] = json!(args.rounds);
+        existing["budgets"]["rounds"] = json!(args.rounds);
+        run_json = existing;
+    } else {
+        run_json["segments"] = json!([segment]);
+    }
+    write_json(&run_dir.join("run.json"), &run_json)?;
 
     let mut standings: Vec<Value> = Vec::new();
-    'contenders: for contender in &contenders {
+    'contenders: for (contender, (_, done)) in contenders.iter().zip(&resume_points) {
         let model = contender.display();
-        let mut best: Option<(u32, f64)> = None;
-        let mut feedback: Option<String> = None;
-        for round in 1..=args.rounds {
+        // Carried across the gap, so a continued run keeps its winner and the
+        // next prompt still quotes the round before it.
+        let (mut best, mut feedback) = if *done > 0 {
+            resumed_state(&run_dir, &model, *done)
+        } else {
+            (None, None)
+        };
+        for round in (done + 1)..=args.rounds {
             if shutdown.load(Ordering::Relaxed) {
                 eprintln!("interrupted: stopping before {model} round {round}");
                 break 'contenders;
@@ -2425,6 +2670,7 @@ mod tests {
             "approval_policy =",
             "sandbox_mode =",
             "model_reasoning_effort =",
+            "model_reasoning_summary =",
         ] {
             let at = config.find(key).unwrap_or_else(|| panic!("{key} missing"));
             assert!(at < first_table, "{key} fell inside a table:\n{config}");
@@ -2447,6 +2693,11 @@ mod tests {
         assert!(
             config.contains("model_reasoning_effort = \"medium\""),
             "published runs pin the declared effort instead of inheriting low"
+        );
+        assert!(
+            config.contains("model_reasoning_summary = \"auto\""),
+            "codex's fallback for an unknown slug assumes no reasoning, \
+             which traced zero reasoning items for the whole sol run"
         );
         assert!(
             !config.contains("model_provider"),
@@ -2630,5 +2881,168 @@ mod tests {
             open["webfetch"], "deny",
             "network tools stay denied either way"
         );
+    }
+
+    /// Lays down a run directory the way a real run leaves one: a report per
+    /// round, scored or not. Returns the run dir; the caller cleans it up.
+    fn staged_run(tag: &str, model: &str, scores: &[Option<f64>]) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("coaster-resume-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        for (i, score) in scores.iter().enumerate() {
+            let round = dir.join(model).join(format!("round_{}", i + 1));
+            std::fs::create_dir_all(&round).expect("stage round");
+            let report = match score {
+                Some(s) => json!({"score": s, "rides": [{"excitement": s}]}),
+                None => json!({"rides": []}),
+            };
+            write_json(&round.join("report.json"), &report).expect("stage report");
+            // Written last by a real round, so it is what marks one finished.
+            std::fs::write(round.join("park.png"), b"png").expect("stage capture");
+        }
+        dir
+    }
+
+    #[test]
+    fn completed_rounds_counts_the_unbroken_prefix() {
+        let model = "openrouter_moonshotai_kimi-k3";
+        let dir = staged_run("prefix", model, &[Some(5.06), None, Some(6.18)]);
+        assert_eq!(
+            completed_rounds(&dir, model),
+            3,
+            "an unrated round still had its turn"
+        );
+
+        // Deleting a round is the documented way to ask for it again, so the
+        // count must stop there rather than skipping over the hole.
+        std::fs::remove_dir_all(dir.join(model).join("round_2")).expect("drop round 2");
+        assert_eq!(completed_rounds(&dir, model), 1);
+        assert_eq!(completed_rounds(&dir, "never-ran"), 0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// What actually happened to the kimi run: SIGTERM five minutes into round
+    /// 6, leaving the report that collection writes before it captures. Counting
+    /// that as a finished round would make resuming a no-op, which is precisely
+    /// when someone is reaching for it.
+    #[test]
+    fn a_round_that_died_collecting_is_not_finished() {
+        let model = "openrouter_moonshotai_kimi-k3";
+        let dir = staged_run("halfway", model, &[Some(6.59), None]);
+        std::fs::remove_file(dir.join(model).join("round_2").join("park.png"))
+            .expect("drop the capture");
+        assert_eq!(
+            completed_rounds(&dir, model),
+            1,
+            "a report with no capture is a round that never finished"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn resuming_carries_the_best_round_and_the_last_report() {
+        let model = "openrouter_moonshotai_kimi-k3";
+        // Round 3 scores lower than round 1: a resumed run must not crown it.
+        let dir = staged_run("carry", model, &[Some(6.18), None, Some(5.06)]);
+        let (best, feedback) = resumed_state(&dir, model, 3);
+        assert_eq!(best, Some((1, 6.18)), "the winner survives the gap");
+        let feedback: Value =
+            serde_json::from_str(&feedback.expect("last report is quoted back")).expect("json");
+        assert_eq!(
+            feedback["score"], 5.06,
+            "feedback is the round before, not the best one"
+        );
+
+        let (best, feedback) = resumed_state(&dir, model, 0);
+        assert_eq!(best, None, "nothing archived, nothing carried");
+        assert!(feedback.is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_run_may_grow_rounds_but_not_change_the_experiment() {
+        let mut args = Args::parse_from(["coaster-bench", "--rounds", "8"]);
+        let contenders = vec![Contender::parse("opencode:openrouter/moonshotai/kimi-k3")];
+        let existing = json!({
+            "condition": "design",
+            "ride_type": 51,
+            "models": ["openrouter_moonshotai_kimi-k3"],
+            "rounds": 6,
+        });
+        check_resume_compatible(&existing, &args, &contenders).expect("more rounds is the point");
+
+        args.ride_type = 52;
+        let err = check_resume_compatible(&existing, &args, &contenders)
+            .expect_err("two ride types in one standings table is not a run");
+        assert!(err.contains("ride_type"), "{err}");
+
+        args.ride_type = 51;
+        args.mode = BenchmarkMode::Library;
+        assert!(
+            check_resume_compatible(&existing, &args, &contenders).is_err(),
+            "blind rounds must not gain library rounds"
+        );
+
+        args.mode = BenchmarkMode::Design;
+        let other = vec![Contender::parse("claude-opus-5")];
+        assert!(
+            check_resume_compatible(&existing, &args, &other).is_err(),
+            "a different lineup is a different run"
+        );
+    }
+
+    #[test]
+    fn a_run_from_before_segments_becomes_its_own_first_segment() {
+        let existing = json!({
+            "rounds": 6,
+            "harness_version": "0.1.0",
+            "source": {"commit": "abc123", "dirty": false},
+            "environment": {"arch": "aarch64"},
+        });
+        let segment = original_segment(&existing);
+        assert_eq!(segment["harness_version"], "0.1.0");
+        assert_eq!(segment["source"]["commit"], "abc123");
+        assert_eq!(
+            segment["started_at"],
+            Value::Null,
+            "we do not know when it ran, and must not invent it"
+        );
+    }
+
+    #[test]
+    fn openrouter_upstream_is_pinned_per_model_and_only_when_asked() {
+        let mut args = Args::parse_from(["coaster-bench"]);
+        let contender = Contender::parse("opencode:openrouter/moonshotai/kimi-k3");
+        assert!(
+            opencode_provider_routing(&args, &contender).is_none(),
+            "unpinned runs must leave OpenRouter's routing alone"
+        );
+
+        args.openrouter_provider = Some("baseten".into());
+        let routing = opencode_provider_routing(&args, &contender)
+            .expect("a pinned run routes its opencode contender");
+        let provider =
+            &routing["openrouter"]["models"]["moonshotai/kimi-k3"]["options"]["provider"];
+        assert_eq!(provider["order"], json!(["baseten"]));
+        assert_eq!(
+            provider["allow_fallbacks"], true,
+            "a dead upstream costs a retry, not the round"
+        );
+
+        // Claude Code and codex contenders never touch OpenRouter's router.
+        assert!(
+            opencode_provider_routing(&args, &Contender::parse("claude-opus-5")).is_none(),
+            "only openrouter-served models are keyed by an openrouter slug"
+        );
+    }
+
+    /// A headless "ask" is an auto-reject, and opencode kills the session on a
+    /// rejected call. Left at its default this cost kimi-k3 a whole round for
+    /// undoing pieces in a row, which is ordinary coaster building.
+    #[test]
+    fn the_doom_loop_guard_never_ends_a_headless_round() {
+        let mut args = Args::parse_from(["coaster-bench"]);
+        assert_eq!(opencode_permissions(&args)["doom_loop"], "allow");
+        args.open_note = true;
+        assert_eq!(opencode_permissions(&args)["doom_loop"], "allow");
     }
 }
