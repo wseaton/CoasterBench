@@ -1,0 +1,188 @@
+{
+  "bounds": {
+    "max_tile_x": 64,
+    "max_tile_y": 40,
+    "max_z": 312,
+    "min_tile_x": 32,
+    "min_tile_y": 20,
+    "min_z": 112
+  },
+  "placed_pieces": [
+    "begin_station",
+    "middle_station",
+    "middle_station",
+    "middle_station",
+    "end_station",
+    {
+      "chain": true,
+      "t": "flat_to_up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25_to_flat"
+    },
+    "flat_to_down_60",
+    "down_60",
+    "down_60",
+    "down_60_to_flat",
+    "flat_to_up_25",
+    "left_vertical_loop",
+    "down_25_to_flat",
+    "flat_to_left_bank",
+    "banked_left_turn_5",
+    "left_bank_to_flat",
+    "flat_to_up_25",
+    "up_25_to_flat",
+    "flat_to_down_25",
+    "down_25_to_flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat_to_left_bank",
+    "banked_left_turn_5",
+    "left_bank_to_flat",
+    "flat",
+    "flat_to_up_25",
+    "left_vertical_loop",
+    "down_25_to_flat",
+    "flat_to_up_25",
+    "up_25_to_flat",
+    "flat_to_down_25",
+    "down_25_to_flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat_to_left_bank",
+    "banked_left_turn_5",
+    "left_bank_to_flat",
+    "flat_to_up_25",
+    "up_25_to_flat",
+    "flat_to_down_25",
+    "down_25_to_flat",
+    {
+      "speed": 8,
+      "t": "brakes"
+    },
+    {
+      "speed": 8,
+      "t": "brakes"
+    },
+    {
+      "speed": 8,
+      "t": "brakes"
+    },
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat_to_left_bank",
+    "banked_left_turn_5",
+    "left_bank_to_flat"
+  ],
+  "program": null,
+  "rides": [
+    {
+      "average_speed": 480485,
+      "circuit": {
+        "looped": true,
+        "orphan_pieces": 0,
+        "total_pieces": 84,
+        "walked_pieces": 84
+      },
+      "crashed": false,
+      "excitement": 6.239999771118164,
+      "highest_drop": 21,
+      "id": 0,
+      "intensity": 5.329999923706055,
+      "max_lateral_g": 1.1299999952316284,
+      "max_negative_g": -0.75,
+      "max_positive_g": 3.759999990463257,
+      "max_speed": 1223746,
+      "nausea": 2.680000066757202,
+      "num_drops": 6,
+      "num_inversions": 2,
+      "ride_length": 510,
+      "ride_time": 53,
+      "ride_type": 51,
+      "status": "testing",
+      "tested": true,
+      "total_air_time": 33
+    }
+  ],
+  "score": 6.239999771118164,
+  "similarity": {
+    "common_substring_share": 0.07142857142857142,
+    "edit_similarity": 0.33333333333333337,
+    "mirrored": false,
+    "nearest_design": "King Rapids",
+    "nearest_ride_type": 24,
+    "similarity": 0.33333333333333337
+  },
+  "start": {
+    "bank": 0,
+    "dir": 0,
+    "slope": 0,
+    "x": 60,
+    "y": 40,
+    "z": 112
+  }
+}

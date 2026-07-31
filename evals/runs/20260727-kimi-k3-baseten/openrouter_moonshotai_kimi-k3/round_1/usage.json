@@ -1,0 +1,9 @@
+{
+  "cache_read_tokens": 1253376,
+  "cost_usd": 1.3563408000000001,
+  "harness": "opencode",
+  "input_tokens": 76471,
+  "model": "openrouter/moonshotai/kimi-k3",
+  "num_turns": 28,
+  "output_tokens": 50061
+}
