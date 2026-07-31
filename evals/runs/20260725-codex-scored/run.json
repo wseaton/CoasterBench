@@ -1,0 +1,42 @@
+{
+  "agent_state": "fresh-sandbox",
+  "allowed_tools": "mcp__coaster__*,Read,Grep,Glob,Bash",
+  "capabilities": [
+    "engine_source",
+    "file_tools",
+    "python3"
+  ],
+  "codex_sandbox": "codex-arena-6517ac",
+  "codex_sandbox_mode": "danger-full-access",
+  "harness": "codex",
+  "harnesses": {
+    "openrouter_openai_gpt-5.1": "codex"
+  },
+  "modalities": {
+    "openrouter_openai_gpt-5.1": "text,image,file"
+  },
+  "mode": "design",
+  "models": [
+    "openrouter_openai_gpt-5.1"
+  ],
+  "open_note": true,
+  "open_note_source": "8ed1ac4c57cd4ab4f5808010565337635c142c87",
+  "opencode_permission": {
+    "bash": "allow",
+    "edit": "allow",
+    "external_directory": "allow",
+    "glob": "allow",
+    "grep": "allow",
+    "read": "allow",
+    "webfetch": "deny",
+    "websearch": "deny"
+  },
+  "opencode_sandbox": "coaster-or",
+  "orchestrator": "coaster-bench",
+  "published": false,
+  "ride_type": 51,
+  "rounds": 1,
+  "sandbox": "coaster-sub",
+  "similarity_grace": 0.5,
+  "ticks": 25000
+}
