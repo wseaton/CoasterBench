@@ -1,0 +1,169 @@
+{
+  "bounds": {
+    "max_tile_x": 51,
+    "max_tile_y": 96,
+    "max_z": 248,
+    "min_tile_x": 20,
+    "min_tile_y": 80,
+    "min_z": 112
+  },
+  "placed_pieces": [
+    "begin_station",
+    "middle_station",
+    "end_station",
+    {
+      "chain": true,
+      "t": "flat_to_up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25_to_flat"
+    },
+    "flat_to_down_25",
+    "down_25",
+    "down_25",
+    "down_25",
+    "down_25",
+    "down_25",
+    "down_25",
+    "down_25_to_flat",
+    "right_turn_3",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "right_turn_3",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "right_turn_3",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "right_turn_3",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat"
+  ],
+  "program": null,
+  "rides": [
+    {
+      "average_speed": 538423,
+      "circuit": {
+        "looped": true,
+        "orphan_pieces": 0,
+        "total_pieces": 86,
+        "walked_pieces": 86
+      },
+      "crashed": false,
+      "excitement": 1.3799999952316284,
+      "highest_drop": 14,
+      "id": 0,
+      "intensity": 0.959999978542328,
+      "max_lateral_g": 2.559999942779541,
+      "max_negative_g": 0.4900000095367432,
+      "max_positive_g": 2.369999885559082,
+      "max_speed": 1013863,
+      "nausea": 0.4399999976158142,
+      "num_drops": 1,
+      "num_inversions": 0,
+      "ride_length": 398,
+      "ride_time": 37,
+      "ride_type": 51,
+      "status": "testing",
+      "tested": true,
+      "total_air_time": 0
+    }
+  ],
+  "score": 1.3479069720867067,
+  "similarity": {
+    "common_substring_share": 0.11627906976744186,
+    "edit_similarity": 0.5116279069767442,
+    "mirrored": false,
+    "nearest_design": "Hover Bother",
+    "nearest_ride_type": 11,
+    "similarity": 0.5116279069767442
+  },
+  "start": {
+    "bank": 0,
+    "dir": 0,
+    "slope": 0,
+    "x": 40,
+    "y": 80,
+    "z": 112
+  }
+}

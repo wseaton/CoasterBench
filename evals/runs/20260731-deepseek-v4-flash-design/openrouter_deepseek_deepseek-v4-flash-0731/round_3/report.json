@@ -1,0 +1,13 @@
+{
+  "program": {
+    "error": {
+      "message": "finish_and_test: no active ride; call new_ride first",
+      "piece_index": null
+    },
+    "ok": false,
+    "pieces_placed": 0,
+    "pieces_total": 0
+  },
+  "rides": [],
+  "similarity": null
+}

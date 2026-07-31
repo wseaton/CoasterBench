@@ -1,0 +1,216 @@
+{
+  "bounds": {
+    "max_tile_x": 91,
+    "max_tile_y": 85,
+    "max_z": 344,
+    "min_tile_x": 38,
+    "min_tile_y": 80,
+    "min_z": 112
+  },
+  "placed_pieces": [
+    "begin_station",
+    "middle_station",
+    "middle_station",
+    "middle_station",
+    "end_station",
+    "flat_to_up_25",
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    "up_25_to_flat",
+    "flat_to_down_60",
+    "down_60",
+    "down_60_to_down_25",
+    "down_25",
+    "down_25",
+    "down_25",
+    "down_25",
+    "down_25",
+    "down_25_to_flat",
+    "flat",
+    {
+      "speed": 25,
+      "t": "booster"
+    },
+    "flat",
+    "flat_to_up_25",
+    "left_vertical_loop",
+    "down_25_to_flat",
+    "flat_to_up_25",
+    "right_vertical_loop",
+    "down_25_to_flat",
+    "flat",
+    {
+      "speed": 25,
+      "t": "booster"
+    },
+    "flat_to_up_25",
+    "left_vertical_loop",
+    "down_25_to_flat",
+    "flat_to_up_25",
+    "right_vertical_loop",
+    "down_25_to_flat",
+    "left_turn_5",
+    "left_turn_5",
+    "s_bend_left",
+    "flat",
+    "flat",
+    {
+      "speed": 25,
+      "t": "booster"
+    },
+    "flat_to_up_25",
+    "left_vertical_loop",
+    "down_25_to_flat",
+    "flat_to_up_25",
+    "right_vertical_loop",
+    "down_25_to_flat",
+    "flat",
+    {
+      "speed": 25,
+      "t": "booster"
+    },
+    "flat",
+    "flat_to_up_25",
+    "up_25",
+    "up_25_to_flat",
+    "flat_to_down_25",
+    "down_25",
+    "down_25_to_flat",
+    "flat",
+    {
+      "speed": 20,
+      "t": "booster"
+    },
+    "flat_to_up_25",
+    "left_vertical_loop",
+    "down_25_to_flat",
+    "flat_to_up_25",
+    "right_vertical_loop",
+    "down_25_to_flat",
+    "flat",
+    {
+      "speed": 20,
+      "t": "booster"
+    },
+    "flat",
+    "flat_to_up_25",
+    "up_25",
+    "up_25_to_flat",
+    "flat_to_down_25",
+    "down_25",
+    "down_25_to_flat",
+    "flat",
+    "flat",
+    "flat",
+    {
+      "speed": 8,
+      "t": "brakes"
+    },
+    {
+      "speed": 8,
+      "t": "brakes"
+    },
+    "flat",
+    "left_turn_5",
+    "left_turn_3"
+  ],
+  "presentation": {
+    "name": "Azure Fang",
+    "rail_color": "bright_purple",
+    "support_color": "dark_blue",
+    "track_color": "icy_blue"
+  },
+  "program": null,
+  "rides": [
+    {
+      "average_speed": 655782,
+      "circuit": {
+        "looped": true,
+        "orphan_pieces": 0,
+        "total_pieces": 91,
+        "walked_pieces": 91
+      },
+      "crashed": false,
+      "excitement": 7.289999961853027,
+      "highest_drop": 25,
+      "id": 0,
+      "intensity": 9.329999923706056,
+      "max_lateral_g": 2.319999933242798,
+      "max_negative_g": -1.2599999904632568,
+      "max_positive_g": 5.380000114440918,
+      "max_speed": 1583268,
+      "nausea": 4.889999866485596,
+      "num_drops": 11,
+      "num_inversions": 8,
+      "ride_length": 783,
+      "ride_time": 60,
+      "ride_type": 51,
+      "status": "testing",
+      "tested": true,
+      "total_air_time": 22
+    }
+  ],
+  "score": 7.289999961853027,
+  "similarity": {
+    "common_substring_share": 0.0989010989010989,
+    "edit_similarity": 0.31868131868131866,
+    "mirrored": false,
+    "nearest_design": "Rotovator",
+    "nearest_ride_type": 65,
+    "similarity": 0.31868131868131866
+  },
+  "start": {
+    "bank": 0,
+    "dir": 2,
+    "slope": 0,
+    "x": 40,
+    "y": 80,
+    "z": 112
+  }
+}

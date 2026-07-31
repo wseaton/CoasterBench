@@ -1,0 +1,184 @@
+{
+  "bounds": {
+    "max_tile_x": 67,
+    "max_tile_y": 80,
+    "max_z": 280,
+    "min_tile_x": 30,
+    "min_tile_y": 60,
+    "min_z": 112
+  },
+  "placed_pieces": [
+    "begin_station",
+    "middle_station",
+    "middle_station",
+    "middle_station",
+    "end_station",
+    "flat_to_up_25",
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    "up_25_to_flat",
+    "flat_to_down_60",
+    "down_60",
+    "down_60_to_down_25",
+    "down_25_to_flat",
+    "right_turn_5",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat_to_right_bank",
+    "banked_right_turn_5",
+    "right_bank_to_flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    {
+      "speed": 25,
+      "t": "booster"
+    },
+    "flat_to_up_25",
+    "left_vertical_loop",
+    "down_25_to_flat",
+    "flat_to_up_25",
+    "left_vertical_loop",
+    "down_25_to_flat",
+    {
+      "speed": 25,
+      "t": "booster"
+    },
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "right_turn_5",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    {
+      "speed": 25,
+      "t": "booster"
+    },
+    "flat_to_up_25",
+    "right_vertical_loop",
+    "down_25_to_flat",
+    {
+      "speed": 25,
+      "t": "booster"
+    },
+    "flat",
+    "right_turn_5",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat"
+  ],
+  "program": null,
+  "rides": [
+    {
+      "average_speed": 654142,
+      "circuit": {
+        "looped": true,
+        "orphan_pieces": 0,
+        "total_pieces": 92,
+        "walked_pieces": 92
+      },
+      "crashed": false,
+      "excitement": 6.409999847412109,
+      "highest_drop": 15,
+      "id": 0,
+      "intensity": 6.21999979019165,
+      "max_lateral_g": 2.4000000953674316,
+      "max_negative_g": 0.07999999821186066,
+      "max_positive_g": 4.610000133514404,
+      "max_speed": 1577883,
+      "nausea": 3.069999933242798,
+      "num_drops": 4,
+      "num_inversions": 3,
+      "ride_length": 576,
+      "ride_time": 44,
+      "ride_type": 51,
+      "status": "testing",
+      "tested": true,
+      "total_air_time": 0
+    }
+  ],
+  "score": 6.409999847412109,
+  "similarity": {
+    "common_substring_share": 0.06521739130434782,
+    "edit_similarity": 0.42391304347826086,
+    "mirrored": false,
+    "nearest_design": "Hover Bother",
+    "nearest_ride_type": 11,
+    "similarity": 0.42391304347826086
+  },
+  "start": {
+    "bank": 0,
+    "dir": 0,
+    "slope": 0,
+    "x": 50,
+    "y": 60,
+    "z": 112
+  }
+}

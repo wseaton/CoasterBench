@@ -1,0 +1,10 @@
+{
+  "standings": [
+    {
+      "best_excitement": 7.289999961853027,
+      "best_round": 6,
+      "harness": "opencode",
+      "model": "openrouter_deepseek_deepseek-v4-flash-0731"
+    }
+  ]
+}
