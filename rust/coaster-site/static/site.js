@@ -99,14 +99,30 @@ document.addEventListener('click', function (e) {
   var rot = btn.closest('.rotator');
   var shots = JSON.parse(rot.dataset.shots);
   var fulls = JSON.parse(rot.dataset.fulls || '[]');
-  var step = btn.classList.contains('rot-next') ? 1 : shots.length - 1;
-  var i = (parseInt(rot.dataset.i, 10) + step) % shots.length;
   var labels = JSON.parse(rot.dataset.labels);
+  var video = rot.querySelector('video');
+  // The clip is slide 0 when the round has one; the stills follow it.
+  var lead = video ? 1 : 0;
+  var total = shots.length + lead;
+  var step = btn.classList.contains('rot-next') ? 1 : total - 1;
+  var i = (parseInt(rot.dataset.i, 10) + step) % total;
+  var onVideo = !!video && i === 0;
   rot.dataset.i = i;
+  if (video) {
+    video.hidden = !onVideo;
+    // Rotating away stops it: motion behind a screenshot you cannot see is
+    // just bandwidth.
+    if (!onVideo && !video.paused) video.pause();
+  }
   var img = rot.querySelector('img');
-  img.src = shots[i];
-  if (fulls[i]) img.dataset.full = fulls[i];
-  rot.querySelector('.rot-count').textContent = labels[i];
+  if (img) {
+    img.hidden = onVideo;
+    if (!onVideo) {
+      img.src = shots[i - lead];
+      if (fulls[i - lead]) img.dataset.full = fulls[i - lead];
+    }
+  }
+  rot.querySelector('.rot-count').textContent = onVideo ? 'replay' : labels[i - lead];
 });
 
 // Restore a shared view: facets first, then the sort column.

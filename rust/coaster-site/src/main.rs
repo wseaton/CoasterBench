@@ -728,6 +728,7 @@ fn build_model_page(
         run_href: format!("run-{}.html", run.name),
         place: place_label(place),
         of_models: run.models.len(),
+        keystone: model_keystone(run, model, store, out)?,
         context: format!(
             "{} · {} · {} · {}",
             run.mode_label(),
@@ -877,7 +878,36 @@ fn featured(runs: &[EvalRun], store: &ArtStore, out: &Path) -> Result<Option<vie
     let Some((run, model, round)) = best else {
         return Ok(None);
     };
+    hero_for(run, model, round, store, out)
+}
 
+/// The best round a model has with a replay, for that model's own page. Same
+/// shape as the index headline, so both are one clip with its numbers under it.
+fn model_keystone(
+    run: &EvalRun,
+    model: &ModelRun,
+    store: &ArtStore,
+    out: &Path,
+) -> Result<Option<view::Featured>> {
+    let Some(round) = model
+        .rounds
+        .iter()
+        .filter(|round| round.replay.is_some() && round.excitement() > 0.0)
+        .max_by(|a, b| a.excitement().total_cmp(&b.excitement()))
+    else {
+        return Ok(None);
+    };
+    hero_for(run, model, round, store, out)
+}
+
+/// One clip, its ride's name and colours, and the numbers the game gave it.
+fn hero_for(
+    run: &EvalRun,
+    model: &ModelRun,
+    round: &Round,
+    store: &ArtStore,
+    out: &Path,
+) -> Result<Option<view::Featured>> {
     // The same paths the model page uses, so the hero shares its files.
     let asset = |art: Option<&Art>| round_asset(art, out, run, &model.model, round.number);
     let Some(replay) = asset(round.replay.as_ref())? else {

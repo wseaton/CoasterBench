@@ -323,6 +323,25 @@ pub struct RoundView {
     pub labels_json: String,
 }
 
+impl RoundView {
+    /// How many views the card's media well holds: the clip, when there is
+    /// one, then every screenshot. More than one earns the arrows.
+    pub fn slides(&self) -> usize {
+        self.shots.len() + usize::from(self.replay.is_some())
+    }
+
+    /// What the counter reads before anyone clicks.
+    pub fn first_label(&self) -> String {
+        if self.replay.is_some() {
+            return "replay".to_string();
+        }
+        self.shots
+            .first()
+            .map(|shot| shot.label.clone())
+            .unwrap_or_default()
+    }
+}
+
 pub struct RoundStats {
     pub excitement: String,
     pub intensity: String,
@@ -374,6 +393,9 @@ pub struct ModelPage<'a> {
     pub of_models: usize,
     pub context: String,
     pub stats: Vec<Stat>,
+    /// This model's best round with a replay, played at the top of its page.
+    /// None when nothing it built was both rated and filmed.
+    pub keystone: Option<Featured>,
     pub model: &'a ModelView,
 }
 

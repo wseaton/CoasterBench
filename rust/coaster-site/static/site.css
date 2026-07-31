@@ -126,6 +126,32 @@ body {
   border: 1px solid var(--ink);
   box-shadow: var(--bevel-up-1);
 }
+/* A window that folds. The summary keeps the titlebar's look, so a closed one
+   reads as a window rolled up rather than as a stray link. */
+/* The generic details rule is for the small inline disclosures inside a card;
+   this one is a window, and keeps a window's metrics. */
+.round-detail { margin-top: 0; font-size: inherit; }
+.round-detail > summary {
+  cursor: pointer; list-style: none;
+}
+.round-detail > summary::-webkit-details-marker { display: none; }
+.round-detail > summary:hover { color: #fff; }
+/* The one button on the bar doubles as the disclosure arrow. Drawn with
+   borders, not a glyph: Silkscreen is a bitmap face and has no triangles, so
+   a character here renders as tofu. */
+.round-detail .btn.disclose {
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.round-detail .btn.disclose::before {
+  content: ""; width: 0; height: 0;
+  border-left: 4px solid var(--ink);
+  border-top: 4px solid transparent; border-bottom: 4px solid transparent;
+  margin-left: 1px;
+  transition: transform .12s ease-out;
+}
+.round-detail[open] .btn.disclose::before { transform: rotate(90deg); margin: 1px 0 0; }
+.round-detail > summary:focus-visible { outline: 2px solid var(--gold); outline-offset: -2px; }
+
 .titlebar-links { display: inline-flex; gap: .8rem; }
 .titlebar-link { color: var(--titlebar-text); font-size: .62rem; text-decoration: none;
   border-bottom: 1px solid rgba(245,230,200,.5); white-space: nowrap; }
@@ -513,18 +539,35 @@ tr:last-child td { border-bottom: none; }
   box-shadow: inset -1px -1px 0 rgba(255,255,255,.35), inset 1px 1px 0 rgba(0,0,0,.5); }
 
 .rotator { position: relative; }
+/* Both slide types set display:block, which on its own beats the UA rule for
+   [hidden] and would leave every slide stacked and visible at once. */
+.rotator > [hidden] { display: none; }
+/* The clip sits in the same well as the stills, framed the same, so rotating
+   between them moves nothing but the picture. */
+.rotator > .replay {
+  margin-top: .5rem; border: 2px solid var(--ink);
+  box-shadow: 3px 3px 0 rgba(0,0,0,.3);
+}
+/* One group, laid out by flex. The offsets used to be three magic numbers that
+   only worked while every label was the same width, and "replay" clipped to
+   "REPL" the moment one was not. */
+/* Top right, not bottom: the clip's own controls live along its bottom edge,
+   and a rotate button sitting on the scrubber is a misclick waiting to
+   happen. */
+.rotator .rot-controls {
+  position: absolute; top: 12px; right: 10px;
+  display: flex; align-items: center; gap: 7px;
+}
 .rotator .rot-btn {
-  position: absolute; bottom: 10px; width: 30px; height: 26px;
+  width: 30px; height: 26px; flex: none;
   font-family: var(--font-display); font-size: .7rem; cursor: pointer;
   color: var(--ink); background: var(--panel);
   border: 2px solid var(--ink);
   box-shadow: var(--bevel-up-1);
 }
 .rotator .rot-btn:active { box-shadow: var(--bevel-down-1); }
-.rotator .rot-prev { right: 78px; }
-.rotator .rot-next { right: 10px; }
 .rotator .rot-count {
-  position: absolute; bottom: 12px; right: 44px; width: 30px; text-align: center;
+  min-width: 30px; text-align: center;
   font-family: var(--font-display); font-size: .65rem; font-weight: 700;
   color: var(--titlebar-text); text-shadow: 1px 1px 0 rgba(0,0,0,.7);
 }

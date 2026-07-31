@@ -112,23 +112,41 @@
   <p><a href="{{ park }}" download>download scored .park</a></p>
   {%- when None %}
   {%- endmatch %}
+  {# One media well per round. The clip is the first slide when there is one:
+     it is the round's most legible artifact, and giving it its own block above
+     the stills made every card twice as tall for the same information. #}
+  {%- if round.slides() > 1 %}
+  <div class="rotator" data-shots="{{ round.shots_json }}" data-fulls="{{ round.fulls_json }}" data-labels="{{ round.labels_json }}" data-i="0"
+    {%- if round.replay.is_some() %} data-replay="1"{% endif %}>
   {%- match round.replay %}
   {%- when Some(replay) %}
-  {# The poster is the replay's own first frame, same camera. #}
+    {# The poster is the replay's own first frame, same camera. #}
+    <video class="replay" controls{% if round.replay_loops %} loop{% endif %} muted playsinline preload="none"
+      {%- match round.replay_poster %}{%- when Some(poster) %} poster="{{ poster }}"{%- when None %}{%- endmatch %}>
+      <source src="{{ replay }}" type="video/mp4">
+    </video>
+  {%- when None %}
+  {%- endmatch %}
+  {%- if round.shots.len() > 0 %}
+    <img data-full="{{ round.shots[0].full }}" src="{{ round.shots[0].src }}" alt="park screenshot, {{ model }} round {{ round.number }}" loading="lazy" decoding="async"
+      {%- if round.replay.is_some() %} hidden{% endif %}
+      {%- match round.shots[0].size %}{%- when Some(size) %} width="{{ size.0 }}" height="{{ size.1 }}"{%- when None %}{%- endmatch %}>
+  {%- endif %}
+    <div class="rot-controls">
+      <button class="rot-btn rot-prev" aria-label="previous view">&#9664;</button>
+      <span class="rot-count">{{ round.first_label() }}</span>
+      <button class="rot-btn rot-next" aria-label="next view">&#9654;</button>
+    </div>
+  </div>
+  {%- else if round.replay.is_some() %}
+  {%- match round.replay %}
+  {%- when Some(replay) %}
   <video class="replay" controls{% if round.replay_loops %} loop{% endif %} muted playsinline preload="none"
     {%- match round.replay_poster %}{%- when Some(poster) %} poster="{{ poster }}"{%- when None %}{%- endmatch %}>
     <source src="{{ replay }}" type="video/mp4">
   </video>
   {%- when None %}
   {%- endmatch %}
-  {%- if round.shots.len() > 1 %}
-  <div class="rotator" data-shots="{{ round.shots_json }}" data-fulls="{{ round.fulls_json }}" data-labels="{{ round.labels_json }}" data-i="0">
-    <img data-full="{{ round.shots[0].full }}" src="{{ round.shots[0].src }}" alt="park screenshot, {{ model }} round {{ round.number }}" loading="lazy" decoding="async"
-      {%- match round.shots[0].size %}{%- when Some(size) %} width="{{ size.0 }}" height="{{ size.1 }}"{%- when None %}{%- endmatch %}>
-    <button class="rot-btn rot-prev" aria-label="rotate view left">&#9664;</button>
-    <span class="rot-count">{{ round.shots[0].label }}</span>
-    <button class="rot-btn rot-next" aria-label="rotate view right">&#9654;</button>
-  </div>
   {%- else if round.shots.len() == 1 %}
   <img data-full="{{ round.shots[0].full }}" src="{{ round.shots[0].src }}" alt="park screenshot, {{ model }} round {{ round.number }}" loading="lazy" decoding="async"
     {%- match round.shots[0].size %}{%- when Some(size) %} width="{{ size.0 }}" height="{{ size.1 }}"{%- when None %}{%- endmatch %}>

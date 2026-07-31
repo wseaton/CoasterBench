@@ -1,6 +1,28 @@
 {% extends "base.html" %}
 {% import "macros.html" as macros %}
 {% block body %}
+{# The best lap this model ever ran, first thing on its page: the ride is the
+   result, and the numbers under it are what the game thought of it. #}
+{%- match keystone %}
+{%- when Some(top) %}
+<figure class="hero">
+  <video class="replay" controls{% if top.loops %} loop{% endif %} muted playsinline preload="none" aria-label="{{ top.alt }}"
+    {%- match top.poster %}{%- when Some(poster) %} poster="{{ poster }}"{%- when None %}{%- endmatch %}>
+    <source src="{{ top.replay }}" type="video/mp4">
+  </video>
+  <figcaption class="hero-meta">
+    {%- match top.name %}
+    {%- when Some(name) %}<strong class="hero-name">{{ name }}</strong>
+    {%- when None %}
+    {%- endmatch %}
+    {%- for stat in top.stats %}
+    <span class="hero-stat"><span class="dim">{{ stat.label }}</span> <b class="{{ stat.class }}">{{ stat.value }}</b></span>
+    {%- endfor %}
+  </figcaption>
+</figure>
+{%- when None %}
+{%- endmatch %}
+
 <div class="window">
   <div class="titlebar"><span>{{ model.model }} &middot; {{ place }} of {{ of_models }}</span>
     <a class="titlebar-link" href="{{ run_href }}">compare all models &rarr;</a></div>
@@ -25,8 +47,12 @@
 </div>
 {%- endif %}
 
-<div class="window">
-  <div class="titlebar"><span>{{ model.rounds.len() }} round(s)</span><span class="btn"></span></div>
+{# The working record: every round, its profile, its program. Folded away by
+   default because it is dense by nature and almost nobody arrives wanting it
+   first; the clip and the chart above answer what happened. #}
+<details class="window round-detail">
+  <summary class="titlebar"><span>{{ model.rounds.len() }} round(s) &middot; per-round detail</span>
+    <span class="btn disclose"></span></summary>
   <div class="body">
     {# Colour carries none of these alone: shape does too. #}
     <div class="dna-key">
@@ -42,6 +68,6 @@
     {%- endfor %}
     </div>
   </div>
-</div>
+</details>
 <p class="backlink"><a href="{{ run_href }}">&larr; {{ run_name }}</a> &middot; <a href="index.html">all runs</a></p>
 {% endblock %}
