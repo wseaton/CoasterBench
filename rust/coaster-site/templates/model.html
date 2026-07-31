@@ -1,8 +1,6 @@
 {% extends "base.html" %}
 {% import "macros.html" as macros %}
 {% block body %}
-{# The best lap this model ever ran, first thing on its page: the ride is the
-   result, and the numbers under it are what the game thought of it. #}
 {%- match keystone %}
 {%- when Some(top) %}
 <figure class="hero">
@@ -47,9 +45,7 @@
 </div>
 {%- endif %}
 
-{# The working record: every round, its profile, its program. Folded away by
-   default because it is dense by nature and almost nobody arrives wanting it
-   first; the clip and the chart above answer what happened. #}
+{# Folded by default: the clip and the chart above answer what happened. #}
 <details class="window round-detail">
   <summary class="titlebar"><span>{{ model.rounds.len() }} round(s) &middot; per-round detail</span>
     <span class="btn disclose"></span></summary>

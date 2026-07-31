@@ -324,8 +324,8 @@ pub struct RoundView {
 }
 
 impl RoundView {
-    /// How many views the card's media well holds: the clip, when there is
-    /// one, then every screenshot. More than one earns the arrows.
+    /// Views in the media well: the clip, when there is one, plus the shots.
+    /// The rotator controls only render above one.
     pub fn slides(&self) -> usize {
         self.shots.len() + usize::from(self.replay.is_some())
     }

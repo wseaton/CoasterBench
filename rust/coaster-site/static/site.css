@@ -126,19 +126,15 @@ body {
   border: 1px solid var(--ink);
   box-shadow: var(--bevel-up-1);
 }
-/* A window that folds. The summary keeps the titlebar's look, so a closed one
-   reads as a window rolled up rather than as a stray link. */
-/* The generic details rule is for the small inline disclosures inside a card;
-   this one is a window, and keeps a window's metrics. */
+/* A window that folds. Keeps window metrics, not the inline-details ones. */
 .round-detail { margin-top: 0; font-size: inherit; }
 .round-detail > summary {
   cursor: pointer; list-style: none;
 }
 .round-detail > summary::-webkit-details-marker { display: none; }
 .round-detail > summary:hover { color: #fff; }
-/* The one button on the bar doubles as the disclosure arrow. Drawn with
-   borders, not a glyph: Silkscreen is a bitmap face and has no triangles, so
-   a character here renders as tofu. */
+/* The title bar's button doubles as the arrow. Borders, not a glyph:
+   Silkscreen has no triangles and renders one as tofu. */
 .round-detail .btn.disclose {
   display: inline-flex; align-items: center; justify-content: center;
 }
@@ -236,22 +232,29 @@ tr:last-child td { border-bottom: none; }
 .round-failed { border-color: var(--fail); }
 .round-meta { min-height: 4.6em; }
 .round-meta .fail { font-size: .72rem; line-height: 1.35; font-weight: 400; }
-.round img, .round .rotator, .round .no-capture { margin-top: auto; }
-.round img {
-  display: block; max-width: 100%; margin-top: .5rem;
+/* Captures crop to the track's bounding box, so their aspect ratios vary
+   wildly and sized-to-content wells left every row ragged. */
+.round .media {
+  position: relative; margin-top: auto; aspect-ratio: 16 / 10; overflow: hidden;
+  background: var(--sky);
   border: 2px solid var(--ink);
   box-shadow: 3px 3px 0 rgba(0,0,0,.3);
-
-  image-rendering: pixelated; cursor: zoom-in;
 }
+.round .media > img, .round .media > video {
+  display: block; width: 100%; height: 100%;
+  /* contain, not cover: the whole track is the point. */
+  object-fit: contain;
+  border: 0; box-shadow: none; margin: 0; background: none;
+}
+.round .media > img { image-rendering: pixelated; cursor: zoom-in; }
 @media (prefers-reduced-motion: no-preference) {
   .round { transition: box-shadow .14s ease-out, transform .14s ease-out; }
   .round:hover { transform: translateY(-2px);
     box-shadow: var(--bevel-up), 4px 6px 0 rgba(0,0,0,.28); }
 }
-.round .no-capture { aspect-ratio: 16 / 10; display: flex; align-items: center;
+.round .no-capture { position: absolute; inset: 0; display: flex; align-items: center;
   justify-content: center; color: var(--ink-soft); font-size: .7rem;
-  border: 2px dashed var(--panel-deep); margin-top: .5rem; }
+  background: var(--panel-dark); }
 .round .lookups { font-size: .7rem; margin: .3rem 0 0; }
 .ride-presentation { display: flex; flex-wrap: wrap; align-items: center;
   gap: .2rem .65rem; margin: 0 0 .4rem; font-size: .68rem; color: var(--ink-soft); }
@@ -375,7 +378,8 @@ tr:last-child td { border-bottom: none; }
 .footnote { font-size: .7rem; margin: .5rem 0 0; }
 
 /* Model detail page: rounds tile as wide as the viewport allows. */
-.round-grid { display: grid; grid-template-columns: 1fr; gap: 0 .9rem; align-items: start; }
+/* stretch: equal-height cards are what let the wells bottom-align. */
+.round-grid { display: grid; grid-template-columns: 1fr; gap: 0 .9rem; align-items: stretch; }
 @media (min-width: 900px) { .round-grid { grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); } }
 /* Model detail header: chart on the left, headline numbers filling the space
    beside it instead of a full-width band above. */
@@ -539,21 +543,9 @@ tr:last-child td { border-bottom: none; }
   box-shadow: inset -1px -1px 0 rgba(255,255,255,.35), inset 1px 1px 0 rgba(0,0,0,.5); }
 
 .rotator { position: relative; }
-/* Both slide types set display:block, which on its own beats the UA rule for
-   [hidden] and would leave every slide stacked and visible at once. */
+/* Both slide types set display:block, which beats the UA rule for [hidden]. */
 .rotator > [hidden] { display: none; }
-/* The clip sits in the same well as the stills, framed the same, so rotating
-   between them moves nothing but the picture. */
-.rotator > .replay {
-  margin-top: .5rem; border: 2px solid var(--ink);
-  box-shadow: 3px 3px 0 rgba(0,0,0,.3);
-}
-/* One group, laid out by flex. The offsets used to be three magic numbers that
-   only worked while every label was the same width, and "replay" clipped to
-   "REPL" the moment one was not. */
-/* Top right, not bottom: the clip's own controls live along its bottom edge,
-   and a rotate button sitting on the scrubber is a misclick waiting to
-   happen. */
+/* Top right: the clip's own controls sit along its bottom edge. */
 .rotator .rot-controls {
   position: absolute; top: 12px; right: 10px;
   display: flex; align-items: center; gap: 7px;

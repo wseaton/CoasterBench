@@ -881,8 +881,7 @@ fn featured(runs: &[EvalRun], store: &ArtStore, out: &Path) -> Result<Option<vie
     hero_for(run, model, round, store, out)
 }
 
-/// The best round a model has with a replay, for that model's own page. Same
-/// shape as the index headline, so both are one clip with its numbers under it.
+/// The best round a model has with a replay, for its own page.
 fn model_keystone(
     run: &EvalRun,
     model: &ModelRun,
@@ -900,7 +899,7 @@ fn model_keystone(
     hero_for(run, model, round, store, out)
 }
 
-/// One clip, its ride's name and colours, and the numbers the game gave it.
+/// One clip, its ride's name, and the numbers the game gave it.
 fn hero_for(
     run: &EvalRun,
     model: &ModelRun,
