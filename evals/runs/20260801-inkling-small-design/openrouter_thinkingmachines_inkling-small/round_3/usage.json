@@ -1,0 +1,9 @@
+{
+  "cache_read_tokens": 2704640,
+  "cost_usd": 0.40199771999999995,
+  "harness": "opencode",
+  "input_tokens": 32222,
+  "model": "openrouter/thinkingmachines/inkling-small",
+  "num_turns": 121,
+  "output_tokens": 48313
+}
