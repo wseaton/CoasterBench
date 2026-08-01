@@ -1004,6 +1004,22 @@ fn host_codex_identity() -> Result<(String, String), String> {
     Ok((field("id_token")?, field("account_id")?))
 }
 
+/// Whether this contender can run commands.
+fn has_shell(args: &Args, contender: &Contender) -> bool {
+    match contender.harness {
+        Harness::Codex => codex_shell_enabled(args),
+        Harness::ClaudeCode | Harness::Opencode => args.open_note,
+    }
+}
+
+/// codex's exec tools. `sandbox_mode` bounds the filesystem, not exec, so
+/// turning the features off is the only way a blind codex round is held to the
+/// same MCP-only tool table as the other lanes. Verified against codex 0.145:
+/// with both off it answers that it has no tool to run commands.
+fn codex_shell_enabled(args: &Args) -> bool {
+    args.open_note || allowed_tools(args).contains("Bash")
+}
+
 fn codex_sandbox_mode(args: &Args) -> &'static str {
     if args.open_note || allowed_tools(args).contains("Bash") {
         "danger-full-access"
@@ -1033,6 +1049,13 @@ fn codex_config(args: &Args, contender: &Contender, lease: &str) -> String {
          sandbox_mode = \"{sandbox_mode}\"\n",
         args.codex_reasoning_effort.as_str()
     ));
+    if !codex_shell_enabled(args) {
+        config.push_str(
+            "\n[features]\n\
+             shell_tool = false\n\
+             unified_exec = false\n",
+        );
+    }
     if contender.codex_openrouter_model().is_some() {
         config.push_str(
             "\n[model_providers.openrouter]\n\
@@ -2319,6 +2342,12 @@ fn main() -> Result<(), String> {
     if args.open_note {
         capabilities.extend(["engine_source", "file_tools", "python3", "shell"]);
     }
+    // Recorded even when no condition granted it, because the codex lane has a
+    // shell regardless and a run that claims none would be describing the
+    // opencode lane's constraints for everyone.
+    if !capabilities.contains(&"shell") && contenders.iter().any(|c| has_shell(&args, c)) {
+        capabilities.push("shell");
+    }
     let model_specs: Value = contenders
         .iter()
         .map(|contender| {
@@ -2332,6 +2361,7 @@ fn main() -> Result<(), String> {
                     "agent_version": agent_version(&args, contender),
                     "reasoning_effort": (contender.harness == Harness::Codex)
                         .then(|| args.codex_reasoning_effort.as_str()),
+                    "shell": has_shell(&args, contender),
                 }),
             )
         })
@@ -2749,16 +2779,29 @@ mod tests {
         assert!(prompt.contains("\"num_inversions\":5"));
     }
 
+    /// A blind codex round used to keep a shell the other lanes never had, so
+    /// the design board compared models on different tool tables.
     #[test]
     fn codex_config_grants_a_shell_only_when_the_run_does() {
         let mut args = Args::parse_from(["coaster-bench"]);
-        assert!(!allowed_tools(&args).contains("Bash"));
+        let codex = Contender::parse("codex:gpt-5.6-sol");
+        let blind = codex_config(&args, &codex, "lease");
+        assert!(blind.contains("shell_tool = false"));
+        assert!(
+            blind.contains("unified_exec = false"),
+            "exec survives shell_tool on its own"
+        );
+        assert!(!has_shell(&args, &codex));
+
         args.open_note = true;
-        assert!(allowed_tools(&args).contains("Bash"));
+        let open = codex_config(&args, &codex, "lease");
+        assert!(!open.contains("shell_tool = false"));
+        assert!(has_shell(&args, &codex));
 
         args.open_note = false;
         args.extra_tools = Some("Bash".into());
-        assert!(allowed_tools(&args).contains("Bash"));
+        assert!(has_shell(&args, &codex), "asking for Bash still grants it");
+        assert!(!codex_config(&args, &codex, "lease").contains("shell_tool = false"));
     }
 
     #[test]
@@ -3191,6 +3234,29 @@ mod tests {
             !Harness::ClaudeCode.single_turn(),
             "claude-code keeps going until the turn budget, so the warning would be a lie"
         );
+    }
+
+    /// Blind runs are MCP-only on every lane, and the record says so. Before
+    /// this, codex kept a shell the other lanes never had and reported no
+    /// capabilities at all.
+    #[test]
+    fn every_lane_is_mcp_only_when_the_run_is_blind() {
+        let mut args = Args::parse_from(["coaster-bench"]);
+        let codex = Contender::parse("codex:gpt-5.6-sol");
+        let opencode = Contender::parse("opencode:openrouter/moonshotai/kimi-k3");
+        let claude = Contender::parse("claude-opus-5");
+
+        for contender in [&codex, &opencode, &claude] {
+            assert!(!has_shell(&args, contender));
+        }
+
+        args.open_note = true;
+        for contender in [&codex, &opencode, &claude] {
+            assert!(
+                has_shell(&args, contender),
+                "open note grants it to every lane"
+            );
+        }
     }
 
     #[test]
