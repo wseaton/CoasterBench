@@ -90,6 +90,18 @@ struct Args {
     #[arg(long, default_value_t = 1800)]
     session_timeout: u64,
 
+    /// Kill a session whose `session.log` has gone this long without a byte,
+    /// so a hung upstream costs a retry rather than the round. 0 disables.
+    /// Loose on purpose: the longest quiet stretch across healthy archived
+    /// rounds is 949s, and a model thinking is indistinguishable from one
+    /// stalled.
+    #[arg(long, default_value_t = 1200)]
+    idle_timeout: u64,
+
+    /// Retries per round before it is scored on whatever it built.
+    #[arg(long, default_value_t = 1)]
+    idle_retries: u32,
+
     #[arg(
         long,
         default_value = "~/rct2-assets/Scenarios/Build your own Six Flags Park.SC6"
@@ -603,10 +615,12 @@ impl Harness {
         }
     }
 
+    /// Whether the round ends when the model stops calling tools. codex and
+    /// opencode never re-prompt; Claude Code runs to its turn budget.
     fn single_turn(self) -> bool {
         match self {
-            Harness::Codex => true,
-            Harness::ClaudeCode | Harness::Opencode => false,
+            Harness::Codex | Harness::Opencode => true,
+            Harness::ClaudeCode => false,
         }
     }
 }
@@ -710,6 +724,8 @@ fn openrouter_modalities(model: &str) -> Option<Modalities> {
 struct SessionResult {
     usage: Value,
     error: Option<String>,
+    /// Killed for going quiet, not for finishing or hitting the wall clock.
+    hung: bool,
 }
 
 impl SessionResult {
@@ -718,8 +734,36 @@ impl SessionResult {
         SessionResult {
             usage: Value::Null,
             error: Some(error),
+            hung: false,
         }
     }
+}
+
+/// `quiet` is the time since the last byte landed in `session.log`.
+fn session_went_quiet(quiet: Duration, idle_timeout: u64) -> bool {
+    idle_timeout > 0 && quiet >= Duration::from_secs(idle_timeout)
+}
+
+/// `hung_sessions` includes the one that just stalled.
+fn retry_hung_round(hung_sessions: u32, retries: u32) -> bool {
+    hung_sessions <= retries
+}
+
+/// The retry starts a fresh `session.log`, so the stalled one is renamed to
+/// keep it. Never `report.json` or `park.png`: `completed_rounds` reads those
+/// as a finished round.
+fn keep_hung_logs(round_dir: &Path, attempt: u32) -> Vec<String> {
+    let mut kept = Vec::new();
+    for name in ["session.log", "session.err"] {
+        let Some((stem, ext)) = name.split_once('.') else {
+            continue;
+        };
+        let kept_name = format!("{stem}.hung_{attempt}.{ext}");
+        if std::fs::rename(round_dir.join(name), round_dir.join(&kept_name)).is_ok() {
+            kept.push(kept_name);
+        }
+    }
+    kept
 }
 
 /// Current spend (USD) on the OpenRouter key, for cost-by-delta accounting.
@@ -1313,19 +1357,37 @@ fn run_agent_session(
     let started = Instant::now();
     let mut timed_out = false;
     let mut interrupted = false;
+    let mut hung = false;
+    // Log length, not mtime: it only grows, so there is no clock to trust.
+    let mut logged = 0u64;
+    let mut last_write = Instant::now();
     let status = loop {
         match child.try_wait() {
             Ok(Some(status)) => break Some(status),
-            Ok(None) if started.elapsed() >= budget || shutdown.load(Ordering::Relaxed) => {
+            Ok(None)
+                if started.elapsed() >= budget
+                    || shutdown.load(Ordering::Relaxed)
+                    || session_went_quiet(last_write.elapsed(), args.idle_timeout) =>
+            {
                 interrupted = shutdown.load(Ordering::Relaxed);
-                timed_out = !interrupted;
+                timed_out = !interrupted && started.elapsed() >= budget;
+                hung = !interrupted && !timed_out;
                 let _ = child.kill();
                 let status = child.wait().ok();
                 // The local client is gone; the agent inside the sandbox is not.
                 kill_stray_agents(contender.sandbox(args));
                 break status;
             }
-            Ok(None) => std::thread::sleep(Duration::from_secs(1)),
+            Ok(None) => {
+                std::thread::sleep(Duration::from_secs(1));
+                let len = std::fs::metadata(&log_path)
+                    .map(|m| m.len())
+                    .unwrap_or(logged);
+                if len != logged {
+                    logged = len;
+                    last_write = Instant::now();
+                }
+            }
             Err(e) => return SessionResult::failed(format!("waiting on agent session: {e}")),
         }
     };
@@ -1360,6 +1422,11 @@ fn run_agent_session(
             "agent session hit the {}s timeout and was killed; scoring whatever it built",
             args.session_timeout
         ))
+    } else if hung {
+        Some(format!(
+            "agent session wrote nothing for {}s and was killed as hung",
+            args.idle_timeout
+        ))
     } else if status.map(|s| s.success()).unwrap_or(false) {
         None
     } else {
@@ -1372,7 +1439,7 @@ fn run_agent_session(
             .unwrap_or_else(|| "killed".into());
         Some(format!("agent session failed ({code}): {tail}"))
     };
-    SessionResult { usage, error }
+    SessionResult { usage, error, hung }
 }
 
 /// Post-round artifact collection over MCP; agent may or may not have called
@@ -2064,8 +2131,15 @@ fn main() -> Result<(), String> {
         return present_archived_round(&mut args, &root, &round_dir, &shutdown);
     }
 
-    // Debug aid: print the round-1 prompt verbatim and exit.
+    // Debug aid: print the round-1 prompt verbatim and exit. Built from the
+    // first contender: harness and modality are what vary, and printing it
+    // with fixed defaults hid a missing one-shot warning for six rounds.
     if std::env::var_os("COASTER_BENCH_PRINT_PROMPT").is_some() {
+        let contender = args
+            .models
+            .first()
+            .map(|s| Contender::parse(s))
+            .ok_or("no model to print a prompt for")?;
         print!(
             "{}",
             prompt::round_prompt(&prompt::Round {
@@ -2073,10 +2147,10 @@ fn main() -> Result<(), String> {
                 round: 1,
                 rounds: args.rounds,
                 previous_feedback: None,
-                modalities: Modalities::TEXT | Modalities::IMAGE,
+                modalities: contender.modalities,
                 budget_secs: args.session_timeout,
                 open_note_dir: args.open_note.then_some(OPEN_NOTE_DIR),
-                single_turn: false,
+                single_turn: contender.harness.single_turn(),
             })
         );
         return Ok(());
@@ -2354,6 +2428,8 @@ fn main() -> Result<(), String> {
                 "rounds": args.rounds,
                 "simulation_ticks": args.ticks,
                 "session_timeout_seconds": args.session_timeout,
+                "idle_timeout_seconds": args.idle_timeout,
+                "idle_retries": args.idle_retries,
                 "max_agent_turns": args.max_turns,
                 "replay_cap_seconds": args.replay_seconds,
                 "replay_fps": 20,
@@ -2410,16 +2486,6 @@ fn main() -> Result<(), String> {
                 eprintln!("interrupted: stopping before {model} round {round}");
                 break 'contenders;
             }
-            // Restore the exact pre-round-one scenario before taking the new
-            // lease, so clock, RNG, guests, and weather do not depend on
-            // contender order.
-            control
-                .call("reset_park", json!({}))
-                .map_err(|e| format!("reset park before {model} round {round}: {e}"))?;
-            // One lease per round: claiming it evicts any agent still alive
-            // from an earlier round, which would otherwise build in this park.
-            let lease = format!("{}-r{round}-{}", model, epoch_secs());
-            client.claim("127.0.0.1", args.port, &lease);
             let prompt = prompt::round_prompt(&prompt::Round {
                 ride_type: args.ride_type,
                 round,
@@ -2440,8 +2506,50 @@ fn main() -> Result<(), String> {
                 "[{model}] round {round}: agent session starting (log: {})",
                 round_dir.join("session.log").display()
             );
-            let session =
-                run_agent_session(&args, contender, &prompt, &round_dir, &lease, &shutdown);
+            // A quiet upstream says nothing about the model, so the round is
+            // rebuilt from the pristine park rather than banked.
+            let mut hung_logs: Vec<String> = Vec::new();
+            let mut hung_sessions = 0u32;
+            let session = loop {
+                // Restore the exact pre-round-one scenario before taking the
+                // new lease, so clock, RNG, guests, and weather do not depend
+                // on contender order.
+                control
+                    .call("reset_park", json!({}))
+                    .map_err(|e| format!("reset park before {model} round {round}: {e}"))?;
+                // One lease per round: claiming it evicts any agent still alive
+                // from an earlier round, which would otherwise build in this park.
+                let lease = format!("{}-r{round}-{}", model, epoch_secs());
+                client.claim("127.0.0.1", args.port, &lease);
+                let session =
+                    run_agent_session(&args, contender, &prompt, &round_dir, &lease, &shutdown);
+                if !session.hung || shutdown.load(Ordering::Relaxed) {
+                    break session;
+                }
+                hung_sessions += 1;
+                if !retry_hung_round(hung_sessions, args.idle_retries) {
+                    break session;
+                }
+                eprintln!(
+                    "[{model}] round {round}: session went quiet for {}s; retrying ({} of {})",
+                    args.idle_timeout, hung_sessions, args.idle_retries
+                );
+                hung_logs.extend(keep_hung_logs(&round_dir, hung_sessions));
+            };
+            if hung_sessions > 0 {
+                // The round's own record of the watchdog firing. Nothing here
+                // is named report.json or park.png, so a resume still sees an
+                // unfinished round and builds it again.
+                let record = json!({
+                    "idle_timeout_seconds": args.idle_timeout,
+                    "idle_retries": args.idle_retries,
+                    "hung_sessions": hung_sessions,
+                    "kept_logs": hung_logs,
+                });
+                if let Err(e) = write_json(&round_dir.join("session_retries.json"), &record) {
+                    eprintln!("[{model}] round {round}: retry record write failed: {e}");
+                }
+            }
             if let Some(e) = &session.error {
                 eprintln!("[{model}] round {round}: {e}");
             }
@@ -2938,6 +3046,70 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// A DeepSeek round sat untouched for twenty minutes with only the 1800s
+    /// wall clock to end it. The bound must clear a model that is merely
+    /// thinking: 949s is the longest quiet stretch in a healthy round.
+    #[test]
+    fn a_session_is_hung_only_once_it_passes_the_idle_bound() {
+        let args = Args::parse_from(["coaster-bench"]);
+        assert_eq!(args.idle_timeout, 1200);
+        assert!(!session_went_quiet(
+            Duration::from_secs(949),
+            args.idle_timeout
+        ));
+        assert!(!session_went_quiet(
+            Duration::from_secs(1199),
+            args.idle_timeout
+        ));
+        assert!(session_went_quiet(
+            Duration::from_secs(1200),
+            args.idle_timeout
+        ));
+        // The off switch: a run that wants only the wall-clock bound gets it.
+        assert!(!session_went_quiet(Duration::from_secs(99_999), 0));
+    }
+
+    #[test]
+    fn hung_rounds_are_retried_a_bounded_number_of_times() {
+        // One stall is bad luck and worth another go; two in a row is the
+        // upstream, and the round is scored on whatever it built instead of
+        // burning the wall clock again.
+        assert!(retry_hung_round(1, 1));
+        assert!(!retry_hung_round(2, 1));
+        assert!(retry_hung_round(2, 2));
+        assert!(!retry_hung_round(1, 0), "0 retries means score it as it is");
+    }
+
+    /// The retry must not leave anything behind that `completed_rounds` reads
+    /// as a finished round, or a later --resume would skip the round the
+    /// watchdog was trying to save. Only the logs are kept, under names of
+    /// their own so the retry's fresh session.log does not overwrite the
+    /// evidence of the stall.
+    #[test]
+    fn a_retried_round_still_looks_unfinished_to_resume() {
+        let model = "openrouter_deepseek_deepseek-v4-flash";
+        let dir = staged_run("hung", model, &[Some(4.21)]);
+        let round = dir.join(model).join("round_2");
+        std::fs::create_dir_all(&round).expect("stage round 2");
+        std::fs::write(round.join("session.log"), b"{\"type\":\"step_start\"}")
+            .expect("stage the stalled log");
+        std::fs::write(round.join("session.err"), b"").expect("stage the stalled err");
+
+        let kept = keep_hung_logs(&round, 1);
+        assert_eq!(kept, vec!["session.hung_1.log", "session.hung_1.err"]);
+        assert!(round.join("session.hung_1.log").is_file());
+        assert!(
+            !round.join("session.log").exists(),
+            "the retry gets a fresh log"
+        );
+        assert_eq!(
+            completed_rounds(&dir, model),
+            1,
+            "a round mid-retry is not a round that finished"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn resuming_carries_the_best_round_and_the_last_report() {
         let model = "openrouter_moonshotai_kimi-k3";
@@ -3005,6 +3177,19 @@ mod tests {
             segment["started_at"],
             Value::Null,
             "we do not know when it ran, and must not invent it"
+        );
+    }
+
+    /// Inkling Small ended all six rounds after ~2 minutes with nothing
+    /// banked: opencode never re-prompts, and the warning was gated on codex
+    /// alone. kimi and DeepSeek hid it by never choosing to stop.
+    #[test]
+    fn every_harness_that_never_reprompts_is_told_stopping_is_final() {
+        assert!(Harness::Opencode.single_turn());
+        assert!(Harness::Codex.single_turn());
+        assert!(
+            !Harness::ClaudeCode.single_turn(),
+            "claude-code keeps going until the turn budget, so the warning would be a lie"
         );
     }
 
