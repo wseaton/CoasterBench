@@ -39,6 +39,31 @@ namespace OpenRCT2::RustBridge
     // after the report and any screenshot. Returns 0 on success.
     int32_t CaptureReplay(const char* path, uint32_t maxSeconds, int32_t zoom);
 
+    // Films the track program at programPath being assembled piece by piece
+    // into an mp4, in the colours reportPath records (may be null). Demolishes
+    // and rebuilds the ride, so it must run last. Returns 0 on success.
+    int32_t CaptureBuildMontage(const char* path, const char* programPath, const char* reportPath, int32_t zoom);
+
+    // Films a whole run: every round in the manifest built in order on one
+    // camera (the union of their footprints), ending held on the last. Builds
+    // everything itself, so it wants a park with no track of its own.
+    // Returns 0 on success.
+    // lapPath (may be null) additionally films the last round's lap on the very
+    // same camera, so the two clips can run back to back without the coaster
+    // shifting at the cut.
+    int32_t CaptureEvolution(
+        const char* path, const char* manifestPath, const char* lapPath, uint32_t lapSeconds, int32_t zoom);
+
+    // Films a round's recorded session: the tool calls the game accepted, in
+    // order, demolitions and all. Builds everything itself, so it wants a park
+    // with no track of its own. Returns 0 on success.
+    int32_t CaptureTraceMontage(const char* path, const char* actionsPath, int32_t zoom);
+
+    // Applies a round's recorded name and colours (report.json) to the built
+    // ride, so a rerun's artifacts look like the round's. Returns 0 on success,
+    // and on a report that records no styling.
+    int32_t ApplyPresentation(const char* reportPath);
+
     // Writes the park as a .park save, the artifact that lets a result be
     // reopened and checked instead of taken on trust. Returns true on success.
     bool SavePark(std::string_view path);

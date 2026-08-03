@@ -12,6 +12,7 @@
 mod host;
 mod library;
 mod mcp;
+mod montage;
 mod pieces;
 mod presentation;
 mod program;
@@ -152,7 +153,7 @@ pub unsafe extern "C" fn orct2_agent_capture_replay(
         host::log("orct2-agent: no ride to film");
         return 1;
     };
-    match replay::film_ride(&path, ride_id, max_seconds, zoom) {
+    match replay::film_ride(&path, ride_id, max_seconds, zoom, None) {
         Ok(filmed) => {
             host::log(&format!(
                 "orct2-agent: replay written to {path} ({} frames, {}x{} at {}fps, {})",
@@ -173,6 +174,310 @@ pub unsafe extern "C" fn orct2_agent_capture_replay(
             1
         }
     }
+}
+
+/// Applies a round's recorded name and colours to the park's subject ride, the
+/// same game actions `style_best_ride` runs. `report_path` is a round's
+/// report.json (or any JSON holding a `presentation` object).
+///
+/// A rerun builds from program.json, which carries no colours, so without this
+/// every artifact refilmed for a styled round comes out stock gold. Returns 0
+/// on success, and on a report with no presentation, which is not an error.
+///
+/// # Safety
+/// `report_path` must be null or a valid NUL-terminated string.
+#[no_mangle]
+pub unsafe extern "C" fn orct2_agent_apply_presentation(report_path: *const c_char) -> i32 {
+    match read_presentation(report_path) {
+        Ok(None) => 0,
+        Ok(Some(style)) => {
+            let Some(ride_id) = subject_ride() else {
+                host::log("orct2-agent: no ride to style");
+                return 1;
+            };
+            match style.apply(ride_id) {
+                Ok(()) => {
+                    host::log(&format!(
+                        "orct2-agent: styled ride {ride_id} '{}'",
+                        style.name
+                    ));
+                    0
+                }
+                Err(e) => {
+                    host::log(&format!("orct2-agent: style failed: {e}"));
+                    1
+                }
+            }
+        }
+        Err(e) => {
+            host::log(&format!("orct2-agent: presentation: {e}"));
+            1
+        }
+    }
+}
+
+/// Reads a presentation out of the report at `path`; None when the path is null
+/// or the report records no styling.
+///
+/// # Safety
+/// `path` must be null or a valid NUL-terminated string.
+unsafe fn read_presentation(
+    path: *const c_char,
+) -> Result<Option<presentation::RidePresentation>, String> {
+    let Some(path) = read_c_path(path) else {
+        return Ok(None);
+    };
+    let json = std::fs::read_to_string(&path).map_err(|e| format!("read {path}: {e}"))?;
+    presentation::RidePresentation::from_report(&json)
+}
+
+/// Films the track program at `program_path` being assembled piece by piece
+/// into `path` as an mp4, then holds on the finished coaster. The camera is the
+/// finished track's bounding box, the same crop as the round's park.png.
+///
+/// `report_path` (nullable) supplies the round's colours, so a styled coaster
+/// builds in its own colours and the cut to its replay does not change them.
+///
+/// Destructive: the already-built ride is demolished and rebuilt from the
+/// program, so this must run after the report, the save and any replay. The
+/// park is left holding the rebuilt ride.
+///
+/// # Safety
+/// `path`, `program_path` and `report_path` must be null or valid
+/// NUL-terminated strings.
+#[no_mangle]
+pub unsafe extern "C" fn orct2_agent_capture_build_montage(
+    path: *const c_char,
+    program_path: *const c_char,
+    report_path: *const c_char,
+    zoom: i32,
+) -> i32 {
+    let (Some(path), Some(program_path)) = (read_c_path(path), read_c_path(program_path)) else {
+        host::log("orct2-agent: montage needs both an output path and a program");
+        return 1;
+    };
+    let json = match std::fs::read_to_string(&program_path) {
+        Ok(json) => json,
+        Err(e) => {
+            host::log(&format!("orct2-agent: read {program_path}: {e}"));
+            return 1;
+        }
+    };
+    let Some(ride_id) = subject_ride() else {
+        host::log("orct2-agent: no built ride to refilm as a montage");
+        return 1;
+    };
+    let style = match unsafe { read_presentation(report_path) } {
+        Ok(style) => style,
+        Err(e) => {
+            // Worth a stock-coloured montage rather than no montage at all.
+            host::log(&format!("orct2-agent: montage presentation: {e}"));
+            None
+        }
+    };
+    match montage::film_build(&path, &json, style.as_ref(), ride_id, zoom) {
+        Ok(m) => {
+            host::log(&format!(
+                "orct2-agent: montage written to {path} ({} frames, {}x{} at {}fps, \
+                 {} piece(s) over {} stage(s) at {} per stage{})",
+                m.frames,
+                m.width,
+                m.height,
+                m.fps,
+                m.pieces_placed(),
+                m.segments.first().map_or(0, |s| s.pacing.stages),
+                m.segments.first().map_or(0, |s| s.pacing.pieces_per_stage),
+                if m.ok { "" } else { ", build incomplete" }
+            ));
+            0
+        }
+        Err(e) => {
+            host::log(&format!("orct2-agent: montage failed: {e}"));
+            1
+        }
+    }
+}
+
+/// Films a whole run into `path`: every round's program built in order, each
+/// torn down for the next, ending held on the last. `manifest_path` is a JSON
+/// array of `{"program": path, "report": path}`, oldest round first; `report`
+/// is optional and supplies that round's colours.
+///
+/// The camera is the union of every round's footprint, so the frame never moves
+/// and a coaster that grew looks like it grew. Expects a park with no track of
+/// its own: unlike the single-round montage it builds everything itself.
+///
+/// # Safety
+/// `path` and `manifest_path` must be null or valid NUL-terminated strings.
+#[no_mangle]
+pub unsafe extern "C" fn orct2_agent_capture_evolution(
+    path: *const c_char,
+    manifest_path: *const c_char,
+    lap_path: *const c_char,
+    lap_seconds: u32,
+    zoom: i32,
+) -> i32 {
+    let (Some(path), Some(manifest_path)) = (read_c_path(path), read_c_path(manifest_path)) else {
+        host::log("orct2-agent: evolution needs both an output path and a manifest");
+        return 1;
+    };
+    let segments = match read_evolution_manifest(&manifest_path) {
+        Ok(segments) => segments,
+        Err(e) => {
+            host::log(&format!("orct2-agent: evolution manifest: {e}"));
+            return 1;
+        }
+    };
+    match montage::film_evolution(&path, &segments, zoom) {
+        Ok(m) => {
+            host::log(&format!(
+                "orct2-agent: evolution written to {path} ({} frames, {}x{} at {}fps, \
+                 {} round(s), {} piece(s){})",
+                m.frames,
+                m.width,
+                m.height,
+                m.fps,
+                m.segments.len(),
+                m.pieces_placed(),
+                if m.ok { "" } else { ", a round built short" }
+            ));
+            film_evolution_lap(lap_path, &m, lap_seconds, zoom)
+        }
+        Err(e) => {
+            host::log(&format!("orct2-agent: evolution failed: {e}"));
+            1
+        }
+    }
+}
+
+/// Films the champion's lap on the evolution's own camera, so the hero can run
+/// the two clips back to back without the coaster shifting at the cut. The
+/// round's own replay.mp4 is framed to that round alone, which is a different
+/// camera from the union of every round.
+///
+/// # Safety
+/// `lap_path` must be null or a valid NUL-terminated string.
+unsafe fn film_evolution_lap(
+    lap_path: *const c_char,
+    montage: &montage::Montage,
+    max_seconds: u32,
+    zoom: i32,
+) -> i32 {
+    let Some(lap_path) = read_c_path(lap_path) else {
+        return 0;
+    };
+    let Some(ride_id) = montage.final_ride else {
+        host::log("orct2-agent: evolution left no ride to film a lap of");
+        return 1;
+    };
+    match replay::film_ride(&lap_path, ride_id, max_seconds, zoom, Some(montage.camera)) {
+        Ok(filmed) => {
+            host::log(&format!(
+                "orct2-agent: evolution lap written to {lap_path} ({} frames, {}x{}, {})",
+                filmed.frames,
+                filmed.width,
+                filmed.height,
+                if filmed.looped {
+                    "one full cycle, loops"
+                } else {
+                    "cut at the cap, does not loop"
+                }
+            ));
+            0
+        }
+        Err(e) => {
+            host::log(&format!("orct2-agent: evolution lap failed: {e}"));
+            1
+        }
+    }
+}
+
+/// Films a round's recorded session from `actions_path`, a JSON array of the
+/// tool calls the game accepted (`{"op": "new_ride"|"place"|"undo"|"demolish"|
+/// "test", ...}`), into `path` as an mp4.
+///
+/// Where the build montage replays the tidy program a round ended up with, this
+/// replays the working: pieces going down one at a time, coming back off, a
+/// whole ride demolished and started again. Worth filming only for an agent
+/// that builds incrementally.
+///
+/// Destructive and self-contained: it builds and demolishes everything itself,
+/// so it wants a park with no track of its own.
+///
+/// # Safety
+/// `path` and `actions_path` must be null or valid NUL-terminated strings.
+#[no_mangle]
+pub unsafe extern "C" fn orct2_agent_capture_trace(
+    path: *const c_char,
+    actions_path: *const c_char,
+    zoom: i32,
+) -> i32 {
+    let (Some(path), Some(actions_path)) = (read_c_path(path), read_c_path(actions_path)) else {
+        host::log("orct2-agent: trace montage needs both an output path and an action list");
+        return 1;
+    };
+    let actions = match std::fs::read_to_string(&actions_path)
+        .map_err(|e| format!("read {actions_path}: {e}"))
+        .and_then(|text| {
+            serde_json::from_str::<Vec<montage::TraceAction>>(&text)
+                .map_err(|e| format!("{actions_path}: {e}"))
+        }) {
+        Ok(actions) => actions,
+        Err(e) => {
+            host::log(&format!("orct2-agent: trace actions: {e}"));
+            return 1;
+        }
+    };
+    match montage::film_trace(&path, &actions, zoom) {
+        Ok(m) => {
+            host::log(&format!(
+                "orct2-agent: trace montage written to {path} ({} frames, {}x{} at {}fps, \
+                 {} placement(s) replayed{})",
+                m.frames,
+                m.width,
+                m.height,
+                m.fps,
+                m.pieces_placed(),
+                if m.ok { "" } else { ", some refused" }
+            ));
+            0
+        }
+        Err(e) => {
+            host::log(&format!("orct2-agent: trace montage failed: {e}"));
+            1
+        }
+    }
+}
+
+/// Reads the evolution manifest: one entry per round, oldest first.
+fn read_evolution_manifest(path: &str) -> Result<Vec<montage::Segment>, String> {
+    let text = std::fs::read_to_string(path).map_err(|e| format!("read {path}: {e}"))?;
+    let entries: Vec<serde_json::Value> =
+        serde_json::from_str(&text).map_err(|e| format!("{path} is not a JSON array: {e}"))?;
+    entries
+        .iter()
+        .enumerate()
+        .map(|(index, entry)| {
+            let program_path = entry
+                .get("program")
+                .and_then(serde_json::Value::as_str)
+                .ok_or_else(|| format!("round {index} has no program path"))?;
+            let program_json = std::fs::read_to_string(program_path)
+                .map_err(|e| format!("read {program_path}: {e}"))?;
+            // A round with no recorded presentation builds in stock colours,
+            // which is what its own artifacts show.
+            let style = match entry.get("report").and_then(serde_json::Value::as_str) {
+                Some(report_path) => std::fs::read_to_string(report_path)
+                    .map_err(|e| format!("read {report_path}: {e}"))
+                    .and_then(|json| presentation::RidePresentation::from_report(&json))?,
+                None => None,
+            };
+            Ok(montage::Segment {
+                program_json,
+                style,
+            })
+        })
+        .collect()
 }
 
 /// The ride a batch eval is about: the best-rated coaster in the park, ignoring

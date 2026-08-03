@@ -544,7 +544,7 @@ tr:last-child td { border-bottom: none; }
 
 .rotator { position: relative; }
 /* Both slide types set display:block, which beats the UA rule for [hidden]. */
-.rotator > [hidden] { display: none; }
+.rotator > [hidden], .hero > [hidden] { display: none; }
 /* Top right: the clip's own controls sit along its bottom edge. */
 .rotator .rot-controls {
   position: absolute; top: 12px; right: 10px;

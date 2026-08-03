@@ -179,10 +179,103 @@ Non-bundled binaries look for `data/` next to the exe. One-time setup:
     (25000 ticks in 0.61s), so filming remains the slow half by far.
   - ffmpeg comes from brew and is not vendored; a missing binary logs and skips
     the video rather than failing the round.
+- Build montage: `coasterbench-cli eval ... --program p.json --build-montage
+  <path.mp4>` films the track assembling itself, one frame per placement, then
+  holds two seconds on the finished coaster. A replay shows the ride running; a
+  montage shows how the agent got there. `rust/orct2-agent/src/montage.rs`,
+  sharing replay.rs's encoder and path helpers, so it writes the same trio
+  (`montage.mp4`, `montage.png` poster, `montage.json` sidecar).
+  - **Destructive, and therefore last**: it demolishes the built ride and
+    re-executes the program from empty, so it runs after the report, the save,
+    the screenshot and any replay, and the park is left holding the rebuild.
+    Nothing that reads the scored ride may follow it.
+  - The camera is the *finished* track's bounding box, taken before the
+    demolition, which is why the program has to have been built already
+    (`--build-montage` without `--program` is refused). Framing each frame to
+    the track as it stands would zoom out on every piece.
+  - That fixed camera is what `orct2_host_capture_frame`/`_size` now take: an
+    `Orct2TrackBounds*` instead of a `fit_track` bool, null meaning the whole
+    map. Replay passes the bounds it resolved once, so filming no longer
+    rescans the map for every frame.
+  - `program::run_observed` is the ordinary program executor with a callback
+    per accepted piece, so the montage's frames are the placements the game
+    accepted, not the ones the JSON asked for. A program that fails partway
+    still yields a montage ending where the build ended.
+  - The build runs 8-15s whatever the piece count, at 20fps, because the two
+    failure modes are opposite: 40 pieces at a frame each is over before it
+    registers and 1299 runs a minute. Two knobs, both in the sidecar:
+    `pieces_per_stage` thins the renders of a long program (past 300 pieces),
+    and `build_frames` > `stages` holds each render of a short one on screen.
+    Then one frame of the finished ride and a 2s hold. A 134-piece twister is
+    201 frames / 10.05s / 1.6 MB at 2624x1888, filmed in ~2s wall clock.
+  - `--presentation <report.json>` restyles the built ride in the name and
+    colours a round banked through `style_best_ride`, and the montage applies
+    the same style to its rebuild before the first frame. Without it a styled
+    round's rerun is stock gold while its archived replay is (say) blue, which
+    is wrong for park.png and fatal for the index hero, where the two clips
+    play back to back. backfill_replays.py passes it whenever the round's
+    report records a presentation.
+- Evolution montage: `coasterbench-cli eval <scenario> --ticks 1 --evolution
+  <manifest.json> --evolution-montage <out.mp4> --evolution-lap <lap.mp4>`
+  films a whole run, every round built in order and torn down for the next,
+  ending held on the champion. The manifest is `[{program, report}]`, oldest
+  round first; `uv run evals/backfill_replays.py <run> --evolution` writes it
+  and collects `<run>/<model>/evolution*.{mp4,png,json}`. Per model, not per
+  round. It builds every round itself, so it wants a park with no track of its
+  own: no `--program`, and `--ticks 1` since nothing needs simulating first.
+  - The camera is the **union** of every round's footprint, measured by
+    building them all once before filming, so the frame never moves and a
+    coaster that grew looks like it grew.
+  - That union is a different camera from the champion round's own, which is
+    what `replay.mp4` was shot on: cutting from one to the other moved the
+    coaster by a few pixels (36.9 dB seam against 21.7 dB). Hence
+    `--evolution-lap`, which films the champion's lap on the union camera. The
+    hero plays that pair; the round card keeps its own replay.
+  - 15s of build split between rounds in proportion to piece count, plus a 0.5s
+    beat on each finished round and 2s on the last: 19.8s for the six-round
+    hero run, ~20s wall clock to film.
+  - **One livery for the whole clip**: the last round to have banked a
+    presentation, applied to every round's build. Styling each round in its own
+    colours meant five stock-gold rounds and a blue finale, and that flip reads
+    as a rendering glitch to anyone who does not know which round happened to
+    call `style_best_ride`. The montage is presentation; program.json stays the
+    record. Single-round montages still use their own round's colours, which is
+    the same rule (the round they show is the round they style).
+  - Verify the middle, not just the ends. Sampling evenly across the clip lands
+    a few frames into each segment, where a build has genuinely only just
+    started, and reads as an empty park. Compute the boundaries from the
+    sidecar's `build_frames` and sample each segment's midpoint:
+    `python3 -c "import json;m=json.load(open('evolution.json'));n=0
+    ...` then
+    `ffmpeg -i evolution.mp4 -vf "select='eq(n\,23)+...',scale=300:-1,tile=3x2"
+    -frames:v 1 sheet.png`. The final-seam PSNR does not witness the middle.
+- Trace montage: `coasterbench-cli eval <scenario> --ticks 1 --trace-actions
+  <actions.json> --trace-montage <out.mp4>` replays a round's *session* rather
+  than its program: the tool calls the game accepted, in order, with undos and
+  demolitions. `uv run evals/backfill_replays.py <run> --trace-montage --all`
+  distils the actions from trace.jsonl and collects `round_N/trace-montage.*`.
+  - Only worth filming for a model that builds incrementally. Measured over all
+    83 traced rounds, 25 are majority-incremental; opus-5 is 4% and gpt-5.6-sol
+    1% (both submit whole programs, so their session clip would be their build
+    montage with extra steps), kimi-k3's rerun is 51%, and inkling-small is
+    100%: 421 single `place_piece` calls across six rounds.
+  - Only accepted calls are replayed. A refused placement changed nothing, so
+    its frame would be identical to the one before it.
+  - **`new_ride` demolishes the session's previous ride**, because the MCP
+    server's does (mcp.rs). Without that the second `new_ride` of a round
+    leaves the first coaster standing and every placement after it is refused
+    with "Twister Roller Coaster 1 in the way". Found by the verification bar,
+    which is the whole reason to have one.
+  - Verified like the picture: what the replay leaves standing must equal the
+    round's recorded program, or nothing is written. All six inkling rounds
+    pass with zero refusals.
+  - The camera is the union of everything the session ever showed, including
+    track it later demolished, so the frame never moves. A round that ends
+    demolished ends on an empty park, which is the truth about that round.
 - Backfilling artifacts: `uv run evals/backfill_replays.py` reruns a round's
   program.json to refilm it and re-render `park.png` cropped (best round per
   model by default; `--all` for every round, `--no-replay` for pictures only,
-  which is seconds per round instead of tens).
+  which is seconds per round instead of tens; `--montage` adds montage.mp4).
   - Reproduction is checked, not assumed, and the two artifacts are held to
     different bars because they show different things. The **video** needs the
     excitement to match the round's own: a clip shows the train moving, and
@@ -190,7 +283,8 @@ Non-bundled binaries look for `data/` next to the exe. One-time setup:
     **picture** only needs the program to build in full: a still shows track,
     and the same piece list draws the same track. A program that does not build
     writes neither. On the current build 11 of 23 best rounds reproduce exactly,
-    and 85 of 138 rounds redraw.
+    and 85 of 138 rounds redraw. A **montage** is held to the picture's bar:
+    nothing runs while it films, so it shows track, not motion.
   - Three reasons a rerun rates differently, all of them worth knowing
     independently of artifacts: brake/booster speed used to be hardcoded to 0
     (see the booster note above), so any track using them now rates differently;

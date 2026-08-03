@@ -854,7 +854,8 @@ char* orct2_host_track_library_json(void)
 // The caller sizes the buffer from orct2_host_capture_size and reuses it, so a
 // whole replay allocates once. Returns the bytes written, or 0 on failure or a
 // buffer too small.
-size_t orct2_host_capture_frame(int32_t zoom, uint8_t rotation, bool fit_track, uint8_t* out, size_t cap)
+size_t orct2_host_capture_frame(
+    int32_t zoom, uint8_t rotation, const Orct2TrackBounds* fit_bounds, uint8_t* out, size_t cap)
 {
     if (out == nullptr)
     {
@@ -865,13 +866,9 @@ size_t orct2_host_capture_frame(int32_t zoom, uint8_t rotation, bool fit_track, 
         CaptureOptions options;
         options.Zoom = ZoomLevel{ static_cast<int8_t>(zoom) };
         options.Rotation = rotation & 3;
-        if (fit_track)
+        if (fit_bounds != nullptr)
         {
-            Orct2TrackBounds bounds;
-            if (FindTrackBounds(bounds))
-            {
-                options.View = FitViewToTrack(bounds, options.Rotation);
-            }
+            options.View = FitViewToTrack(*fit_bounds, options.Rotation);
         }
         std::vector<uint8_t> pixels;
         int32_t width = 0;
@@ -890,18 +887,18 @@ size_t orct2_host_capture_frame(int32_t zoom, uint8_t rotation, bool fit_track, 
     }
 }
 
-// Frame dimensions for the current track, without rendering anything.
-bool orct2_host_capture_size(int32_t zoom, uint8_t rotation, bool fit_track, uint32_t* out_w, uint32_t* out_h)
+// Frame dimensions for a view framing fit_bounds, without rendering anything.
+bool orct2_host_capture_size(
+    int32_t zoom, uint8_t rotation, const Orct2TrackBounds* fit_bounds, uint32_t* out_w, uint32_t* out_h)
 {
     if (out_w == nullptr || out_h == nullptr)
     {
         return false;
     }
     auto rotationMasked = static_cast<uint8_t>(rotation & 3);
-    Orct2TrackBounds bounds;
-    if (fit_track && FindTrackBounds(bounds))
+    if (fit_bounds != nullptr)
     {
-        auto view = FitViewToTrack(bounds, rotationMasked);
+        auto view = FitViewToTrack(*fit_bounds, rotationMasked);
         auto zoomLevel = ZoomLevel{ static_cast<int8_t>(zoom) };
         // Matches CreateRT: the view is in world pixels, the target in screen
         // pixels after the zoom division.
@@ -965,7 +962,8 @@ uint16_t orct2_host_track_mirror(uint16_t track_type)
     return mirror == TrackElemType::none ? track_type : static_cast<uint16_t>(mirror);
 }
 
-bool orct2_host_capture(const char* path, int32_t zoom, uint8_t rotation, bool fit_track, bool xray)
+bool orct2_host_capture(
+    const char* path, int32_t zoom, uint8_t rotation, const Orct2TrackBounds* fit_bounds, bool xray)
 {
     if (path == nullptr)
     {
@@ -996,13 +994,9 @@ bool orct2_host_capture(const char* path, int32_t zoom, uint8_t rotation, bool f
             options.ViewFlags = VIEWPORT_FLAG_UNDERGROUND_INSIDE | VIEWPORT_FLAG_HIDE_BASE | VIEWPORT_FLAG_HIDE_VERTICAL
                 | VIEWPORT_FLAG_HIDE_SUPPORTS;
         }
-        if (fit_track)
+        if (fit_bounds != nullptr)
         {
-            Orct2TrackBounds bounds;
-            if (FindTrackBounds(bounds))
-            {
-                options.View = FitViewToTrack(bounds, options.Rotation);
-            }
+            options.View = FitViewToTrack(*fit_bounds, options.Rotation);
         }
         CaptureImage(options);
 
@@ -1063,6 +1057,27 @@ namespace OpenRCT2::RustBridge
     int32_t CaptureReplay(const char* path, uint32_t maxSeconds, int32_t zoom)
     {
         return orct2_agent_capture_replay(path, maxSeconds, zoom);
+    }
+
+    int32_t CaptureBuildMontage(const char* path, const char* programPath, const char* reportPath, int32_t zoom)
+    {
+        return orct2_agent_capture_build_montage(path, programPath, reportPath, zoom);
+    }
+
+    int32_t CaptureEvolution(
+        const char* path, const char* manifestPath, const char* lapPath, uint32_t lapSeconds, int32_t zoom)
+    {
+        return orct2_agent_capture_evolution(path, manifestPath, lapPath, lapSeconds, zoom);
+    }
+
+    int32_t CaptureTraceMontage(const char* path, const char* actionsPath, int32_t zoom)
+    {
+        return orct2_agent_capture_trace(path, actionsPath, zoom);
+    }
+
+    int32_t ApplyPresentation(const char* reportPath)
+    {
+        return orct2_agent_apply_presentation(reportPath);
     }
 
     bool SavePark(std::string_view path)

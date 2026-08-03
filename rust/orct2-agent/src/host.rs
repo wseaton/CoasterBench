@@ -31,7 +31,7 @@ pub struct RideStats {
 /// Slope mapping (TrackPitch enum): 0 = none, 2 = up25, 4 = up60, 6 = down25,
 /// 8 = down60, 10 = up90, 18 = down90.
 #[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct TrackCursor {
     pub x: i32,
     pub y: i32,
@@ -145,7 +145,7 @@ unsafe extern "C" {
         path: *const c_char,
         zoom: i32,
         rotation: u8,
-        fit_track: bool,
+        fit_bounds: *const TrackBounds,
         xray: bool,
     ) -> bool;
     fn orct2_host_track_bounds(out: *mut TrackBounds) -> bool;
@@ -185,14 +185,14 @@ unsafe extern "C" {
     fn orct2_host_capture_frame(
         zoom: i32,
         rotation: u8,
-        fit_track: bool,
+        fit_bounds: *const TrackBounds,
         out: *mut u8,
         cap: usize,
     ) -> usize;
     fn orct2_host_capture_size(
         zoom: i32,
         rotation: u8,
-        fit_track: bool,
+        fit_bounds: *const TrackBounds,
         out_w: *mut u32,
         out_h: *mut u32,
     ) -> bool;
@@ -368,8 +368,23 @@ pub fn entrance_place(
 /// full map when no track exists). With `xray` terrain and supports are
 /// hidden so every placed piece is visible, including tunnelled track.
 pub fn capture(path: &str, zoom: i32, rotation: u8, fit_track: bool, xray: bool) -> bool {
+    let bounds = fit_track.then(track_bounds).flatten();
+    capture_framed(path, zoom, rotation, bounds.as_ref(), xray)
+}
+
+/// `capture` with the camera named outright, so a poster can be framed exactly
+/// like the clip it fronts rather than refitted to the track.
+pub fn capture_framed(
+    path: &str,
+    zoom: i32,
+    rotation: u8,
+    fit: Option<&TrackBounds>,
+    xray: bool,
+) -> bool {
     match CString::new(path) {
-        Ok(cpath) => unsafe { orct2_host_capture(cpath.as_ptr(), zoom, rotation, fit_track, xray) },
+        Ok(cpath) => unsafe {
+            orct2_host_capture(cpath.as_ptr(), zoom, rotation, fit_ptr(fit), xray)
+        },
         Err(_) => false,
     }
 }
@@ -396,17 +411,25 @@ pub fn load_park(path: &str) -> bool {
     unsafe { orct2_host_load_park(cstr.as_ptr()) }
 }
 
-/// Frame size for the current track, so a caller can size one buffer and reuse
-/// it for every frame of a replay.
-pub fn capture_size(zoom: i32, rotation: u8, fit_track: bool) -> Option<(u32, u32)> {
+fn fit_ptr(fit: Option<&TrackBounds>) -> *const TrackBounds {
+    fit.map_or(std::ptr::null(), |b| b as *const TrackBounds)
+}
+
+/// Frame size for the view framing `fit` (None frames the whole map), so a
+/// caller can size one buffer and reuse it for every frame of a clip.
+///
+/// The bounds are the caller's, not the map's, because a build montage films a
+/// track that is still growing and must hold one camera throughout.
+pub fn capture_size(zoom: i32, rotation: u8, fit: Option<&TrackBounds>) -> Option<(u32, u32)> {
     let (mut w, mut h) = (0u32, 0u32);
-    unsafe { orct2_host_capture_size(zoom, rotation, fit_track, &mut w, &mut h) }.then_some((w, h))
+    unsafe { orct2_host_capture_size(zoom, rotation, fit_ptr(fit), &mut w, &mut h) }
+        .then_some((w, h))
 }
 
 /// Renders one frame as RGBA into `buf`, returning the bytes written. Zero
 /// means the render failed or the buffer was too small.
-pub fn capture_frame(zoom: i32, rotation: u8, fit_track: bool, buf: &mut [u8]) -> usize {
-    unsafe { orct2_host_capture_frame(zoom, rotation, fit_track, buf.as_mut_ptr(), buf.len()) }
+pub fn capture_frame(zoom: i32, rotation: u8, fit: Option<&TrackBounds>, buf: &mut [u8]) -> usize {
+    unsafe { orct2_host_capture_frame(zoom, rotation, fit_ptr(fit), buf.as_mut_ptr(), buf.len()) }
 }
 
 /// `Vehicle::Status` of the ride's lead train: 0 movingToEndOfStation,
@@ -567,7 +590,7 @@ mod test_stubs {
         _p: *const c_char,
         _z: i32,
         _r: u8,
-        _f: bool,
+        _f: *const crate::host::TrackBounds,
         _u: bool,
     ) -> bool {
         false
@@ -587,7 +610,7 @@ mod test_stubs {
     pub unsafe fn orct2_host_capture_frame(
         _z: i32,
         _r: u8,
-        _f: bool,
+        _f: *const crate::host::TrackBounds,
         _o: *mut u8,
         _c: usize,
     ) -> usize {
@@ -596,7 +619,7 @@ mod test_stubs {
     pub unsafe fn orct2_host_capture_size(
         _z: i32,
         _r: u8,
-        _f: bool,
+        _f: *const crate::host::TrackBounds,
         _w: *mut u32,
         _h: *mut u32,
     ) -> bool {

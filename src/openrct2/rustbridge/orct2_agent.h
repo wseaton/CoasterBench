@@ -200,6 +200,78 @@ int32_t orct2_agent_capture(const char *path,
 int32_t orct2_agent_capture_replay(const char *path, uint32_t max_seconds, int32_t zoom);
 
 /**
+ * Applies a round's recorded name and colours to the park's subject ride, the
+ * same game actions `style_best_ride` runs. `report_path` is a round's
+ * report.json (or any JSON holding a `presentation` object).
+ *
+ * A rerun builds from program.json, which carries no colours, so without this
+ * every artifact refilmed for a styled round comes out stock gold. Returns 0
+ * on success, and on a report with no presentation, which is not an error.
+ *
+ * # Safety
+ * `report_path` must be null or a valid NUL-terminated string.
+ */
+int32_t orct2_agent_apply_presentation(const char *report_path);
+
+/**
+ * Films the track program at `program_path` being assembled piece by piece
+ * into `path` as an mp4, then holds on the finished coaster. The camera is the
+ * finished track's bounding box, the same crop as the round's park.png.
+ *
+ * `report_path` (nullable) supplies the round's colours, so a styled coaster
+ * builds in its own colours and the cut to its replay does not change them.
+ *
+ * Destructive: the already-built ride is demolished and rebuilt from the
+ * program, so this must run after the report, the save and any replay. The
+ * park is left holding the rebuilt ride.
+ *
+ * # Safety
+ * `path`, `program_path` and `report_path` must be null or valid
+ * NUL-terminated strings.
+ */
+int32_t orct2_agent_capture_build_montage(const char *path,
+                                          const char *program_path,
+                                          const char *report_path,
+                                          int32_t zoom);
+
+/**
+ * Films a whole run into `path`: every round's program built in order, each
+ * torn down for the next, ending held on the last. `manifest_path` is a JSON
+ * array of `{"program": path, "report": path}`, oldest round first; `report`
+ * is optional and supplies that round's colours.
+ *
+ * The camera is the union of every round's footprint, so the frame never moves
+ * and a coaster that grew looks like it grew. Expects a park with no track of
+ * its own: unlike the single-round montage it builds everything itself.
+ *
+ * # Safety
+ * `path` and `manifest_path` must be null or valid NUL-terminated strings.
+ */
+int32_t orct2_agent_capture_evolution(const char *path,
+                                      const char *manifest_path,
+                                      const char *lap_path,
+                                      uint32_t lap_seconds,
+                                      int32_t zoom);
+
+/**
+ * Films a round's recorded session from `actions_path`, a JSON array of the
+ * tool calls the game accepted (`{"op": "new_ride"|"place"|"undo"|"demolish"|
+ * "test", ...}`), into `path` as an mp4.
+ *
+ * Where the build montage replays the tidy program a round ended up with, this
+ * replays the working: pieces going down one at a time, coming back off, a
+ * whole ride demolished and started again. Worth filming only for an agent
+ * that builds incrementally.
+ *
+ * Destructive and self-contained: it builds and demolishes everything itself,
+ * so it wants a park with no track of its own.
+ *
+ * # Safety
+ * `path` and `actions_path` must be null or valid NUL-terminated strings.
+ */
+int32_t orct2_agent_capture_trace(const char *path, const char *actions_path, int32_t zoom);
+
+/**
  * Runs the MCP server on bind:port (bind defaults to 127.0.0.1 when null),
  * blocking the game thread. Tool calls execute game actions directly;
  * `finish_and_test` advances the simulation inline. Returns nonzero if the
@@ -268,7 +340,7 @@ extern bool orct2_host_ride_detail(uint16_t ride_id, struct Orct2RideDetail *out
 extern bool orct2_host_capture(const char *path,
                                int32_t zoom,
                                uint8_t rotation,
-                               bool fit_track,
+                               const struct Orct2TrackBounds *fit_bounds,
                                bool xray);
 
 extern bool orct2_host_track_bounds(struct Orct2TrackBounds *out);
@@ -317,13 +389,13 @@ extern bool orct2_host_load_park(const char *path);
 
 extern uintptr_t orct2_host_capture_frame(int32_t zoom,
                                           uint8_t rotation,
-                                          bool fit_track,
+                                          const struct Orct2TrackBounds *fit_bounds,
                                           uint8_t *out,
                                           uintptr_t cap);
 
 extern bool orct2_host_capture_size(int32_t zoom,
                                     uint8_t rotation,
-                                    bool fit_track,
+                                    const struct Orct2TrackBounds *fit_bounds,
                                     uint32_t *out_w,
                                     uint32_t *out_h);
 

@@ -100,20 +100,22 @@ document.addEventListener('click', function (e) {
   var shots = JSON.parse(rot.dataset.shots);
   var fulls = JSON.parse(rot.dataset.fulls || '[]');
   var labels = JSON.parse(rot.dataset.labels);
-  var video = rot.querySelector('video');
-  // The clip is slide 0 when the round has one; the stills follow it.
-  var lead = video ? 1 : 0;
+  // Clips lead the well (the lap, then the build montage where there is one);
+  // the stills follow. data-clips names them in the order they are emitted.
+  var clips = JSON.parse(rot.dataset.clips || '[]');
+  var videos = rot.querySelectorAll('video');
+  var lead = videos.length;
   var total = shots.length + lead;
   var step = btn.classList.contains('rot-next') ? 1 : total - 1;
   var i = (parseInt(rot.dataset.i, 10) + step) % total;
-  var onVideo = !!video && i === 0;
+  var onVideo = i < lead;
   rot.dataset.i = i;
-  if (video) {
-    video.hidden = !onVideo;
+  Array.prototype.forEach.call(videos, function (video, k) {
+    video.hidden = i !== k;
     // Rotating away stops it: motion behind a screenshot you cannot see is
     // just bandwidth.
-    if (!onVideo && !video.paused) video.pause();
-  }
+    if (i !== k && !video.paused) video.pause();
+  });
   var img = rot.querySelector('img');
   if (img) {
     img.hidden = onVideo;
@@ -122,7 +124,7 @@ document.addEventListener('click', function (e) {
       if (fulls[i - lead]) img.dataset.full = fulls[i - lead];
     }
   }
-  rot.querySelector('.rot-count').textContent = onVideo ? 'replay' : labels[i - lead];
+  rot.querySelector('.rot-count').textContent = onVideo ? clips[i] : labels[i - lead];
 });
 
 // Restore a shared view: facets first, then the sort column.
@@ -462,17 +464,39 @@ document.querySelectorAll('[data-trace-filter]').forEach(function (btn) {
 // page can hold six clips; those stay preload="none" until clicked. Never under
 // reduced-motion or Save-Data.
 (function () {
-  var hero = document.querySelector('.hero video.replay');
-  if (!hero || !('IntersectionObserver' in window)) return;
+  var lap = document.querySelector('.hero video.hero-lap');
+  if (!lap || !('IntersectionObserver' in window)) return;
   var still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   var thrifty = navigator.connection && (navigator.connection.saveData
     || /2g/.test(navigator.connection.effectiveType || ''));
   if (still || thrifty) return;
 
+  // Two acts on one camera: the coaster builds itself, then a train rides it.
+  // The montage ships hidden, so everything above this line (no JS included)
+  // gets the lap alone; promoting it here is the only way it ever shows.
+  var montage = document.querySelector('.hero video.hero-montage');
+  var hero = lap;
+  if (montage) {
+    montage.hidden = false;
+    lap.hidden = true;
+    hero = montage;
+    montage.addEventListener('ended', function () {
+      // The montage's last frame and the lap's first are the same picture, so
+      // the cut lands on the finished coaster rather than jumping.
+      montage.hidden = true;
+      lap.hidden = false;
+      hero = lap;
+      lap.play().catch(function () {});
+    });
+  }
+
   // Muted makes autoplay legal. Looping is the template's call: a clip cut at
   // the cap would jump forever.
-  hero.muted = true;
-  hero.setAttribute('playsinline', '');
+  [lap, montage].forEach(function (video) {
+    if (!video) return;
+    video.muted = true;
+    video.setAttribute('playsinline', '');
+  });
   new IntersectionObserver(function (entries) {
     entries.forEach(function (entry) {
       if (entry.isIntersecting && entry.intersectionRatio > 0.55) {
@@ -482,5 +506,5 @@ document.querySelectorAll('[data-trace-filter]').forEach(function (btn) {
         hero.pause();
       }
     });
-  }, { threshold: [0, 0.55] }).observe(hero);
+  }, { threshold: [0, 0.55] }).observe(lap.parentElement);
 })();

@@ -274,12 +274,26 @@ fn derive_jobs(runs: &[EvalRun], out: &Path) -> Vec<(PathBuf, PathBuf, u32)> {
     let mut jobs = Vec::new();
     for run in runs {
         for model in &run.models {
+            if let Some((poster, src)) = model
+                .evolution_poster
+                .as_ref()
+                .and_then(|p| p.local.clone().map(|src| (p, src)))
+            {
+                let rel = model_display_rel(run, &model.model, &poster.name);
+                jobs.push((src, out.join(rel), DISPLAY_WIDTH));
+            }
             for round in &model.rounds {
                 let mut want = Vec::new();
                 if let Some(art) = round.screenshot.as_ref() {
                     want.push(art);
                 }
                 if let Some(art) = round.replay_poster.as_ref() {
+                    want.push(art);
+                }
+                if let Some(art) = round.montage_poster.as_ref() {
+                    want.push(art);
+                }
+                if let Some(art) = round.trace_montage_poster.as_ref() {
                     want.push(art);
                 }
                 for art in want {
@@ -324,13 +338,26 @@ fn derived_or_edge(
     out: &Path,
     store: &ArtStore,
 ) -> Option<String> {
-    let rel = display_rel(run, model, round, &art.name);
-    if out.join(&rel).is_file() {
+    derived_or_edge_at(art, &display_rel(run, model, round, &art.name), out, store)
+}
+
+fn derived_or_edge_at(art: &Art, rel: &Path, out: &Path, store: &ArtStore) -> Option<String> {
+    if out.join(rel).is_file() {
         return Some(rel.to_string_lossy().replace('\\', "/"));
     }
     store
         .resized_url(art, DISPLAY_WIDTH)
         .or_else(|| art.url.clone())
+}
+
+/// Where a model-level artifact's display copy lives. Round artifacts get a
+/// `round_N_` prefix; these belong to the whole run, so they do not.
+fn model_display_rel(run: &EvalRun, model: &str, art_name: &str) -> PathBuf {
+    let stem = art_name.rsplit_once('.').map_or(art_name, |(stem, _)| stem);
+    Path::new("assets")
+        .join(&run.name)
+        .join(model)
+        .join(format!("{stem}.jpg"))
 }
 
 /// Copies a round artifact into the site under a run/model/round path. Shared by
@@ -349,6 +376,24 @@ fn round_asset(
         .join(&run.name)
         .join(model)
         .join(format!("round_{round}_{}", art.name));
+    place_art(art, out, &rel)
+}
+
+/// A model-level artifact (the evolution clips), which belongs to the whole run
+/// rather than to any one round.
+fn model_asset(
+    art: Option<&Art>,
+    out: &Path,
+    run: &EvalRun,
+    model: &str,
+) -> Result<Option<String>> {
+    let Some(art) = art else {
+        return Ok(None);
+    };
+    let rel = Path::new("assets")
+        .join(&run.name)
+        .join(model)
+        .join(&art.name);
     place_art(art, out, &rel)
 }
 
@@ -610,6 +655,22 @@ fn build_model_view(
             replay_poster: poster(round, out, run, &model.model, store)?,
             // A clip cut at the cap jumps rather than loops.
             replay_loops: round.replay_looped.unwrap_or(true),
+            montage: round_asset(round.montage.as_ref(), out, run, &model.model, round.number)?,
+            montage_poster: round
+                .montage_poster
+                .as_ref()
+                .and_then(|art| derived_or_edge(art, run, &model.model, round.number, out, store)),
+            trace_montage: round_asset(
+                round.trace_montage.as_ref(),
+                out,
+                run,
+                &model.model,
+                round.number,
+            )?,
+            trace_montage_poster: round
+                .trace_montage_poster
+                .as_ref()
+                .and_then(|art| derived_or_edge(art, run, &model.model, round.number, out, store)),
             shots_json: serde_json::to_string(&shots.iter().map(|s| &s.src).collect::<Vec<_>>())?,
             fulls_json: serde_json::to_string(&shots.iter().map(|s| &s.full).collect::<Vec<_>>())?,
             labels_json: serde_json::to_string(
@@ -878,7 +939,7 @@ fn featured(runs: &[EvalRun], store: &ArtStore, out: &Path) -> Result<Option<vie
     let Some((run, model, round)) = best else {
         return Ok(None);
     };
-    hero_for(run, model, round, store, out)
+    hero_for(run, model, round, store, out, TwoAct::Yes)
 }
 
 /// The best round a model has with a replay, for its own page.
@@ -896,7 +957,42 @@ fn model_keystone(
     else {
         return Ok(None);
     };
-    hero_for(run, model, round, store, out)
+    hero_for(run, model, round, store, out, TwoAct::No)
+}
+
+/// Whether a hero opens on a montage before the lap.
+///
+/// Reserved for the index champion. A model page's keystone is one of a dozen
+/// clips on the page and is not the board's best coaster; making every one of
+/// them a two-act sequence would spend the effect on nothing.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum TwoAct {
+    Yes,
+    No,
+}
+
+/// The pair of clips a two-act hero plays: what builds, then what runs.
+///
+/// Both acts have to be shot from the same place or the coaster jumps at the
+/// cut, which is why the evolution brings its own lap rather than borrowing the
+/// round's. The evolution is preferred where a run has one: six rounds of a
+/// coaster being redesigned says more than one round of it being built.
+fn hero_clips(
+    run: &EvalRun,
+    model: &ModelRun,
+    round: &Round,
+    out: &Path,
+    lap: String,
+) -> Result<(Option<String>, String)> {
+    let round_asset = |art: Option<&Art>| round_asset(art, out, run, &model.model, round.number);
+    let model_asset = |art: Option<&Art>| self::model_asset(art, out, run, &model.model);
+    if let (Some(evolution), Some(evolution_lap)) = (
+        model_asset(model.evolution.as_ref())?,
+        model_asset(model.evolution_lap.as_ref())?,
+    ) {
+        return Ok((Some(evolution), evolution_lap));
+    }
+    Ok((round_asset(round.montage.as_ref())?, lap))
 }
 
 /// One clip, its ride's name, and the numbers the game gave it.
@@ -906,14 +1002,33 @@ fn hero_for(
     round: &Round,
     store: &ArtStore,
     out: &Path,
+    two_act: TwoAct,
 ) -> Result<Option<view::Featured>> {
     // The same paths the model page uses, so the hero shares its files.
     let asset = |art: Option<&Art>| round_asset(art, out, run, &model.model, round.number);
-    let Some(replay) = asset(round.replay.as_ref())? else {
+    let Some(round_replay) = asset(round.replay.as_ref())? else {
         return Ok(None);
     };
-    // The replay's own still: park screenshots frame the whole map.
-    let poster = poster(round, out, run, &model.model, store)?;
+    let (montage, replay) = match two_act {
+        TwoAct::Yes => hero_clips(run, model, round, out, round_replay)?,
+        TwoAct::No => (None, round_replay),
+    };
+    let whole_run = montage.is_some() && model.evolution.is_some();
+    // The clip's own still: park screenshots frame the whole map. The evolution
+    // brings its own, framed on the wider camera it shares with its lap.
+    let poster = match model
+        .evolution_poster
+        .as_ref()
+        .filter(|_| montage.is_some())
+    {
+        Some(art) => derived_or_edge_at(
+            art,
+            &model_display_rel(run, &model.model, &art.name),
+            out,
+            store,
+        ),
+        None => poster(round, out, run, &model.model, store)?,
+    };
 
     let ride = round.ride.as_ref();
     let stat = |label: &str, value: String, class: &str| Stat {
@@ -960,6 +1075,18 @@ fn hero_for(
         model: model.model.clone(),
         model_href: model_href(run, &model.model),
         replay,
+        montage,
+        montage_alt: if whole_run {
+            format!(
+                "All {} rounds {} built in this run, in order, each one replacing the last, \
+                 ending on the coaster that scored {:.2}.",
+                model.rounds.len(),
+                model.model,
+                round.excitement()
+            )
+        } else {
+            "The same coaster being built piece by piece, before the lap below.".to_string()
+        },
         poster,
         loops: round.replay_looped.unwrap_or(true),
         alt: format!(

@@ -195,6 +195,16 @@ pub struct Round {
     /// A whole station-to-station cycle, and so loops. False when the lap
     /// outran the cap; None for clips filmed before this was recorded.
     pub replay_looped: Option<bool>,
+    /// The build montage: the track assembling itself, filmed on the replay's
+    /// camera. Absent on rounds recorded before montages existed.
+    pub montage: Option<Art>,
+    /// The montage's own last frame, which is the finished coaster.
+    pub montage_poster: Option<Art>,
+    /// The round's own session replayed: what the agent actually did, undos and
+    /// demolitions included. Only worth filming for a model that builds
+    /// incrementally, so most rounds have none.
+    pub trace_montage: Option<Art>,
+    pub trace_montage_poster: Option<Art>,
     /// Additional view rotations of the same capture (park-r1/2/3.png).
     pub rotation_shots: Vec<Art>,
     /// See-through verification capture (park-x.png): terrain and supports
@@ -283,6 +293,14 @@ impl Round {
 pub struct ModelRun {
     pub model: String,
     pub rounds: Vec<Round>,
+    /// The run's whole arc in one clip: every round built in order on one
+    /// camera. A model-level artifact, not a round's, and only the index hero
+    /// plays it.
+    pub evolution: Option<Art>,
+    /// The champion's lap, filmed on the evolution's camera rather than its own
+    /// round's, so the hero can run the two back to back.
+    pub evolution_lap: Option<Art>,
+    pub evolution_poster: Option<Art>,
 }
 
 /// (input tokens, output tokens, cost USD) summed over rounds; the cost is
@@ -557,6 +575,10 @@ fn load_round(
         replay_poster: art("replay.png"),
         replay_looped: read_json_opt::<ReplayMeta>(&round_dir.join("replay.json"))?
             .map(|meta| meta.looped),
+        montage: art("montage.mp4"),
+        montage_poster: art("montage.png"),
+        trace_montage: art("trace-montage.mp4"),
+        trace_montage_poster: art("trace-montage.png"),
         rotation_shots,
         xray_shot: art("park-x.png"),
         lookups: read_json_opt(&round_dir.join("lookups.json"))?.unwrap_or_default(),
@@ -604,7 +626,17 @@ pub fn load_runs(runs_dir: &Path, store: &ArtStore) -> Result<Vec<EvalRun>> {
                     .and_then(|n| n.to_str())
                     .unwrap_or_default()
                     .to_string();
-                models.push(ModelRun { model, rounds });
+                // Model-level artifacts, relative to the run directory like
+                // the round ones.
+                let rel = model_dir.strip_prefix(&run_dir).unwrap_or(&model_dir);
+                let art = |name: &str| store.art(&run_dir, &rel.join(name));
+                models.push(ModelRun {
+                    model,
+                    rounds,
+                    evolution: art("evolution.mp4"),
+                    evolution_lap: art("evolution-lap.mp4"),
+                    evolution_poster: art("evolution.png"),
+                });
             }
         }
         if models.is_empty() {
@@ -710,6 +742,10 @@ mod tests {
             replay: None,
             replay_poster: None,
             replay_looped: None,
+            montage: None,
+            montage_poster: None,
+            trace_montage: None,
+            trace_montage_poster: None,
             rotation_shots: Vec::new(),
             xray_shot: None,
             lookups: Vec::new(),
@@ -729,6 +765,9 @@ mod tests {
                 .map(|(name, count)| ModelRun {
                     model: name.to_string(),
                     rounds: (1..=count).map(|n| round(n, 5.0)).collect(),
+                    evolution: None,
+                    evolution_lap: None,
+                    evolution_poster: None,
                 })
                 .collect(),
             ride_type: 52,

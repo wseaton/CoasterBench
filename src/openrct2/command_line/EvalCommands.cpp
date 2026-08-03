@@ -41,6 +41,13 @@ namespace OpenRCT2
     static u8string _saveParkPath{};
     static u8string _replayPath{};
     static int32_t _replaySeconds = 90;
+    static u8string _buildMontagePath{};
+    static u8string _presentationPath{};
+    static u8string _evolutionPath{};
+    static u8string _evolutionManifest{};
+    static u8string _evolutionLapPath{};
+    static u8string _traceMontagePath{};
+    static u8string _traceActionsPath{};
     static bool _captureAllRotations = false;
     static bool _captureXray = false;
 
@@ -61,6 +68,13 @@ namespace OpenRCT2
         { CMDLINE_TYPE_STRING,  &_saveParkPath,         kNAC, "save-park",          "write the finished park as a .park save to this path"   },
         { CMDLINE_TYPE_STRING,  &_replayPath,           kNAC, "replay",             "film the ride into this .mp4 (needs ffmpeg on PATH)"     },
         { CMDLINE_TYPE_INTEGER, &_replaySeconds,        kNAC, "replay-seconds",     "cap on --replay length; a clip normally ends at the ride's next departure (default 90)" },
+        { CMDLINE_TYPE_STRING,  &_buildMontagePath,     kNAC, "build-montage",      "film --program being built piece by piece into this .mp4 (needs ffmpeg on PATH)" },
+        { CMDLINE_TYPE_STRING,  &_presentationPath,     kNAC, "presentation",       "a round's report.json: restyle the built ride in the name and colours it recorded" },
+        { CMDLINE_TYPE_STRING,  &_evolutionPath,        kNAC, "evolution-montage",  "film a whole run's rounds in order into this .mp4 (needs --evolution)"   },
+        { CMDLINE_TYPE_STRING,  &_evolutionManifest,    kNAC, "evolution",          "JSON array of {program, report} paths, oldest round first"              },
+        { CMDLINE_TYPE_STRING,  &_evolutionLapPath,     kNAC, "evolution-lap",      "with --evolution-montage, also film the last round's lap on the same camera" },
+        { CMDLINE_TYPE_STRING,  &_traceMontagePath,     kNAC, "trace-montage",      "film a round's recorded session into this .mp4 (needs --trace-actions)"  },
+        { CMDLINE_TYPE_STRING,  &_traceActionsPath,     kNAC, "trace-actions",      "JSON array of accepted tool calls distilled from a round's trace.jsonl" },
         { CMDLINE_TYPE_SWITCH,  &_captureAllRotations,  kNAC, "capture-all-rotations", "with --capture, also write the other three view rotations as <name>-r1/-r2/-r3.png" },
         { CMDLINE_TYPE_SWITCH,  &_captureXray,          kNAC, "capture-xray",       "with --capture, also write a see-through verification view (terrain and supports hidden, every placed piece visible) as <name>-x.png" },
         kOptionTableEnd
@@ -144,6 +158,15 @@ namespace OpenRCT2
         if (!_programPath.empty())
         {
             outcome = RustBridge::RunProgram(_programPath.c_str());
+        }
+
+        // Before the ticks, so every artifact downstream shows the ride in the
+        // colours the round banked. A program carries no colours, so a rerun of
+        // a styled round is stock gold without this.
+        if (!_presentationPath.empty() && RustBridge::ApplyPresentation(_presentationPath.c_str()) != 0)
+        {
+            Console::Error::WriteLine("Presentation could not be applied.");
+            return ExitCode::fail;
         }
 
         Console::WriteLine("Running eval for %d ticks...", _ticks);
@@ -237,6 +260,72 @@ namespace OpenRCT2
             else
             {
                 Console::WriteLine("Replay written to %s", _replayPath.c_str());
+            }
+        }
+        // Last of all: the montage tears the ride down and rebuilds it, so
+        // nothing that reads the scored ride may run after this.
+        if (!_buildMontagePath.empty())
+        {
+            if (_programPath.empty())
+            {
+                Console::Error::WriteLine("--build-montage needs --program: it films that program being built");
+                return ExitCode::fail;
+            }
+            if (RustBridge::CaptureBuildMontage(
+                    _buildMontagePath.c_str(), _programPath.c_str(),
+                    _presentationPath.empty() ? nullptr : _presentationPath.c_str(), 0 /*zoom*/)
+                != 0)
+            {
+                Console::Error::WriteLine("Build montage failed.");
+                exitCode = ExitCode::fail;
+            }
+            else
+            {
+                Console::WriteLine("Build montage written to %s", _buildMontagePath.c_str());
+            }
+        }
+        // Also destructive, and it builds every round itself, so it wants the
+        // park it started with: run it without --program.
+        if (!_evolutionPath.empty())
+        {
+            if (_evolutionManifest.empty())
+            {
+                Console::Error::WriteLine("--evolution-montage needs --evolution: the rounds to film");
+                return ExitCode::fail;
+            }
+            if (RustBridge::CaptureEvolution(
+                    _evolutionPath.c_str(), _evolutionManifest.c_str(),
+                    _evolutionLapPath.empty() ? nullptr : _evolutionLapPath.c_str(),
+                    static_cast<uint32_t>(_replaySeconds), 0 /*zoom*/)
+                != 0)
+            {
+                Console::Error::WriteLine("Evolution montage failed.");
+                exitCode = ExitCode::fail;
+            }
+            else
+            {
+                Console::WriteLine("Evolution montage written to %s", _evolutionPath.c_str());
+            }
+        }
+
+        // Also destructive and also self-contained: it builds and demolishes
+        // everything the session did, so it wants the park it started with.
+        if (!_traceMontagePath.empty())
+        {
+            if (_traceActionsPath.empty())
+            {
+                Console::Error::WriteLine("--trace-montage needs --trace-actions: the calls to replay");
+                return ExitCode::fail;
+            }
+            if (RustBridge::CaptureTraceMontage(_traceMontagePath.c_str(), _traceActionsPath.c_str(), 0 /*zoom*/)
+                != 0)
+            {
+                Console::Error::WriteLine("Trace montage failed.");
+                exitCode = ExitCode::fail;
+            }
+            else
+            {
+                Console::WriteLine("Trace montage written to %s", _traceMontagePath.c_str());
             }
         }
 

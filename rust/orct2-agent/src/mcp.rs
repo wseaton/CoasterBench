@@ -957,6 +957,7 @@ fn call_control_tool(
                 every,
                 zoom,
                 session.build.as_ref().map(|b| b.ride_id),
+                None,
             )?;
             Ok(text_content(json!({
                 "out": out,

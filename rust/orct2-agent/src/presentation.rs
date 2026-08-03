@@ -83,6 +83,34 @@ impl RidePresentation {
         })
     }
 
+    /// Reads a round's presentation back out of a report.json (or out of a
+    /// bare presentation object). Absent presentation is Ok(None): most rounds
+    /// were never styled.
+    ///
+    /// Colours are revalidated on the way in rather than trusted, so a hand-
+    /// edited report cannot push an unknown colour string at the game action.
+    pub fn from_report(json: &str) -> Result<Option<Self>, String> {
+        let value: Value = serde_json::from_str(json).map_err(|e| format!("invalid JSON: {e}"))?;
+        let Some(style) = value.get("presentation").or(Some(&value)) else {
+            return Ok(None);
+        };
+        if style.get("name").is_none() {
+            return Ok(None);
+        }
+        Self::from_args(style).map(Some)
+    }
+
+    /// Applies the name and colours to a live ride, as `style_best_ride` does.
+    pub fn apply(&self, ride_id: u16) -> Result<(), String> {
+        crate::host::ride_style(
+            ride_id,
+            &self.name,
+            &self.track_color,
+            &self.rail_color,
+            &self.support_color,
+        )
+    }
+
     /// Attach the presentation to the scored report without touching any
     /// rating, similarity measurement, or the already-computed score.
     pub fn annotate(&self, report: &mut Value) -> Result<(), String> {

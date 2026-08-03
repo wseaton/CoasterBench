@@ -115,8 +115,7 @@
   {# The clip is slide one, not its own block above the stills: that doubled
      the card height for the same information. #}
   <div class="media{% if round.slides() > 1 %} rotator{% endif %}"
-    {%- if round.slides() > 1 %} data-shots="{{ round.shots_json }}" data-fulls="{{ round.fulls_json }}" data-labels="{{ round.labels_json }}" data-i="0"
-    {%- if round.replay.is_some() %} data-replay="1"{% endif %}{% endif %}>
+    {%- if round.slides() > 1 %} data-shots="{{ round.shots_json }}" data-fulls="{{ round.fulls_json }}" data-labels="{{ round.labels_json }}" data-clips="{{ round.clips_json() }}" data-i="0"{% endif %}>
   {%- match round.replay %}
   {%- when Some(replay) %}
     {# The poster is the replay's own first frame, same camera. #}
@@ -126,11 +125,33 @@
     </video>
   {%- when None %}
   {%- endmatch %}
+  {# Second clip, never the default: the lap is what the round is scored on.
+     preload="none" keeps a page of a dozen cards to its posters. #}
+  {%- match round.montage %}
+  {%- when Some(montage) %}
+    <video class="replay" controls muted playsinline preload="none"
+      {%- if round.replay.is_some() %} hidden{% endif %}
+      {%- match round.montage_poster %}{%- when Some(poster) %} poster="{{ poster }}"{%- when None %}{%- endmatch %}>
+      <source src="{{ montage }}" type="video/mp4">
+    </video>
+  {%- when None %}
+  {%- endmatch %}
+  {# The agent's own working, where the round was built incrementally enough to
+     be worth watching. Never the default: the lap is what a round is scored on. #}
+  {%- match round.trace_montage %}
+  {%- when Some(session) %}
+    <video class="replay" controls muted playsinline preload="none"
+      {%- if round.replay.is_some() || round.montage.is_some() %} hidden{% endif %}
+      {%- match round.trace_montage_poster %}{%- when Some(poster) %} poster="{{ poster }}"{%- when None %}{%- endmatch %}>
+      <source src="{{ session }}" type="video/mp4">
+    </video>
+  {%- when None %}
+  {%- endmatch %}
   {%- if round.shots.len() > 0 %}
     <img data-full="{{ round.shots[0].full }}" src="{{ round.shots[0].src }}" alt="park screenshot, {{ model }} round {{ round.number }}" loading="lazy" decoding="async"
-      {%- if round.replay.is_some() %} hidden{% endif %}
+      {%- if round.clips().len() > 0 %} hidden{% endif %}
       {%- match round.shots[0].size %}{%- when Some(size) %} width="{{ size.0 }}" height="{{ size.1 }}"{%- when None %}{%- endmatch %}>
-  {%- else if round.replay.is_none() %}
+  {%- else if round.clips().len() == 0 %}
     <div class="no-capture">no capture</div>
   {%- endif %}
   {%- if round.slides() > 1 %}

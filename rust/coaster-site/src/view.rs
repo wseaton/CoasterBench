@@ -213,6 +213,12 @@ pub struct Featured {
     pub model: String,
     pub model_href: String,
     pub replay: String,
+    /// Act one: the coaster assembling itself, on the lap's camera. Plays once
+    /// and cuts to the lap. Absent unless there is a montage to play, and the
+    /// hero falls back to the lap alone.
+    pub montage: Option<String>,
+    /// What act one shows, for anyone who cannot watch it.
+    pub montage_alt: String,
     /// The replay's own first frame, so the still looks like the clip.
     pub poster: Option<String>,
     /// Whether the clip runs a whole cycle, and so can be looped.
@@ -315,6 +321,14 @@ pub struct RoundView {
     pub replay_poster: Option<String>,
     /// Whether the clip runs a whole cycle, and so can be looped.
     pub replay_loops: bool,
+    /// Build montage, offered behind the rotator control rather than played:
+    /// the lap is what a round is judged on, and a page can hold a dozen cards.
+    pub montage: Option<String>,
+    pub montage_poster: Option<String>,
+    /// The session replay: the agent's own working, undos and demolitions
+    /// included. Behind the same control as the montage, never the default.
+    pub trace_montage: Option<String>,
+    pub trace_montage_poster: Option<String>,
     pub shots: Vec<Shot>,
     /// The rotator's shot list / labels as JSON, for the client-side flipper.
     pub shots_json: String,
@@ -324,16 +338,36 @@ pub struct RoundView {
 }
 
 impl RoundView {
-    /// Views in the media well: the clip, when there is one, plus the shots.
-    /// The rotator controls only render above one.
+    /// Labels of the clips leading the media well, in the order the template
+    /// emits their `<video>` elements. The rotator pairs them by index.
+    pub fn clips(&self) -> Vec<&'static str> {
+        let mut clips = Vec::new();
+        if self.replay.is_some() {
+            clips.push("replay");
+        }
+        if self.montage.is_some() {
+            clips.push("build");
+        }
+        if self.trace_montage.is_some() {
+            clips.push("session");
+        }
+        clips
+    }
+
+    pub fn clips_json(&self) -> String {
+        serde_json::to_string(&self.clips()).unwrap_or_else(|_| "[]".to_string())
+    }
+
+    /// Views in the media well: the clips, then the shots. The rotator controls
+    /// only render above one.
     pub fn slides(&self) -> usize {
-        self.shots.len() + usize::from(self.replay.is_some())
+        self.shots.len() + self.clips().len()
     }
 
     /// What the counter reads before anyone clicks.
     pub fn first_label(&self) -> String {
-        if self.replay.is_some() {
-            return "replay".to_string();
+        if let Some(first) = self.clips().first() {
+            return (*first).to_string();
         }
         self.shots
             .first()

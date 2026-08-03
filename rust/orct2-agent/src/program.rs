@@ -124,9 +124,30 @@ pub fn place_entrance_and_exit(ride_id: u16, station_tiles: &[(i32, i32)]) -> Re
     Ok(())
 }
 
+/// The cursor a build starts from: the given tile, facing `dir`, at the
+/// surface height rounded up to the 16-unit step TrackPlaceAction requires.
+pub fn start_cursor(tile_x: i32, tile_y: i32, dir: u8) -> host::TrackCursor {
+    let ground = host::surface_z(tile_x, tile_y);
+    host::TrackCursor {
+        x: tile_x * 32,
+        y: tile_y * 32,
+        z: (ground + 15) & !15,
+        direction: dir & 3,
+        bank: 0,  // TrackRoll::none
+        slope: 0, // TrackPitch::none
+    }
+}
+
 /// Parses and executes a track program against the live game. Never panics;
 /// all failures land in the returned outcome.
 pub fn run(json: &str) -> ProgramOutcome {
+    run_observed(json, &mut |_, _| {})
+}
+
+/// `run`, with `on_placed(ride_id, index)` called after each accepted piece.
+/// The build montage films from there, so the frames are the placements the
+/// game actually accepted, in the order it accepted them.
+pub fn run_observed(json: &str, on_placed: &mut dyn FnMut(u16, usize)) -> ProgramOutcome {
     let program: TrackProgram = match serde_json::from_str(json) {
         Ok(p) => p,
         Err(e) => return ProgramOutcome::failure(format!("invalid program JSON: {e}")),
@@ -143,18 +164,8 @@ pub fn run(json: &str) -> ProgramOutcome {
         }
     };
 
-    // Snap the start height to the surface, rounded up to the 16-unit step
-    // TrackPlaceAction requires.
-    let ground = host::surface_z(program.start.x, program.start.y);
-    let z = (ground + 15) & !15;
-    let mut cursor = host::TrackCursor {
-        x: program.start.x * 32,
-        y: program.start.y * 32,
-        z,
-        direction: program.start.dir & 3,
-        bank: 0,  // TrackRoll::none
-        slope: 0, // TrackPitch::none
-    };
+    let mut cursor = start_cursor(program.start.x, program.start.y, program.start.dir);
+    let z = cursor.z;
 
     let mut outcome = ProgramOutcome {
         ride_id: Some(ride_id),
@@ -199,6 +210,7 @@ pub fn run(json: &str) -> ProgramOutcome {
                 if (1..=3).contains(&track_type) {
                     station_tiles.push(piece_tile);
                 }
+                on_placed(ride_id, index);
             }
             Err(message) => {
                 outcome.error = Some(ProgramError {

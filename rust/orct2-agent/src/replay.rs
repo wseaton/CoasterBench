@@ -26,7 +26,7 @@ pub struct Filmed {
 }
 
 /// The sidecar for `out`: same path, .json extension.
-fn meta_path(out: &str) -> String {
+pub fn meta_path(out: &str) -> String {
     match out.rsplit_once('.') {
         Some((stem, _)) => format!("{stem}.json"),
         None => format!("{out}.json"),
@@ -34,11 +34,44 @@ fn meta_path(out: &str) -> String {
 }
 
 /// The poster still for `out`: same path, .png extension.
-fn poster_path(out: &str) -> String {
+pub fn poster_path(out: &str) -> String {
     match out.rsplit_once('.') {
         Some((stem, _)) => format!("{stem}.png"),
         None => format!("{out}.png"),
     }
+}
+
+/// Starts an ffmpeg that takes raw RGBA frames on stdin and writes `out`.
+///
+/// One keyframe for the whole clip (`-g gop_frames`): the camera never moves in
+/// either kind of clip this crate produces, so consecutive frames differ only
+/// where the train or the newest piece is, and extra keyframes are pure cost.
+pub fn spawn_encoder(
+    out: &str,
+    width: u32,
+    height: u32,
+    fps: f64,
+    gop_frames: usize,
+) -> Result<std::process::Child, String> {
+    std::process::Command::new("ffmpeg")
+        .args(["-y", "-loglevel", "error"])
+        .args(["-f", "rawvideo", "-pix_fmt", "rgba"])
+        .args(["-s", &format!("{width}x{height}")])
+        .args(["-framerate", &format!("{fps}")])
+        .args(["-i", "-"])
+        .args(["-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "28"])
+        .args([
+            "-g",
+            &gop_frames.max(1).to_string(),
+            "-movflags",
+            "+faststart",
+        ])
+        .arg(out)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map_err(|e| format!("ffmpeg (brew install ffmpeg): {e}"))
 }
 
 /// `Vehicle::Status::departing`. Filming both starts and ends here, which is
@@ -78,41 +111,35 @@ pub fn seconds_for_lap(ride_time: i32, cap: u32) -> u32 {
 /// Films `frames` frames of the park into `out`, one every `every` ticks.
 ///
 /// Waits for `ride_id`'s train to leave the station first; None rolls at once.
+/// `camera` frames the shot; None fits it to the track that is standing. The
+/// hero's evolution passes its own, because a clip that cuts to this one has to
+/// be shot from the same place or the coaster jumps at the cut.
 pub fn film(
     out: &str,
     frames: usize,
     every: u32,
     zoom: i32,
     ride_id: Option<u16>,
+    camera: Option<host::TrackBounds>,
 ) -> Result<Filmed, String> {
     let every = every.max(1);
     let fps = f64::from(TICKS_PER_SECOND) / f64::from(every);
 
     // One camera for every frame: a still park means consecutive frames differ
-    // only where the train is, which is what makes the encode small.
-    let (width, height) = host::capture_size(zoom, 0, true).ok_or("no track to film")?;
+    // only where the train is, which is what makes the encode small. Resolved
+    // once rather than per frame, because framing the track rescans the map.
+    let bounds = camera
+        .or_else(host::track_bounds)
+        .ok_or("no track to film")?;
+    let (width, height) = host::capture_size(zoom, 0, Some(&bounds)).ok_or("no track to film")?;
 
     let waited = ride_id.map_or(0, |ride| wait_for_departure(ride, every));
 
     // A poster from the same camera; the round's park.png frames the whole map.
     let poster = poster_path(out);
-    let poster = host::capture(&poster, zoom, 0, true, false).then_some(poster);
+    let poster = host::capture_framed(&poster, zoom, 0, Some(&bounds), false).then_some(poster);
 
-    let mut child = std::process::Command::new("ffmpeg")
-        .args(["-y", "-loglevel", "error"])
-        .args(["-f", "rawvideo", "-pix_fmt", "rgba"])
-        .args(["-s", &format!("{width}x{height}")])
-        .args(["-framerate", &format!("{fps}")])
-        .args(["-i", "-"])
-        .args(["-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "28"])
-        // One keyframe: the scene is static, so more are pure cost.
-        .args(["-g", &frames.to_string(), "-movflags", "+faststart"])
-        .arg(out)
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .map_err(|e| format!("ffmpeg (brew install ffmpeg): {e}"))?;
+    let mut child = spawn_encoder(out, width, height, fps, frames)?;
     let mut sink = child.stdin.take().ok_or("ffmpeg stdin")?;
 
     let mut buf = vec![0u8; width as usize * height as usize * 4];
@@ -123,7 +150,7 @@ pub fn film(
     let mut looped = false;
     for _ in 0..frames {
         host::run_ticks(every);
-        let n = host::capture_frame(zoom, 0, true, &mut buf);
+        let n = host::capture_frame(zoom, 0, Some(&bounds), &mut buf);
         if n == 0 {
             break;
         }
@@ -169,8 +196,15 @@ pub fn film(
     })
 }
 
-/// Films the park's ride, bounded by `max_seconds`. Used by `eval --replay`.
-pub fn film_ride(out: &str, ride_id: u16, max_seconds: u32, zoom: i32) -> Result<Filmed, String> {
+/// Films the park's ride, bounded by `max_seconds`. Used by `eval --replay` and
+/// by the evolution, which hands over its own camera.
+pub fn film_ride(
+    out: &str,
+    ride_id: u16,
+    max_seconds: u32,
+    zoom: i32,
+    camera: Option<host::TrackBounds>,
+) -> Result<Filmed, String> {
     let ride_time = host::ride_detail(ride_id).map_or(0, |d| d.ride_time);
     let seconds = seconds_for_lap(ride_time, max_seconds);
     film(
@@ -179,6 +213,7 @@ pub fn film_ride(out: &str, ride_id: u16, max_seconds: u32, zoom: i32) -> Result
         DEFAULT_EVERY,
         zoom,
         Some(ride_id),
+        camera,
     )
 }
 

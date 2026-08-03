@@ -5,9 +5,21 @@
 {# The best coaster on the board, running. Everything said about it is in the
    caption. #}
 <figure class="hero">
+  {# Two acts on one camera: the coaster builds itself, then a train rides it.
+     The montage starts hidden and site.js promotes it, so the no-JS,
+     reduced-motion and Save-Data paths are the lap alone with its poster. #}
+  {%- match top.montage %}
+  {%- when Some(montage) %}
+  <video class="replay hero-montage" controls muted playsinline preload="none" hidden
+    aria-label="{{ top.montage_alt }}"
+    {%- match top.poster %}{%- when Some(poster) %} poster="{{ poster }}"{%- when None %}{%- endmatch %}>
+    <source src="{{ montage }}" type="video/mp4">
+  </video>
+  {%- when None %}
+  {%- endmatch %}
   {# preload="none": site.js starts it once on screen, and the clip streams
      from its first chunk. #}
-  <video class="replay" controls{% if top.loops %} loop{% endif %} muted playsinline preload="none" aria-label="{{ top.alt }}"
+  <video class="replay hero-lap" controls{% if top.loops %} loop{% endif %} muted playsinline preload="none" aria-label="{{ top.alt }}"
     {%- match top.poster %}{%- when Some(poster) %} poster="{{ poster }}"{%- when None %}{%- endmatch %}>
     <source src="{{ top.replay }}" type="video/mp4">
   </video>
