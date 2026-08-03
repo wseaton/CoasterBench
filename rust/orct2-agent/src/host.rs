@@ -259,10 +259,9 @@ pub fn ride_create(ride_type: u16) -> Result<u16, String> {
     }
 }
 
-/// Places one piece at the cursor and advances it. Returns the piece cost.
-/// Places one piece and advances the cursor. `speed` is the brake/booster
-/// speed stored on the element; the game only reads it for brakes, block
-/// brakes and boosters (see `pieces::takes_speed`).
+/// Places one piece at the cursor and advances it, returning the piece cost.
+/// `speed` is the brake/booster speed stored on the element; the game only
+/// reads it for brakes, block brakes and boosters (see `pieces::takes_speed`).
 pub fn track_place(
     ride_id: u16,
     track_type: u16,

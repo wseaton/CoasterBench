@@ -18,7 +18,6 @@ namespace OpenRCT2::RustBridge
     // runtime; logs and carries on if the Rust side reports failure.
     void Initialise();
 
-    // Forwards a game tick to the Rust agent.
     void Tick(uint32_t tick);
 
     // Asks the Rust agent to log its end-of-eval ride summary.

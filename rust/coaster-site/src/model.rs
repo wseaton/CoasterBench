@@ -404,14 +404,14 @@ impl EvalRun {
         }
     }
 
-    /// Mode as shown and faceted. Open note is a modifier rather than a mode,
-    /// but its scores are not comparable with black-box ones, so the label has
-    /// to say so wherever a run is identified.
     /// Mode alone, for tagline lookup. Not for display: see `mode_label()`.
     pub fn base_mode(&self) -> &str {
         &self.mode
     }
 
+    /// Mode as shown and faceted. Open note is a modifier rather than a mode,
+    /// but its scores are not comparable with black-box ones, so the label has
+    /// to say so wherever a run is identified.
     pub fn mode_label(&self) -> String {
         if self.open_note {
             format!("{} + open note", self.mode)

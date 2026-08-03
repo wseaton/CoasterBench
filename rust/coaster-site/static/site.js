@@ -361,7 +361,6 @@ document.querySelectorAll('[data-trace-filter]').forEach(function (btn) {
     history.replaceState(null, '', permalink(a.id, b.id));
   }
 
-  // Reflect A's pick, refill B to A's scenario, then render.
   function update() { fillOpponents(); render(); }
 
   var params = new URLSearchParams(window.location.search);
