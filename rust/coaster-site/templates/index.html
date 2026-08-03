@@ -172,13 +172,5 @@
 </div>
 {%- endfor %}
 
-{%- if !skipped.is_empty() %}
-<p class="dim footnote">not shown, incomplete or still running:
-{% for run in skipped %}{% if !loop.first %}, {% endif %}{{ run }}{% endfor %}</p>
-{%- endif %}
-{%- if !withdrawn.is_empty() %}
-<p class="dim footnote">withdrawn from the board (the records are still in the repo):
-{% for run in withdrawn %}{% if !loop.first %}, {% endif %}{{ run }}{% endfor %}</p>
-{%- endif %}
 {%- endif %}
 {% endblock %}

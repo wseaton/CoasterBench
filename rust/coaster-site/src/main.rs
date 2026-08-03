@@ -1561,8 +1561,7 @@ fn main() -> Result<()> {
     let contenders = contenders(&all_runs, &store, out)?;
 
     // A run that died (or is still going) half way through would show up as a
-    // model losing badly; leave it out of the leaderboard and say so.
-    let mut skipped = Vec::new();
+    // model losing badly; leave it out of the leaderboard.
     let mut runs = Vec::new();
     for run in all_runs {
         // Build every run's pages, so a head-to-head link into a run the
@@ -1572,7 +1571,6 @@ fn main() -> Result<()> {
         match run.incomplete_reason() {
             Some(reason) if !args.include_partial => {
                 eprintln!("partial run {} hidden from index ({reason})", run.name);
-                skipped.push(run.name.clone());
             }
             _ => runs.push(run),
         }
@@ -1591,8 +1589,6 @@ fn main() -> Result<()> {
             .iter()
             .map(|(mode, tagline)| (mode.to_string(), tagline.to_string()))
             .collect(),
-        skipped,
-        withdrawn: withdrawn.iter().map(|run| run.name.clone()).collect(),
     };
     write_page(&out.join("index.html"), &index.render()?)?;
 

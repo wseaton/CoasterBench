@@ -240,10 +240,6 @@ pub struct IndexPage {
     pub row_count: usize,
     pub have_previews: bool,
     pub mode_taglines: Vec<(String, String)>,
-    /// Runs left out because they never finished, newest first.
-    pub skipped: Vec<String>,
-    /// Runs deliberately withdrawn from the site, named rather than vanished.
-    pub withdrawn: Vec<String>,
 }
 
 pub struct StandingRow {

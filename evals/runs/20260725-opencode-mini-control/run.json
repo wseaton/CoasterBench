@@ -33,6 +33,7 @@
   },
   "opencode_sandbox": "coaster-or-6511e5",
   "orchestrator": "coaster-bench",
+  "published": false,
   "ride_type": 51,
   "rounds": 1,
   "sandbox": "coaster-sub",
