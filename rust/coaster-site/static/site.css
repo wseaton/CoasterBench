@@ -178,8 +178,11 @@ h1 {
 .article ul { padding-left: 1.2rem; margin-bottom: .7rem; }
 .article li { margin-bottom: .3rem; line-height: 1.5; }
 .masthead-links a { font-family: var(--font-display); font-size: .68rem; color: var(--dusk);
-  text-decoration: none; border-bottom: 1px solid var(--dusk); white-space: nowrap; }
+  text-decoration: none; border-bottom: 1px solid var(--dusk); white-space: nowrap;
+  display: inline-flex; align-items: center; gap: .3em; }
 .masthead-links a:hover { color: var(--gold); border-bottom-color: var(--gold); }
+/* currentColor, so the mark takes the link's hover gold with it. */
+.masthead-links svg { width: .85rem; height: .85rem; fill: currentColor; }
 h2 { font-family: var(--font-display); font-weight: 400; font-size: .9rem; margin-bottom: .6rem; }
 p { line-height: 1.55; margin-bottom: .7rem; }
 a { color: inherit; }
