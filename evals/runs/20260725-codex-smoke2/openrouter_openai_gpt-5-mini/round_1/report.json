@@ -1,0 +1,13 @@
+{
+  "program": {
+    "error": {
+      "message": "finish_and_test: set_status(testing): Track is not a complete circuit [track starts at {\"bank\":0,\"dir\":1,\"slope\":0,\"x\":50,\"y\":50,\"z\":112} and currently ends at {\"bank\":0,\"dir\":0,\"slope\":0,\"x\":52,\"y\":51,\"z\":112}; a closed circuit requires these to match]",
+      "piece_index": null
+    },
+    "ok": false,
+    "pieces_placed": 7,
+    "pieces_total": 7
+  },
+  "rides": [],
+  "similarity": null
+}

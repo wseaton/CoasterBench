@@ -1,0 +1,35 @@
+{
+  "agent_state": "fresh-sandbox",
+  "allowed_tools": "mcp__coaster__*",
+  "capabilities": [],
+  "harness": "opencode",
+  "harnesses": {
+    "openrouter_moonshotai_kimi-k3": "opencode"
+  },
+  "modalities": {
+    "openrouter_moonshotai_kimi-k3": "text,image"
+  },
+  "mode": "design",
+  "models": [
+    "openrouter_moonshotai_kimi-k3"
+  ],
+  "open_note": false,
+  "open_note_source": null,
+  "opencode_permission": {
+    "bash": "deny",
+    "edit": "deny",
+    "external_directory": "deny",
+    "glob": "deny",
+    "grep": "deny",
+    "read": "deny",
+    "webfetch": "deny",
+    "websearch": "deny"
+  },
+  "opencode_sandbox": "coaster-or-64eb73",
+  "orchestrator": "coaster-bench",
+  "ride_type": 51,
+  "rounds": 6,
+  "sandbox": "coaster-sub",
+  "similarity_grace": 0.5,
+  "ticks": 25000
+}

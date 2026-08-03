@@ -1,0 +1,13 @@
+{
+  "program": {
+    "error": {
+      "message": "finish_and_test: set_status(testing): Entrance not yet built [track starts at {\"bank\":0,\"dir\":2,\"slope\":0,\"x\":60,\"y\":60,\"z\":112} and currently ends at {\"bank\":0,\"dir\":2,\"slope\":0,\"x\":79,\"y\":61,\"z\":128}; a closed circuit requires these to match]",
+      "piece_index": null
+    },
+    "ok": false,
+    "pieces_placed": 18,
+    "pieces_total": 18
+  },
+  "rides": [],
+  "similarity": null
+}

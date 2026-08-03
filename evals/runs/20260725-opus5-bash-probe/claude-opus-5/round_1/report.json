@@ -1,0 +1,174 @@
+{
+  "bounds": {
+    "max_tile_x": 64,
+    "max_tile_y": 60,
+    "max_z": 360,
+    "min_tile_x": 26,
+    "min_tile_y": 44,
+    "min_z": 112
+  },
+  "placed_pieces": [
+    "begin_station",
+    "middle_station",
+    "end_station",
+    {
+      "chain": true,
+      "t": "flat_to_up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    "up_25_to_flat",
+    "flat_to_down_25",
+    "down_25_to_down_60",
+    "down_60",
+    "down_60",
+    "down_60_to_down_25",
+    "down_25_to_flat",
+    "flat_to_up_25",
+    "left_vertical_loop",
+    "down_25_to_flat",
+    "left_corkscrew_up",
+    "right_corkscrew_down",
+    "flat_to_left_bank",
+    "left_helix_down_large",
+    "left_bank_to_flat",
+    "flat_to_up_25",
+    "right_vertical_loop",
+    "down_25_to_flat",
+    "left_corkscrew_up",
+    "right_corkscrew_down",
+    "flat_to_up_25",
+    "left_vertical_loop",
+    "down_25_to_flat",
+    "flat_to_up_25",
+    "up_25",
+    "up_25_to_flat",
+    "flat_to_down_25",
+    "down_25",
+    "down_25_to_flat",
+    "flat_to_right_bank",
+    "right_helix_up_large",
+    "right_bank_to_flat",
+    "flat_to_down_25",
+    "down_25_to_flat",
+    "flat_to_left_bank",
+    "left_helix_up_large",
+    "left_bank_to_flat",
+    "flat_to_down_25",
+    "down_25_to_flat",
+    "left_corkscrew_up",
+    "right_corkscrew_down",
+    "flat_to_up_25",
+    "up_25",
+    "up_25_to_flat",
+    "flat_to_down_25",
+    "down_25",
+    "down_25_to_flat",
+    "flat_to_up_25",
+    "up_25_to_flat",
+    "flat_to_down_25",
+    "down_25_to_flat",
+    "flat",
+    "flat_to_left_bank",
+    "banked_left_turn_5",
+    "left_bank_to_flat",
+    "flat",
+    "flat",
+    "brakes",
+    "brakes",
+    "brakes",
+    "brakes",
+    "flat_to_left_bank",
+    "banked_left_turn_5",
+    "left_bank_to_flat"
+  ],
+  "program": null,
+  "rides": [
+    {
+      "average_speed": 199530,
+      "crashed": false,
+      "excitement": 7.059999942779541,
+      "highest_drop": 26,
+      "id": 0,
+      "intensity": 10.06999969482422,
+      "max_lateral_g": 2.8399999141693115,
+      "max_negative_g": -0.7599999904632568,
+      "max_positive_g": 4.619999885559082,
+      "max_speed": 1376939,
+      "nausea": 6.139999866485596,
+      "num_drops": 12,
+      "num_inversions": 6,
+      "ride_length": 674,
+      "ride_type": 51,
+      "status": "testing",
+      "tested": true,
+      "total_air_time": 50
+    }
+  ],
+  "similarity": {
+    "common_substring_share": 0.16049382716049382,
+    "edit_similarity": 0.45833333333333337,
+    "mirrored": true,
+    "nearest_design": "Time Twister",
+    "nearest_ride_type": 51,
+    "similarity": 0.45833333333333337
+  },
+  "start": {
+    "bank": 0,
+    "dir": 0,
+    "slope": 0,
+    "x": 60,
+    "y": 60,
+    "z": 112
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "cache_read_tokens": 0,
+  "cost_usd": 1.5629840000000002,
+  "harness": "codex",
+  "input_tokens": 0,
+  "model": "openrouter/openai/gpt-5.1",
+  "num_turns": 0,
+  "output_tokens": 0
+}

@@ -1,0 +1,6 @@
+{"input":{"dir":2},"kind":"tool","name":"piece_geometry","output":"user cancelled MCP tool call","seq":0,"status":"failed"}
+{"input":{"dir":2},"kind":"tool","name":"piece_geometry","output":"user cancelled MCP tool call","seq":1,"status":"failed"}
+{"input":{"dir":2,"ride_type":51,"x":50,"y":85},"kind":"tool","name":"new_ride","output":"user cancelled MCP tool call","seq":2,"status":"failed"}
+{"input":{"dir":2,"ride_type":51,"x":50,"y":85},"kind":"tool","name":"new_ride","output":"user cancelled MCP tool call","seq":3,"status":"failed"}
+{"input":{},"kind":"tool","name":"get_state","output":"user cancelled MCP tool call","seq":4,"status":"failed"}
+{"input":{},"kind":"tool","name":"best_result","output":"user cancelled MCP tool call","seq":5,"status":"failed"}

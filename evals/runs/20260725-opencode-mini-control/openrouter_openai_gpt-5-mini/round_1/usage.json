@@ -1,0 +1,9 @@
+{
+  "cache_read_tokens": 588544,
+  "cost_usd": 0.03688559999999999,
+  "harness": "opencode",
+  "input_tokens": 28160,
+  "model": "openrouter/openai/gpt-5-mini",
+  "num_turns": 44,
+  "output_tokens": 7566
+}

@@ -1,0 +1,36 @@
+{
+  "pieces": [
+    "begin_station",
+    "flat",
+    "flat",
+    "middle_station",
+    "flat",
+    "end_station",
+    "flat_to_up_25",
+    "up_25",
+    "up_25",
+    "up_25",
+    "up_25",
+    "up_25",
+    "up_25",
+    "up_25_to_flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "left_turn_5",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat"
+  ],
+  "ride_type": 51,
+  "start": {
+    "dir": 1,
+    "x": 60,
+    "y": 60
+  }
+}

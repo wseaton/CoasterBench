@@ -1,0 +1,109 @@
+{
+  "pieces": [
+    "begin_station",
+    "middle_station",
+    "middle_station",
+    "middle_station",
+    "end_station",
+    {
+      "chain": true,
+      "t": "flat_to_up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25_to_flat"
+    },
+    "flat",
+    "flat",
+    "flat_to_down_60",
+    "down_60",
+    "down_60_to_flat",
+    "flat_to_right_bank",
+    "banked_right_turn_5",
+    "right_bank_to_flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat_to_up_25",
+    "up_25",
+    "left_vertical_loop",
+    "down_25_to_flat",
+    "flat",
+    "right_corkscrew_up",
+    "right_corkscrew_down",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "left_turn_3",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat_to_left_bank",
+    "left_helix_down_small",
+    "left_bank_to_flat",
+    "s_bend_left",
+    "s_bend_left",
+    "right_turn_3",
+    "right_turn_3",
+    "s_bend_right",
+    "left_turn_3",
+    "right_turn_3",
+    "s_bend_right",
+    "right_turn_3",
+    "left_turn_3",
+    "right_turn_3",
+    "right_turn_3",
+    "flat"
+  ],
+  "ride_type": 51,
+  "start": {
+    "dir": 1,
+    "x": 50,
+    "y": 60
+  }
+}
