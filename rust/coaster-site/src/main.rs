@@ -923,9 +923,18 @@ fn index_rows(runs: &[EvalRun], store: &ArtStore, out: &Path) -> Result<Vec<Inde
 /// only, because scores across ride types are not one league (a library-mode
 /// wooden coaster outrates every twister without answering the same question).
 fn featured(runs: &[EvalRun], store: &ArtStore, out: &Path) -> Result<Option<view::Featured>> {
+    let Some((run, model, round)) = hero_round(runs) else {
+        return Ok(None);
+    };
+    hero_for(run, model, round, store, out, TwoAct::Yes)
+}
+
+/// The round the index hero plays: the best-scoring steel twister with a
+/// replay. Shared with the unfurl card, so the link preview shows the same
+/// coaster the page opens on.
+fn hero_round(runs: &[EvalRun]) -> Option<(&EvalRun, &ModelRun, &Round)> {
     const TWISTER: i64 = 51;
-    let best = runs
-        .iter()
+    runs.iter()
         .filter(|run| run.ride_type == TWISTER)
         .flat_map(|run| run.models.iter().map(move |model| (run, model)))
         .flat_map(|(run, model)| {
@@ -935,11 +944,7 @@ fn featured(runs: &[EvalRun], store: &ArtStore, out: &Path) -> Result<Option<vie
                 .filter(|round| round.replay.is_some() && round.excitement() > 0.0)
                 .map(move |round| (run, model, round))
         })
-        .max_by(|a, b| a.2.excitement().total_cmp(&b.2.excitement()));
-    let Some((run, model, round)) = best else {
-        return Ok(None);
-    };
-    hero_for(run, model, round, store, out, TwoAct::Yes)
+        .max_by(|a, b| a.2.excitement().total_cmp(&b.2.excitement()))
 }
 
 /// The best round a model has with a replay, for its own page.
@@ -1436,12 +1441,19 @@ fn facets(runs: &[EvalRun]) -> Vec<Facet> {
     ]
 }
 
-/// The best-rated screenshot across every run, for the shared unfurl card.
+/// The shared unfurl card: the hero coaster, so the preview matches the page.
+/// Falls back to the best-rated screenshot anywhere when no twister has a
+/// replay (the old rule, which put the giant library wooden coaster on the
+/// card of a page that opens on a twister).
 fn og_shot(runs: &[EvalRun]) -> Option<&Art> {
-    runs.iter()
-        .filter_map(run_best_shot)
-        .max_by(|a, b| shot_score(a).total_cmp(&shot_score(b)))
-        .and_then(model_best_shot)
+    hero_round(runs)
+        .and_then(|(_, _, round)| round.screenshot.as_ref())
+        .or_else(|| {
+            runs.iter()
+                .filter_map(run_best_shot)
+                .max_by(|a, b| shot_score(a).total_cmp(&shot_score(b)))
+                .and_then(model_best_shot)
+        })
 }
 
 /// A model's best-rated screenshot, falling back to any it produced so an
