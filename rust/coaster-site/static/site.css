@@ -167,6 +167,19 @@ h1 {
   text-shadow: 2px 2px 0 rgba(0,0,0,.65), 0 0 18px rgba(120,180,220,.25);
 }
 .tagline { color: var(--dusk); margin: 0; font-size: .78rem; }
+.masthead-links { margin-left: auto; display: inline-flex; gap: .9rem; }
+/* A long-form page: one window read like a post. Measure capped for reading,
+   not for the leaderboard's width. */
+.article { max-width: 46rem; margin-left: auto; margin-right: auto; }
+.article .body { padding: .9rem 1.1rem 1.1rem; }
+.article h2 { margin: 1.2rem 0 .45rem; }
+.article .flow { margin-bottom: .4rem; }
+/* The global reset strips list indent; here the markers belong inside the panel. */
+.article ul { padding-left: 1.2rem; margin-bottom: .7rem; }
+.article li { margin-bottom: .3rem; line-height: 1.5; }
+.masthead-links a { font-family: var(--font-display); font-size: .68rem; color: var(--dusk);
+  text-decoration: none; border-bottom: 1px solid var(--dusk); white-space: nowrap; }
+.masthead-links a:hover { color: var(--gold); border-bottom-color: var(--gold); }
 h2 { font-family: var(--font-display); font-weight: 400; font-size: .9rem; margin-bottom: .6rem; }
 p { line-height: 1.55; margin-bottom: .7rem; }
 a { color: inherit; }
@@ -189,6 +202,7 @@ table { width: 100%; border-collapse: collapse; font-size: .85rem; }
 /* Scrolls inside its own window; otherwise it widens the whole page. */
 .table-scroll { overflow-x: auto; }
 .table-scroll .run-table { min-width: 44rem; }
+.table-scroll .mode-table { min-width: 42rem; }
 th {
   font-family: var(--font-display);
   font-size: .58rem;

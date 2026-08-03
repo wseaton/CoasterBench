@@ -1,3 +1,35 @@
+{# The build-test-rate loop, shared by the index explainer and the how page.
+   Hand-drawn: this used to be a megabyte of CDN mermaid. #}
+{% macro pipeline() %}
+<svg class="flow" viewBox="0 0 620 96" role="img"
+  aria-label="Pipeline: a model submits a track program; the game builds and validates it, runs a test train, and returns ratings and a screenshot to the model. A rejected piece goes straight back to the model.">
+  <defs>
+    <marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0,0 L8,4 L0,8 z" fill="var(--ink-soft)"/>
+    </marker>
+  </defs>
+  <g class="node-group">
+    <rect class="node node-accent" x="4" y="22" width="118" height="40"/>
+    <text x="63" y="39" text-anchor="middle">model</text>
+    <text x="63" y="53" text-anchor="middle">track program</text>
+    <rect class="node" x="164" y="22" width="126" height="40"/>
+    <text x="227" y="39" text-anchor="middle">build</text>
+    <text x="227" y="53" text-anchor="middle">+ validate</text>
+    <rect class="node" x="332" y="22" width="110" height="40"/>
+    <text x="387" y="46" text-anchor="middle">test train</text>
+    <rect class="node node-accent" x="484" y="22" width="132" height="40"/>
+    <text x="550" y="39" text-anchor="middle">ratings</text>
+    <text x="550" y="53" text-anchor="middle">+ screenshot</text>
+  </g>
+  <path class="edge" d="M122,42 L160,42"/>
+  <path class="edge" d="M290,42 L328,42"/>
+  <path class="edge" d="M442,42 L480,42"/>
+  <path class="edge" d="M550,62 L550,86 L63,86 L63,62"/>
+  <path class="edge edge-back" d="M200,22 L200,10 L100,10 L100,22"/>
+  <text class="edge-label" x="150" y="7" text-anchor="middle">rejected piece</text>
+</svg>
+{% endmacro %}
+
 {% macro gallery(figures) %}
 <div class="gallery">
 {%- for figure in figures %}

@@ -439,6 +439,12 @@ pub struct LibraryPage {
     pub figures: Vec<Figure>,
 }
 
+#[derive(Template)]
+#[template(path = "how.html")]
+pub struct HowPage {
+    pub chrome: Chrome,
+}
+
 /// One row of a session trace: what the model said, or a tool call and how the
 /// game answered.
 pub struct TraceRow {

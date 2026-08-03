@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% import "macros.html" as macros %}
+{% block body %}
+
+{# One window, read top to bottom like a post; sections are headings, not chrome. #}
+<div class="window article">
+  <div class="titlebar"><span>How it works</span><span class="btn"></span></div>
+  <div class="body">
+    <p>CoasterBench asks a language model to design a working roller coaster inside OpenRCT2.
+    The model chooses the track, but the game does all the building, testing and rating. There is
+    no second model deciding whether a design looks plausible: the ride has to work in the actual
+    simulation.</p>
+    <p>That means every track piece has to fit, the circuit has to close, and a train has to make
+    it all the way around. Once it does, OpenRCT2 gives the ride the same excitement, intensity
+    and nausea ratings it would give a player's coaster. The benchmark follows how well a model
+    can use that feedback to improve its design over several rounds.</p>
+
+    {% call macros::pipeline() %}{% endcall %}
+
+    <h2>The implementation protocol</h2>
+    <p>For each round, OpenRCT2 loads a scenario and runs headless, without a game window. Its
+    software renderer stays active, so screenshots still come from the game itself. OpenRCT2 then
+    serves a small tool API using MCP over HTTP. The model runs in a separate sandbox and changes
+    the park only through that API. Its main tools are:</p>
+    <ul>
+      <li><code>new_ride</code> starts a coaster at a chosen position and direction.</li>
+      <li><code>place_piece</code> and <code>place_pieces</code> add one piece or a batch of pieces.
+      <code>valid_next_pieces</code> asks the game what can fit at the current end of the track.</li>
+      <li><code>get_state</code> and <code>screenshot</code> show the model what it has built.</li>
+      <li><code>finish_and_test</code> adds the entrance and exit, starts a test train, and runs
+      the simulation. <code>demolish</code> lets the model clear the ride and try again.</li>
+    </ul>
+    <p>The server has a separate, loopback-only control endpoint for resetting the park and saving
+    artifacts. Those controls do not appear in the model's tool list, and its sandbox cannot reach
+    that endpoint. Tool requests are handled one at a time on the game thread, which keeps the
+    order of changes deterministic.</p>
+    <p>Every placement goes through the same <code>GameActions::Execute</code> path used for player
+    input. If a curve cannot connect, a piece collides with the map, or the selected coaster
+    cannot draw that piece, OpenRCT2 rejects the action and explains the failure in the tool
+    response. The harness does not repair the track or quietly accept an invalid design.</p>
+    <p>A ride receives ratings only after its test train completes the circuit. OpenRCT2 then
+    calculates excitement, intensity and nausea in its normal ratings engine. That code,
+    <code>RideRatings.cpp</code>, is unchanged from upstream OpenRCT2. Each new round also restores
+    the exact same starting park, including the clock, random state, guests and weather.</p>
+
+    <h2>Scoring</h2>
+    <p>The leaderboard score starts with the ride's <b>excitement</b> rating from OpenRCT2. The
+    game's own rules reduce excitement when intensity rises above 10, and a crashed ride is not
+    eligible for a score.</p>
+    <p>The harness then checks the track against OpenRCT2's stock design library. It compares the
+    sequence of track pieces using edit distance and longest common substring, and checks mirrored
+    versions too. A design below the published similarity threshold keeps its full excitement
+    rating. Above that threshold, the score falls toward zero; an exact or mirrored copy scores
+    zero. This originality rule applies in every run mode.</p>
+    <p>The model can build and test as many candidates as its round budget allows. The best
+    successful candidate becomes the result for that round, even if the model later demolishes
+    it. A run has several rounds&mdash;six on the current leaderboards. Each new prompt includes the
+    previous round's result, so the model can improve that design or start again. The track
+    profiles on the round cards show what changed from one round to the next.</p>
+
+    <h2>Checking the results</h2>
+    <p>Each round includes the complete session trace, with every tool call and reply, along with
+    the exact track program and the reported token use and cost. It also includes a saved
+    <code>.park</code> file. You can open that file in OpenRCT2 and test the coaster yourself. The
+    file's SHA-256 checksum is recorded in the run's artifact manifest.</p>
+    <p>The site also reports a circuit audit made with OpenRCT2's own track iterator. It checks
+    that every placed piece belongs to the circuit being scored; a green “verified circuit” label
+    means that no disconnected pieces were found. Replays show the train running, while build
+    montages reconstruct the recorded sequence of track pieces.</p>
+    <p>Finally, <code>run.json</code> records the run mode, scenario hash, budgets, model version,
+    and the exact harness and scorer versions. Together, those files show what the model saw,
+    what it did, and which code produced the result.</p>
+
+    <h2>Run modes</h2>
+    <p>The modes change both the game tools and the local tools available to the model. Their
+    leaderboards are kept separate because they answer different questions.</p>
+    <div class="table-scroll">
+      <table class="mode-table">
+        <thead>
+          <tr><th>Mode</th><th>Game access</th><th>Shell and files</th><th>What it tests</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><b>Design</b></td>
+            <td>The coaster tools, screenshots, and feedback from its own test runs. Stock-library
+            search is not available.</td>
+            <td>No Bash or general file tools. Claude Code receives only the coaster MCP tools;
+            OpenCode has <code>bash</code>, <code>read</code>, <code>grep</code>, <code>glob</code>,
+            and <code>edit</code> denied; and Codex has its shell and unified command-execution
+            tools disabled.</td>
+            <td>Whether the model can design a coaster from scratch by experimenting with the
+            game.</td>
+          </tr>
+          <tr>
+            <td><b>Library</b></td>
+            <td>The design-mode coaster tools, plus search and previews for OpenRCT2's stock track
+            library. The originality penalty still applies.</td>
+            <td>The same restrictions as design mode: no Bash and no general file tools.</td>
+            <td>Whether the model can find useful examples and adapt them into an original
+            design.</td>
+          </tr>
+          <tr>
+            <td><b>Open note</b></td>
+            <td>The design-mode coaster tools. Stock-library search is not available, and open
+            note cannot be combined with library mode.</td>
+            <td>A read-only copy of the upstream OpenRCT2 source is placed at
+            <code>/tmp/openrct2-src</code>. Claude Code receives <code>Read</code>,
+            <code>Grep</code>, <code>Glob</code>, and <code>Bash</code>; OpenCode receives the
+            equivalent file and shell tools; and Codex receives local command execution. Bash may
+            run <code>python3</code> for calculations and create scratch files, but the staged
+            source cannot be changed. Programs started from Bash have no network access and cannot
+            talk to the game, so reading or changing park state still requires the coaster tools.</td>
+            <td>How the model designs when it can inspect the scoring implementation instead of
+            learning it only through trial and error.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p>The harness also has an explicit override that can grant extra tools such as Bash to a
+    Claude Code or Codex run without staging the engine source. The override and the resulting
+    shell capability are recorded in <code>run.json</code>; such a run does not have the standard
+    design- or library-mode tool set.</p>
+  </div>
+</div>
+
+<p class="backlink"><a href="index.html">&larr; leaderboard</a> &middot;
+<a href="https://github.com/wseaton/CoasterBench/tree/eval">source on GitHub</a></p>
+{% endblock %}

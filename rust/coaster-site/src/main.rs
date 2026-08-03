@@ -1610,6 +1610,17 @@ fn main() -> Result<()> {
     };
     write_page(&out.join("index.html"), &index.render()?)?;
 
+    let how = view::HowPage {
+        chrome: Chrome::new(
+            "CoasterBench — How it works",
+            "HOW IT WORKS",
+            "how.html",
+            base_url,
+        )
+        .width(view::Width::Mid),
+    };
+    write_page(&out.join("how.html"), &how.render()?)?;
+
     if contenders.len() >= 2 {
         build_compare_page(&contenders, base_url, out)?;
     }
