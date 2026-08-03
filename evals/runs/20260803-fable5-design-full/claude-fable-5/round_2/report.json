@@ -1,0 +1,232 @@
+{
+  "bounds": {
+    "max_tile_x": 63,
+    "max_tile_y": 52,
+    "max_z": 376,
+    "min_tile_x": 20,
+    "min_tile_y": 40,
+    "min_z": 112
+  },
+  "placed_pieces": [
+    "begin_station",
+    "middle_station",
+    "middle_station",
+    "end_station",
+    {
+      "chain": true,
+      "t": "flat_to_up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25_to_flat"
+    },
+    "flat_to_down_60",
+    "down_60",
+    "down_60",
+    "down_60_to_down_25",
+    "down_25",
+    "down_25",
+    "down_25",
+    "down_25_to_flat",
+    {
+      "speed": 30,
+      "t": "booster"
+    },
+    "flat_to_up_25",
+    "half_loop_up",
+    "left_corkscrew_down",
+    "flat_to_down_25",
+    "down_25",
+    "down_25",
+    "down_25",
+    "down_25",
+    "down_25_to_flat",
+    {
+      "speed": 26,
+      "t": "booster"
+    },
+    "flat_to_left_bank",
+    "left_bank",
+    "banked_left_turn_3",
+    "left_bank_to_flat",
+    "flat_to_up_25",
+    "up_25_to_flat",
+    "flat_to_down_25",
+    "down_25_to_flat",
+    "flat_to_left_bank",
+    "banked_left_turn_3",
+    "banked_left_turn_3",
+    "left_bank_to_flat",
+    "flat_to_up_25",
+    "up_25_to_flat",
+    "flat_to_up_25",
+    "up_25_to_flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat_to_down_25",
+    "down_25",
+    "down_25_to_flat",
+    {
+      "speed": 25,
+      "t": "booster"
+    },
+    "flat_to_up_25",
+    "left_vertical_loop",
+    "down_25_to_flat",
+    {
+      "speed": 25,
+      "t": "booster"
+    },
+    "flat_to_up_25",
+    "right_vertical_loop",
+    "down_25_to_flat",
+    {
+      "speed": 25,
+      "t": "booster"
+    },
+    "flat_to_up_25",
+    "left_vertical_loop",
+    "down_25_to_flat",
+    "flat_to_up_25",
+    "up_25_to_flat",
+    {
+      "speed": 24,
+      "t": "booster"
+    },
+    "flat_to_up_25",
+    "up_25_to_flat",
+    "flat_to_right_bank",
+    "right_helix_down_large",
+    "right_helix_down_large",
+    "right_bank",
+    "right_bank",
+    "right_bank",
+    "right_bank",
+    "right_bank",
+    "right_bank",
+    "right_bank",
+    "banked_right_turn_3",
+    "right_bank",
+    "right_bank",
+    "right_bank",
+    "right_bank",
+    "right_bank",
+    "right_bank",
+    "right_bank",
+    "banked_right_turn_3",
+    "right_bank_to_flat",
+    {
+      "speed": 15,
+      "t": "brakes"
+    },
+    {
+      "speed": 9,
+      "t": "brakes"
+    }
+  ],
+  "program": null,
+  "rides": [
+    {
+      "average_speed": 675322,
+      "circuit": {
+        "looped": true,
+        "orphan_pieces": 0,
+        "total_pieces": 101,
+        "walked_pieces": 101
+      },
+      "crashed": false,
+      "excitement": 7.110000133514404,
+      "highest_drop": 29,
+      "id": 0,
+      "intensity": 8.079999923706055,
+      "max_lateral_g": 2.609999895095825,
+      "max_negative_g": -1.4500000476837158,
+      "max_positive_g": 5.300000190734863,
+      "max_speed": 1708439,
+      "nausea": 4.059999942779541,
+      "num_drops": 7,
+      "num_inversions": 4,
+      "ride_length": 699,
+      "ride_time": 52,
+      "ride_type": 51,
+      "status": "testing",
+      "tested": true,
+      "total_air_time": 35
+    }
+  ],
+  "score": 7.110000133514404,
+  "similarity": {
+    "common_substring_share": 0.1782178217821782,
+    "edit_similarity": 0.29702970297029707,
+    "mirrored": false,
+    "nearest_design": "Danglefeet",
+    "nearest_ride_type": 3,
+    "similarity": 0.29702970297029707
+  },
+  "start": {
+    "bank": 0,
+    "dir": 0,
+    "slope": 0,
+    "x": 58,
+    "y": 40,
+    "z": 112
+  }
+}

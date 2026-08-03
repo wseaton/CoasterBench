@@ -1,0 +1,40 @@
+{
+  "demolitions": 1,
+  "fps": 20.0,
+  "frames": 210,
+  "hold_frames": 40,
+  "kind": "trace-montage",
+  "refused": 0,
+  "seconds": 10.5,
+  "segments": [
+    {
+      "build_frames": 160,
+      "pieces_per_stage": 1,
+      "pieces_placed": 54,
+      "pieces_total": 54,
+      "stages": 60
+    }
+  ],
+  "steps": 60,
+  "surviving_pieces": [
+    "begin_station",
+    "middle_station",
+    "end_station",
+    "flat",
+    "right_turn_5",
+    "flat",
+    "flat",
+    "right_turn_5",
+    "flat",
+    "flat",
+    "right_turn_5",
+    "flat",
+    "flat",
+    "flat",
+    "left_turn_5",
+    "flat",
+    "flat",
+    "flat",
+    "flat"
+  ]
+}

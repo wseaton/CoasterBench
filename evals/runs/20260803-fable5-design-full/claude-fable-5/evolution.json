@@ -1,0 +1,51 @@
+{
+  "fps": 20.0,
+  "frames": 396,
+  "hold_frames": 40,
+  "kind": "evolution-montage",
+  "seconds": 19.8,
+  "segments": [
+    {
+      "build_frames": 21,
+      "pieces_per_stage": 4,
+      "pieces_placed": 70,
+      "pieces_total": 70,
+      "stages": 18
+    },
+    {
+      "build_frames": 32,
+      "pieces_per_stage": 4,
+      "pieces_placed": 101,
+      "pieces_total": 101,
+      "stages": 26
+    },
+    {
+      "build_frames": 51,
+      "pieces_per_stage": 4,
+      "pieces_placed": 161,
+      "pieces_total": 161,
+      "stages": 41
+    },
+    {
+      "build_frames": 64,
+      "pieces_per_stage": 4,
+      "pieces_placed": 205,
+      "pieces_total": 205,
+      "stages": 52
+    },
+    {
+      "build_frames": 65,
+      "pieces_per_stage": 4,
+      "pieces_placed": 209,
+      "pieces_total": 209,
+      "stages": 53
+    },
+    {
+      "build_frames": 67,
+      "pieces_per_stage": 4,
+      "pieces_placed": 211,
+      "pieces_total": 211,
+      "stages": 53
+    }
+  ]
+}
