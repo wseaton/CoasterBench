@@ -96,10 +96,10 @@
     <summary>filters</summary>
     <div class="facets">
     {%- for facet in facets %}
-      <span class="facet-group"><span class="facet-label">{{ facet.name }}</span>
-        <button class="facet-btn active" data-facet="{{ facet.name }}" data-value="">all</button>
+      <span class="facet-group"{% if !facet.default.is_empty() %} data-facet="{{ facet.name }}" data-default="{{ facet.default }}"{% endif %}><span class="facet-label">{{ facet.name }}</span>
+        <button class="facet-btn{% if facet.default.is_empty() %} active{% endif %}" data-facet="{{ facet.name }}" data-value="">all</button>
       {%- for value in facet.values %}
-        <button class="facet-btn" data-facet="{{ facet.name }}" data-value="{{ value }}">{{ value }}</button>
+        <button class="facet-btn{% if *value == facet.default %} active{% endif %}" data-facet="{{ facet.name }}" data-value="{{ value }}">{{ value }}</button>
       {%- endfor %}
       </span>
     {%- endfor %}

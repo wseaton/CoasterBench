@@ -1398,19 +1398,37 @@ fn build_compare_page(
 }
 
 fn facets(runs: &[EvalRun]) -> Vec<Facet> {
-    let collect = |name: &str, mut values: Vec<String>| {
+    let collect = |name: &str, default: &str, mut values: Vec<String>| {
         values.sort();
         values.dedup();
         Facet {
             name: name.to_string(),
+            // A default the data can't satisfy would render with no chip active.
+            default: if values.iter().any(|v| v == default) {
+                default.to_string()
+            } else {
+                String::new()
+            },
             values,
         }
     };
     vec![
-        collect("coaster", runs.iter().map(|r| r.ride_name()).collect()),
-        collect("harness", runs.iter().map(|r| r.harness.clone()).collect()),
+        // Twister by default, same reason the hero is twister-only: the giant
+        // library wooden coasters outrate every twister without answering the
+        // same question. The woodies are one click away, not gone.
+        collect(
+            "coaster",
+            "steel twister",
+            runs.iter().map(|r| r.ride_name()).collect(),
+        ),
+        collect(
+            "harness",
+            "",
+            runs.iter().map(|r| r.harness.clone()).collect(),
+        ),
         collect(
             "model",
+            "",
             runs.iter()
                 .flat_map(|r| r.models.iter().map(|m| m.model.clone()))
                 .collect(),

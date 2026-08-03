@@ -27,6 +27,12 @@ function applyFacets(active) {
 function writeState(active) {
   var params = new URLSearchParams();
   Object.keys(active).forEach(function (k) { if (active[k]) params.set(k, active[k]); });
+  // A facet with a default is omitted from the URL when it sits on it, and
+  // written as '<facet>=all' when cleared, so a cleared filter survives reload.
+  document.querySelectorAll('.facet-group[data-default]').forEach(function (g) {
+    if (active[g.dataset.facet] === g.dataset.default) params.delete(g.dataset.facet);
+    else if (!active[g.dataset.facet]) params.set(g.dataset.facet, 'all');
+  });
   var sorted = document.querySelector('.run-table th.sorted-asc, .run-table th.sorted-desc');
   if (sorted && !(sorted.dataset.sort === 'score' && sorted.classList.contains('sorted-desc'))) {
     params.set('sort', sorted.dataset.sort);
@@ -127,21 +133,26 @@ document.addEventListener('click', function (e) {
   rot.querySelector('.rot-count').textContent = onVideo ? clips[i] : labels[i - lead];
 });
 
-// Restore a shared view: facets first, then the sort column.
+// Restore a shared view: facets first, then the sort column. 'all' is the
+// explicit escape from a facet's default, and the template's default chip is
+// what filters a clean URL, so the page always applies whatever is active.
 (function () {
   if (!document.querySelector('.run-table')) return;
   var params = new URLSearchParams(location.search);
-  var active = {};
   ['mode', 'coaster', 'harness', 'model'].forEach(function (facet) {
     var want = params.get(facet);
     if (!want) return;
-    var btn = document.querySelector('.facet-btn[data-facet="' + facet + '"][data-value="' + CSS.escape(want) + '"]');
+    var sel = want === 'all' ? '[data-value=""]' : '[data-value="' + CSS.escape(want) + '"]';
+    var btn = document.querySelector('.facet-btn[data-facet="' + facet + '"]' + sel);
     if (!btn) return;
     document.querySelectorAll('.facet-btn[data-facet="' + facet + '"]').forEach(function (b) {
       b.classList.remove('active');
     });
     btn.classList.add('active');
-    active[facet] = want;
+  });
+  var active = {};
+  document.querySelectorAll('.facet-btn.active').forEach(function (b) {
+    if (b.dataset.value) active[b.dataset.facet] = b.dataset.value;
   });
   if (Object.keys(active).length) applyFacets(active);
   var sort = params.get('sort');

@@ -202,6 +202,9 @@ pub struct IndexGroup {
 
 pub struct Facet {
     pub name: String,
+    /// Value selected on a clean URL; empty means "all". `?<name>=all` is the
+    /// explicit escape, so clearing a defaulted facet survives a reload.
+    pub default: String,
     pub values: Vec<String>,
 }
 
