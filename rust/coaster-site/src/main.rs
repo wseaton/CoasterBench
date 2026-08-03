@@ -1607,8 +1607,28 @@ fn main() -> Result<()> {
     }
 
     let rows = index_rows(&runs, &store, out)?;
+    // Written before the pages so its bytes can version its URL: crawlers
+    // (LinkedIn above all) cache og:image per URL and never refetch an
+    // unchanged one, so a new hero must change the URL, not just the pixels.
+    let og_card = match og_shot(&runs).and_then(|art| store.pixels(art)) {
+        Some(shot) => {
+            images::write_og_card(&shot, &out.join("og-card.jpg"))?;
+            let bytes = std::fs::read(out.join("og-card.jpg"))?;
+            let mut hash = std::collections::hash_map::DefaultHasher::new();
+            std::hash::Hasher::write(&mut hash, &bytes);
+            let card = format!(
+                "og-card.jpg?v={:08x}",
+                std::hash::Hasher::finish(&hash) as u32
+            );
+            println!("wrote og-card.jpg to {}", out.display());
+            Some(card)
+        }
+        None => None,
+    };
+
     let index = IndexPage {
         chrome: Chrome::new("CoasterBench", "COASTERBENCH", "index.html", base_url)
+            .maybe_og_card(og_card.as_deref())
             .width(view::Width::Mid),
         featured: featured(&runs, &store, out)?,
         facets: facets(&runs),
@@ -1642,10 +1662,6 @@ fn main() -> Result<()> {
 
     fonts::write(out)?;
     images::write_favicon(out)?;
-    if let Some(shot) = og_shot(&runs).and_then(|art| store.pixels(art)) {
-        images::write_og_card(&shot, &out.join("og-card.jpg"))?;
-        println!("wrote og-card.jpg to {}", out.display());
-    }
     if base_url.is_none() {
         eprintln!(
             "note: no --base-url given, og:image/og:url omitted (Slack unfurls will be text-only)"
