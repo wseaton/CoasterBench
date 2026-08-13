@@ -40,6 +40,9 @@ struct RunMeta {
     similarity_grace: Option<f64>,
     ride_type: Option<i64>,
     harness: Option<String>,
+    /// The one OpenRouter upstream the run was pinned to; absent means
+    /// OpenRouter routed freely among the model's endpoints.
+    openrouter_provider: Option<String>,
     /// What the orchestrator set out to run. Present since coaster-bench;
     /// used to tell a finished run from one that died (or is still going)
     /// half way through.
@@ -363,6 +366,7 @@ pub struct EvalRun {
     pub models: Vec<ModelRun>,
     pub ride_type: i64,
     pub harness: String,
+    pub openrouter_provider: Option<String>,
     pub open_note: bool,
     /// Whether this run belongs on the published site; `published: false` in
     /// run.json withdraws it without deleting the evidence.
@@ -660,6 +664,7 @@ pub fn load_runs(runs_dir: &Path, store: &ArtStore) -> Result<Vec<EvalRun>> {
             models,
             ride_type: meta.ride_type.unwrap_or(52),
             harness: meta.harness.unwrap_or_else(|| "driver-api".to_string()),
+            openrouter_provider: meta.openrouter_provider,
             open_note: meta.open_note,
             published: meta.published.unwrap_or(true),
             expected_models: meta.models,
@@ -779,6 +784,7 @@ mod tests {
                 .collect(),
             ride_type: 52,
             harness: "test".to_string(),
+            openrouter_provider: None,
             open_note: false,
             published: true,
             expected_models: expected.iter().map(|m| m.to_string()).collect(),

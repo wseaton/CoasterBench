@@ -114,6 +114,16 @@ fn usage_title(model: &ModelRun) -> String {
     )
 }
 
+/// The harness cell, carrying the pinned OpenRouter upstream when the run
+/// recorded one: "opencode · modal". Quantisation and cache pricing differ per
+/// upstream, so which one served the run is part of the experiment.
+fn harness_label(run: &EvalRun) -> String {
+    match &run.openrouter_provider {
+        Some(upstream) => format!("{} · {upstream}", run.harness),
+        None => run.harness.clone(),
+    }
+}
+
 fn fmt_opt(value: Option<f64>) -> String {
     value.map_or_else(|| "—".to_string(), |v| format!("{v:.2}"))
 }
@@ -729,7 +739,7 @@ fn dna_caption(pieces: &[dna::Piece], previous: Option<&[dna::Piece]>) -> String
 }
 
 /// The headline numbers at the top of a model detail page.
-fn model_stats(model: &ModelRun) -> Vec<Stat> {
+fn model_stats(run: &EvalRun, model: &ModelRun) -> Vec<Stat> {
     let stat = |label: &str, value: String, class: &str| Stat {
         label: label.to_string(),
         value,
@@ -775,6 +785,11 @@ fn model_stats(model: &ModelRun) -> Vec<Stat> {
     if let Some(cost) = totals.cost_usd {
         stats.push(stat("cost", format!("${cost:.2}"), "usage"));
     }
+    if let Some(upstream) = &run.openrouter_provider {
+        // Which OpenRouter upstream served the run: quantisation and caching
+        // differ per upstream, so an unpinned rerun is not the same experiment.
+        stats.push(stat("upstream", format!("{upstream} (pinned)"), "dim"));
+    }
     stats
 }
 
@@ -817,14 +832,14 @@ fn build_model_page(
             "{} · {} · {} · {}",
             run.mode_label(),
             run.ride_name(),
-            run.harness,
+            harness_label(run),
             view::mode_tagline(if run.open_note {
                 "open note"
             } else {
                 run.base_mode()
             })
         ),
-        stats: model_stats(model),
+        stats: model_stats(run, model),
         model: view,
     };
     write_page(&out.join(&path), &page.render()?)
@@ -939,7 +954,7 @@ fn index_rows(runs: &[EvalRun], store: &ArtStore, out: &Path) -> Result<Vec<Inde
                 date: run.date(),
                 mode: run.mode_label(),
                 coaster: run.ride_name(),
-                harness: run.harness.clone(),
+                harness: harness_label(run),
                 model: model.model.clone(),
                 thumb: model_thumb(model, store, out, run)?,
                 place: place_label(i + 1),
@@ -1249,7 +1264,7 @@ fn contenders(runs: &[EvalRun], store: &ArtStore, out: &Path) -> Result<Vec<view
                 coaster: run.ride_name(),
                 // Half the compare scenario key: open note must not fight black box.
                 mode: run.mode_label(),
-                harness: run.harness.clone(),
+                harness: harness_label(run),
                 thumb: model_card_shot(model, store, out, run)?,
                 thumb_srcset: model_best_shot(model).and_then(|shot| {
                     let widths = [640, 1280, 1920];
