@@ -312,6 +312,12 @@
     "flat",
     "flat"
   ],
+  "presentation": {
+    "name": "Abyssal Tempest",
+    "rail_color": "icy_blue",
+    "support_color": "white",
+    "track_color": "dark_blue"
+  },
   "program": null,
   "rides": [
     {

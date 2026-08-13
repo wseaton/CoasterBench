@@ -1,0 +1,21 @@
+{
+  "agent_version": "1.18.4",
+  "completed_at": "2026-08-13T12:20:07.000Z",
+  "harness": "opencode",
+  "kind": "posthoc-presentation",
+  "model": "openrouter/deepseek/deepseek-v4-pro-0813",
+  "presentation": {
+    "name": "Abyssal Tempest",
+    "rail_color": "icy_blue",
+    "support_color": "white",
+    "track_color": "dark_blue"
+  },
+  "reasoning_effort": null,
+  "score_after": 7.739999771118164,
+  "score_before": 7.739999771118164,
+  "session_error": null,
+  "source_park_sha256": "383b0076b165c78461c4bc69e9def56da67a46749409f363f70319a892e5a0b0",
+  "source_report_sha256": "ca6b84770313c443b3d50f6e81ae1fbabdcab84a260b08572b243e28ef463f72",
+  "styled_park_sha256": "3cdbf54d4ff9527ded622c2b9104ffe5a101021199d8e627158220e4e34e3c6a",
+  "styled_report_sha256": "1ec159a4cbe9811aa854029c2f4077584502e3a5a3af02245c91a25db97fbbaf"
+}

@@ -1962,6 +1962,50 @@ fn present_archived_round(
         round_dir.display()
     );
 
+    // Same ephemeral-sandbox contract as a run: the guard deletes it on the
+    // way out, and the lane's base name is swapped for the fresh one.
+    let mut _ephemeral: Option<EphemeralSandbox> = None;
+    if args.fresh_sandbox {
+        let codex_providers = if contender.codex_openrouter_model().is_some() {
+            format!("{},openrouter", args.codex_sandbox_provider)
+        } else {
+            args.codex_sandbox_provider.clone()
+        };
+        let (image, policy, provider, base) = match contender.harness {
+            Harness::ClaudeCode => (
+                args.sandbox_image.clone(),
+                args.sandbox_policy.clone(),
+                args.sandbox_provider.clone(),
+                args.sandbox.clone(),
+            ),
+            Harness::Opencode => (
+                args.opencode_sandbox_image.clone(),
+                args.opencode_sandbox_policy.clone(),
+                args.opencode_sandbox_provider.clone(),
+                args.opencode_sandbox.clone(),
+            ),
+            Harness::Codex => (
+                args.codex_sandbox_image.clone(),
+                args.codex_sandbox_policy.clone(),
+                codex_providers,
+                args.codex_sandbox.clone(),
+            ),
+        };
+        let recipe = SandboxRecipe {
+            image: &image,
+            policy: &policy,
+            provider: &provider,
+        };
+        let name = ephemeral_sandbox_name(&base, epoch_secs());
+        println!("creating sandbox {name} from {image}");
+        _ephemeral = Some(create_sandbox(&recipe, args.port, root, &name)?);
+        match contender.harness {
+            Harness::ClaudeCode => args.sandbox = name,
+            Harness::Opencode => args.opencode_sandbox = name,
+            Harness::Codex => args.codex_sandbox = name,
+        }
+    }
+
     let _server = GameServer::spawn(args, root)?;
     let mut client = mcp::McpClient::new("127.0.0.1", args.port);
     wait_for_server(&mut client, Duration::from_secs(120))?;
@@ -1987,16 +2031,22 @@ fn present_archived_round(
         .get("pieces")
         .and_then(Value::as_array)
         .ok_or("archived program has no piece array")?;
-    let placed = client.call("place_pieces", json!({"pieces": pieces}))?;
-    let placed_count = placed
-        .get("placed_this_call")
-        .and_then(Value::as_u64)
-        .unwrap_or(0) as usize;
-    if placed_count != pieces.len() {
-        return Err(format!(
-            "archived reconstruction placed {placed_count}/{} pieces: {placed}",
-            pieces.len()
-        ));
+    // place_pieces caps a batch at 200; archived programs run longer.
+    let mut placed_count = 0usize;
+    let mut expected = 0usize;
+    for chunk in pieces.chunks(200) {
+        let placed = client.call("place_pieces", json!({"pieces": chunk}))?;
+        placed_count += placed
+            .get("placed_this_call")
+            .and_then(Value::as_u64)
+            .unwrap_or(0) as usize;
+        expected += chunk.len();
+        if placed_count != expected {
+            return Err(format!(
+                "archived reconstruction placed {placed_count}/{} pieces: {placed}",
+                pieces.len()
+            ));
+        }
     }
     let rebuilt = client.call("finish_and_test", json!({"ticks": args.ticks}))?;
     let rebuilt_score =
