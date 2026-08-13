@@ -158,6 +158,11 @@ pub struct Usage {
     pub input_tokens: Option<f64>,
     #[serde(default)]
     pub output_tokens: Option<f64>,
+    /// Context replayed from the provider's prompt cache. Dwarfs the other two
+    /// in an agentic session and is priced per provider, which is why cost
+    /// does not track token counts across models.
+    #[serde(default)]
+    pub cache_read_tokens: Option<f64>,
     #[serde(default)]
     pub cost_usd: Option<f64>,
 }
@@ -303,11 +308,12 @@ pub struct ModelRun {
     pub evolution_poster: Option<Art>,
 }
 
-/// (input tokens, output tokens, cost USD) summed over rounds; the cost is
-/// None when no round recorded one.
+/// (input tokens, cache-read tokens, output tokens, cost USD) summed over
+/// rounds; the cost is None when no round recorded one.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct UsageTotals {
     pub tokens_in: f64,
+    pub cache_reads: f64,
     pub tokens_out: f64,
     pub cost_usd: Option<f64>,
 }
@@ -324,6 +330,7 @@ impl ModelRun {
         let mut totals = UsageTotals::default();
         for usage in self.rounds.iter().filter_map(|r| r.usage.as_ref()) {
             totals.tokens_in += usage.input_tokens.unwrap_or(0.0);
+            totals.cache_reads += usage.cache_read_tokens.unwrap_or(0.0);
             totals.tokens_out += usage.output_tokens.unwrap_or(0.0);
             if let Some(cost) = usage.cost_usd {
                 totals.cost_usd = Some(totals.cost_usd.unwrap_or(0.0) + cost);

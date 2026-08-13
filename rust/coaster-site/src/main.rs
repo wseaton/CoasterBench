@@ -98,6 +98,22 @@ fn usage_cell(model: &ModelRun) -> String {
     }
 }
 
+/// The full token split behind a usage cell. Cache reads dwarf fresh input in
+/// an agentic session and are priced per provider, so the cost figure mostly
+/// reflects the provider's cache-read rate; this is the number that explains it.
+fn usage_title(model: &ModelRun) -> String {
+    let totals = model.usage_totals();
+    if totals.tokens_in <= 0.0 && totals.tokens_out <= 0.0 {
+        return String::new();
+    }
+    format!(
+        "{} fresh in · {} cache reads · {} out",
+        view::fmt_tokens(totals.tokens_in),
+        view::fmt_tokens(totals.cache_reads),
+        view::fmt_tokens(totals.tokens_out)
+    )
+}
+
 fn fmt_opt(value: Option<f64>) -> String {
     value.map_or_else(|| "—".to_string(), |v| format!("{v:.2}"))
 }
@@ -470,6 +486,7 @@ fn standings(run: &EvalRun) -> Vec<StandingRow> {
                     format!("round {}/{}", r.number, model.rounds.len())
                 }),
                 usage: usage_cell(model),
+                usage_title: usage_title(model),
             }
         })
         .collect()
@@ -751,7 +768,13 @@ fn model_stats(model: &ModelRun) -> Vec<Stat> {
     if let Some(sim) = best.and_then(|r| r.similarity.as_ref()) {
         stats.push(stat("similarity", format!("{:.2}", sim.similarity), "dim"));
     }
-    stats.push(stat("tokens / cost", usage_cell(model), "usage"));
+    let totals = model.usage_totals();
+    if totals.tokens_in > 0.0 || totals.tokens_out > 0.0 {
+        stats.push(stat("tokens", usage_title(model), "usage"));
+    }
+    if let Some(cost) = totals.cost_usd {
+        stats.push(stat("cost", format!("${cost:.2}"), "usage"));
+    }
     stats
 }
 
@@ -933,6 +956,7 @@ fn index_rows(runs: &[EvalRun], store: &ArtStore, out: &Path) -> Result<Vec<Inde
                     format!("round {}/{}", r.number, model.rounds.len())
                 }),
                 usage: usage_cell(model),
+                usage_title: usage_title(model),
             });
         }
     }

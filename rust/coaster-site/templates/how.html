@@ -71,6 +71,17 @@
     and the exact harness and scorer versions. Together, those files show what the model saw,
     what it did, and which code produced the result.</p>
 
+    <h2>What the cost figure measures</h2>
+    <p>The cost column is what the run billed, and that reflects the provider's pricing policy as
+    much as the model's efficiency. An agentic session replays its whole history on every turn, so
+    almost all of the tokens a run consumes are context re-read from the provider's prompt cache:
+    one recent six-round run generated 0.6M tokens of output while reading 41M tokens of cached
+    context. Providers price those cache reads anywhere from a few cents to a few dollars per
+    million, which moves the total far more than any headline per-token rate. The token split
+    behind each figure&mdash;fresh input, cache reads, output&mdash;is shown on the model pages and
+    in each row's tooltip, and per-round in <code>usage.json</code>; token counts are the number to
+    compare across models, dollars the number to compare across providers.</p>
+
     <h2>Run modes</h2>
     <p>The modes change both the game tools and the local tools available to the model. Their
     leaderboards are kept separate because they answer different questions.</p>

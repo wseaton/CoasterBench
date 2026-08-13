@@ -181,6 +181,8 @@ pub struct IndexRow {
     pub nausea: String,
     pub best_round: String,
     pub usage: String,
+    /// Tooltip: the fresh-in / cache-read / out token split behind the cell.
+    pub usage_title: String,
 }
 
 /// One board: a condition, and its rows split by coaster so nothing is ever
@@ -255,6 +257,8 @@ pub struct StandingRow {
     pub similarity: String,
     pub best_round: String,
     pub usage: String,
+    /// Tooltip: the fresh-in / cache-read / out token split behind the cell.
+    pub usage_title: String,
 }
 
 pub struct Shot {

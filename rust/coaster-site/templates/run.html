@@ -22,7 +22,7 @@
         {%- when None %}
         <td colspan="5" class="fail">no successful coaster</td>
         {%- endmatch %}
-        <td class="dim">{{ row.usage }}</td>
+        <td class="dim"{% if !row.usage_title.is_empty() %} title="{{ row.usage_title }}"{% endif %}>{{ row.usage }}</td>
       </tr>
       {%- endfor %}
     </table>
