@@ -487,6 +487,10 @@ pub struct Contender {
     pub mode: String,
     pub harness: String,
     pub thumb: Option<String>,
+    /// Edge-resized (`/cdn-cgi/image/`) alternatives for `thumb`, sized at the
+    /// display width instead of shipped at one: pixel art loses to every extra
+    /// rescale, so the edge resizes the original once per device width.
+    pub thumb_srcset: Option<String>,
     pub score: Option<f64>,
     pub intensity: Option<f64>,
     pub nausea: Option<f64>,

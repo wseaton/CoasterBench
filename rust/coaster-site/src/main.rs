@@ -1227,6 +1227,14 @@ fn contenders(runs: &[EvalRun], store: &ArtStore, out: &Path) -> Result<Vec<view
                 mode: run.mode_label(),
                 harness: run.harness.clone(),
                 thumb: model_card_shot(model, store, out, run)?,
+                thumb_srcset: model_best_shot(model).and_then(|shot| {
+                    let widths = [640, 1280, 1920];
+                    let entries: Vec<String> = widths
+                        .iter()
+                        .filter_map(|w| store.resized_url(shot, *w).map(|u| format!("{u} {w}w")))
+                        .collect();
+                    (entries.len() == widths.len()).then(|| entries.join(", "))
+                }),
                 score: best.map(|r| r.excitement()),
                 intensity: ride.and_then(|r| r.intensity),
                 nausea: ride.and_then(|r| r.nausea),
@@ -1712,6 +1720,7 @@ mod tests {
             mode: mode.to_string(),
             harness: "claude-code".to_string(),
             thumb: None,
+            thumb_srcset: None,
             score: Some(score),
             intensity: None,
             nausea: None,

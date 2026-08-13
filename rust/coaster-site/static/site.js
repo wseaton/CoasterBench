@@ -295,8 +295,13 @@ document.querySelectorAll('[data-trace-filter]').forEach(function (btn) {
   }
 
   function card(c, side) {
+    // srcset lets the edge resize the original to the rendered width; the
+    // local thumb stays the src so a build without --cf-images still works.
+    var srcset = c.thumb_srcset
+      ? ' srcset="' + c.thumb_srcset + '" sizes="(max-width: 700px) 92vw, 46vw"'
+      : '';
     var thumb = c.thumb
-      ? '<a href="' + c.href + '"><img src="' + c.thumb + '" alt="' + c.model + '"></a>'
+      ? '<a href="' + c.href + '"><img src="' + c.thumb + '"' + srcset + ' alt="' + c.model + '"></a>'
       : '<div class="no-preview">no image</div>';
     return '<div class="vs-card vs-' + side + '">' + thumb
       + '<div class="vs-meta"><a class="vs-model" href="' + c.href + '">' + c.model + '</a>'
