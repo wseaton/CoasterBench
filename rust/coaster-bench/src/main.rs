@@ -928,27 +928,33 @@ fn check_resume_compatible(
     Ok(())
 }
 
-/// Route this contender to one named OpenRouter upstream. Moonshot's own
+/// The openrouter provider block for this contender's opencode config, or None
+/// for contenders that are not OpenRouter-served.
+///
+/// The model is always declared explicitly: opencode resolves model names
+/// against a bundled models.dev snapshot, and a checkpoint newer than the
+/// binary fails the whole session with ProviderModelNotFoundError (deepseek
+/// v4-pro-0813 died this way on release day). A config entry merges into the
+/// catalogue, so the run works however stale the snapshot is.
+///
+/// `--openrouter-provider` additionally pins one named upstream. Moonshot's own
 /// endpoint rejects an empty assistant message with a non-retryable 400, and
 /// kimi-k3 emits one often enough to lose rounds to it; the other upstreams
-/// serving the same weights do not. Returns None when nothing is pinned, which
-/// leaves OpenRouter's own routing alone.
+/// serving the same weights do not. Unpinned runs leave OpenRouter's routing
+/// alone.
 fn opencode_provider_routing(args: &Args, contender: &Contender) -> Option<Value> {
-    let upstream = args.openrouter_provider.as_deref()?;
     // opencode keys models by their OpenRouter slug, without the provider it
     // already nests them under.
     let model = contender.model.strip_prefix("openrouter/")?;
-    Some(json!({
-        "openrouter": {
-            "models": {
-                model: {"options": {"provider": {
-                    "order": [upstream],
-                    // A dead upstream should cost a retry, not the round.
-                    "allow_fallbacks": true,
-                }}}
-            }
-        }
-    }))
+    let mut entry = json!({"name": model});
+    if let Some(upstream) = args.openrouter_provider.as_deref() {
+        entry["options"] = json!({"provider": {
+            "order": [upstream],
+            // A dead upstream should cost a retry, not the round.
+            "allow_fallbacks": true,
+        }});
+    }
+    Some(json!({"openrouter": {"models": {model: entry}}}))
 }
 
 fn write_opencode_config(args: &Args, contender: &Contender, lease: &str) -> Result<(), String> {
@@ -3263,8 +3269,15 @@ mod tests {
     fn openrouter_upstream_is_pinned_per_model_and_only_when_asked() {
         let mut args = Args::parse_from(["coaster-bench"]);
         let contender = Contender::parse("opencode:openrouter/moonshotai/kimi-k3");
+        let unpinned = opencode_provider_routing(&args, &contender)
+            .expect("openrouter contenders always declare their model");
+        let entry = &unpinned["openrouter"]["models"]["moonshotai/kimi-k3"];
+        assert_eq!(
+            entry["name"], "moonshotai/kimi-k3",
+            "the model is declared so a stale models.dev snapshot cannot kill the run"
+        );
         assert!(
-            opencode_provider_routing(&args, &contender).is_none(),
+            entry.get("options").is_none(),
             "unpinned runs must leave OpenRouter's routing alone"
         );
 
