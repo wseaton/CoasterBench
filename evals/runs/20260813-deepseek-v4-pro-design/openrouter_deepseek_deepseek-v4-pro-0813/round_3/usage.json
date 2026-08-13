@@ -1,0 +1,9 @@
+{
+  "cache_read_tokens": 11733760,
+  "cost_usd": 0.17449039000000005,
+  "harness": "opencode",
+  "input_tokens": 53388,
+  "model": "openrouter/deepseek/deepseek-v4-pro-0813",
+  "num_turns": 128,
+  "output_tokens": 124979
+}
