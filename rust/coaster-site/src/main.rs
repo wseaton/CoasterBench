@@ -879,6 +879,27 @@ fn model_thumb(
     Ok(Some(rel.to_string_lossy().replace('\\', "/")))
 }
 
+/// The compare page's copy of the same shot. The vs-card renders half the
+/// page wide and the og matchup card composites two of these at 1200px, so
+/// the 280px row thumbnail reads soft on both; this one is poster-sized.
+fn model_card_shot(
+    model: &ModelRun,
+    store: &ArtStore,
+    out: &Path,
+    run: &EvalRun,
+) -> Result<Option<String>> {
+    let Some(src) = model_best_shot(model).and_then(|shot| store.pixels(shot)) else {
+        return Ok(None);
+    };
+    let rel = Path::new("assets").join("thumbs").join(format!(
+        "{}-{}-lg.jpg",
+        run.name,
+        model::sanitise_name(&model.model)
+    ));
+    images::write_poster(&src, &out.join(&rel), 1200)?;
+    Ok(Some(rel.to_string_lossy().replace('\\', "/")))
+}
+
 /// Index rows: one per model per run, best score first (the leaderboard
 /// question is "who built the best coaster", not "what ran most recently").
 /// The client-side sorter can reorder by any column from here.
@@ -1205,7 +1226,7 @@ fn contenders(runs: &[EvalRun], store: &ArtStore, out: &Path) -> Result<Vec<view
                 // Half the compare scenario key: open note must not fight black box.
                 mode: run.mode_label(),
                 harness: run.harness.clone(),
-                thumb: model_thumb(model, store, out, run)?,
+                thumb: model_card_shot(model, store, out, run)?,
                 score: best.map(|r| r.excitement()),
                 intensity: ride.and_then(|r| r.intensity),
                 nausea: ride.and_then(|r| r.nausea),
