@@ -144,6 +144,14 @@ Non-bundled binaries look for `data/` next to the exe. One-time setup:
   two callers: that tool, and `coasterbench-cli eval --replay <path>
   [--replay-seconds N]`, which is how a round from before videos existed gets
   one (see backfill below).
+  - Frames are encoded at most 2560 on the long side (`MAX_ENCODED_DIMENSION`
+    in replay.rs), scaled at ffmpeg so the camera itself is untouched. Above
+    roughly 4096 a hardware H.264 decoder refuses the stream and the browser
+    paints the first frame and never advances, which reads as a frozen video
+    rather than an error: an evolution filmed on the union of six rounds hit
+    4288x2784 (level 6.0) and froze on the published site, as did a 4960x3840
+    evolution and a 5536x4144 replay. Anything already inside the cap encodes
+    unscaled.
   - It also writes `round_N/replay.png`, a still from the same camera, which is
     the video's poster on the site. The round's park.png frames the whole map,
     so using it left an island in front of a clip framed to the track: the
@@ -417,6 +425,31 @@ Non-bundled binaries look for `data/` next to the exe. One-time setup:
     smoked for free while quota is out (`--models codex:gpt-5.6-sol
     --codex-sandbox codex-arena`): reaching the usage-limit error proves the
     auth file and egress substitution worked.
+- Fourth coaster-bench lane: `--models claude-code:openrouter/<author>/<model>`
+  runs Claude Code itself against a non-Anthropic model. OpenRouter answers the
+  Anthropic Messages API at `https://openrouter.ai/api`, so the whole lane is
+  `ANTHROPIC_BASE_URL` plus `ANTHROPIC_AUTH_TOKEN="$OPENROUTER_API_KEY"`, the
+  gateway placeholder the egress proxy substitutes, and the model passed as the
+  bare slug (the prefix is the base URL's job). Telemetry is disabled because
+  this lane's policy grants OpenRouter and the game and nothing else.
+  - Sandbox `coaster-cc-or` out of the `coaster-or` image, which already has
+    both binaries. Its own lane rather than a share of the opencode one: a
+    fresh run would otherwise create two sandboxes and keep only one name.
+    `claude.exe` had to be added to both opencode-policy.yaml and the
+    openrouter provider profile, since a provider-injected block owns its hosts.
+  - Sandbox routing keys on `Lane` (harness plus backend), not `Harness`.
+    Claude Code on the subscription and on OpenRouter cannot share a sandbox,
+    because the credential and the policy differ.
+  - **Cost comes from the spend delta, never the transcript.** Claude Code
+    prices whatever it ran at Anthropic's rates (`costBasis: "unknown"`), so it
+    reports a confidently wrong number rather than a zero: measured $0.048 for
+    a 2-turn task that actually cost cents. The delta also survives a killed
+    session, which the transcript's own usage does not.
+  - The harness is not a nuisance variable. glm-5.3-flash scored 6.24 on
+    opencode and 7.26 here, same model, same 1800s budget, same prompt: the
+    opencode lane ends a round when the model stops calling tools, while Claude
+    Code re-prompts to a turn budget, which flatters a model that never
+    self-terminates. Report such a pair as model-plus-harness.
 - Two driver modes (`--mode`, recorded in run.json + standings.json, separate
   leaderboard sections in the site): `design` (from scratch) and `library`
   (model can search the stock .TD6 library via extra tools; tests retrieval +
