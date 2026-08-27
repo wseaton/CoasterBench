@@ -230,6 +230,12 @@
     "right_turn_5",
     "right_turn_5"
   ],
+  "presentation": {
+    "name": "Serpent of the Six Rings",
+    "rail_color": "bright_yellow",
+    "support_color": "teal",
+    "track_color": "aquamarine"
+  },
   "program": null,
   "rides": [
     {

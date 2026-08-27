@@ -1,0 +1,231 @@
+{
+  "bounds": {
+    "max_tile_x": 61,
+    "max_tile_y": 92,
+    "max_z": 264,
+    "min_tile_x": 24,
+    "min_tile_y": 33,
+    "min_z": 112
+  },
+  "placed_pieces": [
+    "begin_station",
+    "middle_station",
+    "middle_station",
+    "end_station",
+    {
+      "speed": 28,
+      "t": "booster"
+    },
+    {
+      "chain": true,
+      "t": "flat_to_up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25_to_flat"
+    },
+    "flat",
+    "flat_to_right_bank",
+    "banked_right_turn_5",
+    "right_bank_to_flat",
+    "flat_to_down_25",
+    "down_25",
+    "down_25",
+    "down_25",
+    "down_25",
+    "down_25",
+    "down_25",
+    "down_25",
+    "down_25_to_flat",
+    {
+      "speed": 30,
+      "t": "booster"
+    },
+    "flat_to_up_25",
+    "up_25_to_flat",
+    "flat_to_down_25",
+    "down_25_to_flat",
+    "left_corkscrew_up",
+    "right_corkscrew_down",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat_to_up_25",
+    "up_25_to_flat",
+    "flat_to_down_25",
+    "down_25_to_flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "s_bend_right",
+    "s_bend_left",
+    "flat",
+    "flat",
+    "flat_to_right_bank",
+    "banked_right_turn_5",
+    "right_bank_to_flat",
+    "flat",
+    "flat",
+    "left_corkscrew_up",
+    "right_corkscrew_down",
+    "flat",
+    "flat",
+    "left_corkscrew_up",
+    "right_corkscrew_down",
+    "flat_to_up_25",
+    "up_25_to_flat",
+    "flat_to_down_25",
+    "down_25_to_flat",
+    {
+      "speed": 27,
+      "t": "booster"
+    },
+    "left_corkscrew_up",
+    "right_corkscrew_down",
+    "flat",
+    "flat",
+    "left_corkscrew_up",
+    "right_corkscrew_down",
+    "flat_to_up_25",
+    "up_25_to_flat",
+    "flat_to_down_25",
+    "down_25_to_flat",
+    "left_corkscrew_up",
+    "right_corkscrew_down",
+    "flat_to_right_bank",
+    "banked_right_turn_5",
+    "right_bank_to_flat",
+    "s_bend_right",
+    "s_bend_right",
+    "s_bend_right",
+    "s_bend_right",
+    "flat_to_up_25",
+    "up_25_to_flat",
+    "flat_to_down_25",
+    "down_25_to_flat",
+    "s_bend_right",
+    "s_bend_left",
+    "flat_to_up_25",
+    "up_25_to_flat",
+    "flat_to_down_25",
+    "down_25_to_flat",
+    "s_bend_right",
+    "s_bend_left",
+    "flat_to_up_25",
+    "up_25_to_flat",
+    "flat_to_down_25",
+    "down_25_to_flat",
+    {
+      "speed": 27,
+      "t": "booster"
+    },
+    "flat_to_up_25",
+    "up_25_to_flat",
+    "flat_to_down_25",
+    "down_25_to_flat",
+    "s_bend_right",
+    "s_bend_left",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat_to_right_bank",
+    "banked_right_turn_5",
+    "right_bank_to_flat",
+    "flat",
+    "flat",
+    {
+      "speed": 12,
+      "t": "brakes"
+    },
+    {
+      "speed": 12,
+      "t": "brakes"
+    },
+    {
+      "speed": 8,
+      "t": "brakes"
+    },
+    "flat",
+    "flat",
+    "flat"
+  ],
+  "program": null,
+  "rides": [
+    {
+      "average_speed": 745077,
+      "circuit": {
+        "looped": true,
+        "orphan_pieces": 0,
+        "total_pieces": 124,
+        "walked_pieces": 124
+      },
+      "crashed": false,
+      "excitement": 7.300000190734863,
+      "highest_drop": 16,
+      "id": 0,
+      "intensity": 8.880000114440918,
+      "max_lateral_g": 2.7799999713897705,
+      "max_negative_g": -0.9300000071525574,
+      "max_positive_g": 4.460000038146973,
+      "max_speed": 1322323,
+      "nausea": 4.679999828338623,
+      "num_drops": 15,
+      "num_inversions": 6,
+      "ride_length": 848,
+      "ride_time": 57,
+      "ride_type": 51,
+      "status": "testing",
+      "tested": true,
+      "total_air_time": 84
+    }
+  ],
+  "score": 7.300000190734863,
+  "similarity": {
+    "common_substring_share": 0.07258064516129033,
+    "edit_similarity": 0.30645161290322576,
+    "mirrored": false,
+    "nearest_design": "To The Death",
+    "nearest_ride_type": 10,
+    "similarity": 0.30645161290322576
+  },
+  "start": {
+    "bank": 0,
+    "dir": 2,
+    "slope": 0,
+    "x": 40,
+    "y": 92,
+    "z": 112
+  }
+}

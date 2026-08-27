@@ -1,0 +1,9 @@
+{
+  "cache_read_tokens": 0,
+  "cost_usd": 0.032524199999999996,
+  "harness": "opencode",
+  "input_tokens": 17236,
+  "model": "openrouter/qwen/qwen3.8-27b",
+  "num_turns": 2,
+  "output_tokens": 7740
+}

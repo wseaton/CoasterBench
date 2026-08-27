@@ -1,0 +1,9 @@
+{
+  "hung_sessions": 2,
+  "idle_retries": 1,
+  "idle_timeout_seconds": 1200,
+  "kept_logs": [
+    "session.hung_1.log",
+    "session.hung_1.err"
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "agent_version": "2.1.218",
+  "completed_at": "2026-08-27T11:51:54.000Z",
+  "harness": "claude-code",
+  "kind": "posthoc-presentation",
+  "model": "openrouter/z-ai/glm-5.3-flash",
+  "presentation": {
+    "name": "Serpent of the Six Rings",
+    "rail_color": "bright_yellow",
+    "support_color": "teal",
+    "track_color": "aquamarine"
+  },
+  "reasoning_effort": null,
+  "score_after": 7.260000228881836,
+  "score_before": 7.260000228881836,
+  "session_error": null,
+  "source_park_sha256": "9a9bda6de6f01c0c7ffc59d6934478dae8efb73c875fca93c267f5f55a46b058",
+  "source_report_sha256": "da173ab4ce12fd7477f01112c9f55c870f685a5768588f444d9699909976f48a",
+  "styled_park_sha256": "98b70be0f9c46a7d54a7b53d490a68b6f123f9b888935e091a5e0831dbf3f8ab",
+  "styled_report_sha256": "e97255c7adcad41310cc15df84884b6f9c7e8f372637dfa80070ebf6350af6c8"
+}

@@ -1,0 +1,149 @@
+{
+  "bounds": {
+    "max_tile_x": 44,
+    "max_tile_y": 76,
+    "max_z": 280,
+    "min_tile_x": 24,
+    "min_tile_y": 44,
+    "min_z": 112
+  },
+  "placed_pieces": [
+    "begin_station",
+    "middle_station",
+    "middle_station",
+    "end_station",
+    {
+      "chain": true,
+      "t": "flat_to_up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25_to_flat"
+    },
+    "flat",
+    "left_turn_5",
+    "flat_to_down_25",
+    "down_25",
+    "down_25",
+    "down_25",
+    "down_25",
+    "down_25",
+    "down_25_to_flat",
+    {
+      "speed": 30,
+      "t": "booster"
+    },
+    "flat",
+    "flat_to_up_25",
+    "left_vertical_loop",
+    "down_25_to_flat",
+    "flat",
+    "flat",
+    "s_bend_left",
+    "s_bend_right",
+    "flat",
+    "flat_to_up_25",
+    "up_25_to_flat",
+    "flat_to_down_25",
+    "down_25_to_flat",
+    "flat",
+    "left_turn_5",
+    "flat",
+    "flat",
+    "flat",
+    "flat_to_up_25",
+    "up_25",
+    "up_25_to_flat",
+    "flat",
+    "flat_to_down_25",
+    "down_25",
+    "down_25_to_flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "left_turn_5",
+    "flat",
+    "flat",
+    "s_bend_left",
+    "s_bend_right",
+    "s_bend_left",
+    "s_bend_right",
+    "s_bend_left",
+    "s_bend_right",
+    "s_bend_left",
+    "s_bend_right",
+    "flat",
+    "left_turn_5",
+    "flat",
+    "flat",
+    "flat"
+  ],
+  "program": null,
+  "rides": [
+    {
+      "average_speed": 540460,
+      "circuit": {
+        "looped": true,
+        "orphan_pieces": 0,
+        "total_pieces": 66,
+        "walked_pieces": 66
+      },
+      "crashed": false,
+      "excitement": 5.860000133514404,
+      "highest_drop": 12,
+      "id": 0,
+      "intensity": 4.75,
+      "max_lateral_g": 1.7999999523162842,
+      "max_negative_g": -0.6899999976158142,
+      "max_positive_g": 2.740000009536743,
+      "max_speed": 1191080,
+      "nausea": 2.2899999618530273,
+      "num_drops": 4,
+      "num_inversions": 1,
+      "ride_length": 486,
+      "ride_time": 45,
+      "ride_type": 51,
+      "status": "testing",
+      "tested": true,
+      "total_air_time": 24
+    }
+  ],
+  "score": 5.860000133514404,
+  "similarity": {
+    "common_substring_share": 0.10606060606060606,
+    "edit_similarity": 0.3827160493827161,
+    "mirrored": false,
+    "nearest_design": "Radical Air",
+    "nearest_ride_type": 7,
+    "similarity": 0.3827160493827161
+  },
+  "start": {
+    "bank": 0,
+    "dir": 2,
+    "slope": 0,
+    "x": 30,
+    "y": 44,
+    "z": 112
+  }
+}

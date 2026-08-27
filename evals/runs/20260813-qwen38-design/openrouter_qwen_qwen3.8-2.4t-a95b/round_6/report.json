@@ -1,0 +1,13 @@
+{
+  "program": {
+    "error": {
+      "message": "tools/call: http://127.0.0.1:8791/mcp?lease=openrouter_qwen_qwen3.8-2.4t-a95b-r6-1786631663: Connection Failed: Connect error: Connection refused (os error 61)",
+      "piece_index": null
+    },
+    "ok": false,
+    "pieces_placed": 0,
+    "pieces_total": 0
+  },
+  "rides": [],
+  "similarity": null
+}
