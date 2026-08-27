@@ -1,0 +1,10 @@
+{
+  "standings": [
+    {
+      "best_excitement": null,
+      "best_round": null,
+      "harness": "claude-code",
+      "model": "openrouter_z-ai_glm-5.3-flash"
+    }
+  ]
+}

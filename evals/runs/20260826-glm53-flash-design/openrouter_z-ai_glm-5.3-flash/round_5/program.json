@@ -1,0 +1,127 @@
+{
+  "pieces": [
+    "begin_station",
+    "middle_station",
+    "end_station",
+    "flat",
+    "flat",
+    "flat_to_up_25",
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    "up_25_to_flat",
+    "right_turn_5",
+    "flat",
+    "flat",
+    "left_turn_5",
+    "flat",
+    "flat",
+    "right_turn_5",
+    "flat",
+    "flat",
+    "left_turn_5",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat_to_down_25",
+    "down_25",
+    "down_25",
+    "down_25",
+    "down_25",
+    "down_25",
+    "down_25_to_flat",
+    "flat",
+    "flat",
+    "flat",
+    "left_turn_5",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "left_turn_5",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    {
+      "speed": 27,
+      "t": "booster"
+    },
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    {
+      "speed": 27,
+      "t": "booster"
+    },
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    {
+      "speed": 9,
+      "t": "brakes"
+    },
+    {
+      "speed": 9,
+      "t": "brakes"
+    },
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "left_turn_5",
+    "left_turn_3"
+  ],
+  "ride_type": 51,
+  "start": {
+    "dir": 3,
+    "x": 46,
+    "y": 56
+  }
+}

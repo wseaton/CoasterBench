@@ -1,0 +1,9 @@
+{
+  "cache_read_tokens": 942976,
+  "cost_usd": 2.204353,
+  "harness": "claude-code",
+  "input_tokens": 106273,
+  "model": "openrouter/z-ai/glm-5.3-flash",
+  "num_turns": 19,
+  "output_tokens": 48060
+}

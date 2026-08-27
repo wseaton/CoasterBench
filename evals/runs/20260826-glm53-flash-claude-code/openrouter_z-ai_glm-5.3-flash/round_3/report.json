@@ -1,0 +1,208 @@
+{
+  "bounds": {
+    "max_tile_x": 87,
+    "max_tile_y": 84,
+    "max_z": 328,
+    "min_tile_x": 30,
+    "min_tile_y": 77,
+    "min_z": 112
+  },
+  "placed_pieces": [
+    "begin_station",
+    "middle_station",
+    "middle_station",
+    "end_station",
+    "flat",
+    "flat",
+    "flat",
+    {
+      "chain": true,
+      "t": "flat_to_up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    "up_25_to_flat",
+    "flat",
+    "flat_to_down_60",
+    "down_60",
+    "down_60",
+    "down_60_to_flat",
+    "flat",
+    {
+      "speed": 21,
+      "t": "brakes"
+    },
+    "flat_to_up_25",
+    "up_25",
+    "up_25",
+    "right_vertical_loop",
+    "down_25",
+    "down_25",
+    "down_25_to_flat",
+    {
+      "speed": 25,
+      "t": "booster"
+    },
+    "s_bend_right",
+    "flat",
+    "flat_to_up_25",
+    "up_25",
+    "up_25_to_flat",
+    "flat",
+    "flat_to_down_25",
+    "down_25",
+    "down_25_to_flat",
+    "flat",
+    "s_bend_left",
+    "right_turn_5",
+    "flat",
+    "right_turn_5",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    {
+      "speed": 20,
+      "t": "brakes"
+    },
+    "flat_to_up_25",
+    "up_25",
+    "up_25",
+    "right_vertical_loop",
+    "down_25",
+    "down_25",
+    "down_25_to_flat",
+    "flat_to_up_25",
+    "up_25",
+    "up_25_to_flat",
+    "flat",
+    "flat_to_down_25",
+    "down_25",
+    "down_25_to_flat",
+    "flat",
+    "s_bend_right",
+    {
+      "speed": 24,
+      "t": "booster"
+    },
+    "flat_to_down_25",
+    "down_25_to_flat",
+    "flat",
+    "flat",
+    "flat",
+    {
+      "speed": 20,
+      "t": "brakes"
+    },
+    "flat_to_up_25",
+    "up_25",
+    "up_25",
+    "left_vertical_loop",
+    "down_25",
+    "down_25",
+    "down_25_to_flat",
+    "s_bend_right",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "right_turn_5",
+    "right_turn_5",
+    "flat"
+  ],
+  "program": null,
+  "rides": [
+    {
+      "average_speed": 538721,
+      "circuit": {
+        "looped": true,
+        "orphan_pieces": 0,
+        "total_pieces": 98,
+        "walked_pieces": 98
+      },
+      "crashed": false,
+      "excitement": 6.550000190734863,
+      "highest_drop": 21,
+      "id": 0,
+      "intensity": 6.46999979019165,
+      "max_lateral_g": 2.130000114440918,
+      "max_negative_g": -0.9100000262260436,
+      "max_positive_g": 3.890000104904175,
+      "max_speed": 1446364,
+      "nausea": 3.2899999618530273,
+      "num_drops": 7,
+      "num_inversions": 3,
+      "ride_length": 659,
+      "ride_time": 61,
+      "ride_type": 51,
+      "status": "testing",
+      "tested": true,
+      "total_air_time": 52
+    }
+  ],
+  "score": 6.550000190734863,
+  "similarity": {
+    "common_substring_share": 0.08163265306122448,
+    "edit_similarity": 0.326530612244898,
+    "mirrored": false,
+    "nearest_design": "Bat Flight",
+    "nearest_ride_type": 7,
+    "similarity": 0.326530612244898
+  },
+  "start": {
+    "bank": 0,
+    "dir": 2,
+    "slope": 0,
+    "x": 34,
+    "y": 84,
+    "z": 112
+  }
+}

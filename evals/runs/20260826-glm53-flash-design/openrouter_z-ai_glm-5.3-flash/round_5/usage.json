@@ -1,0 +1,9 @@
+{
+  "cache_read_tokens": 2121536,
+  "cost_usd": 0.067737965,
+  "harness": "opencode",
+  "input_tokens": 167649,
+  "model": "openrouter/z-ai/glm-5.3-flash",
+  "num_turns": 53,
+  "output_tokens": 93365
+}

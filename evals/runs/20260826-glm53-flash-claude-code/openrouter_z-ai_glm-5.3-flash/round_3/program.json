@@ -1,0 +1,159 @@
+{
+  "pieces": [
+    "begin_station",
+    "middle_station",
+    "middle_station",
+    "end_station",
+    "flat",
+    "flat",
+    "flat",
+    {
+      "chain": true,
+      "t": "flat_to_up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    "up_25_to_flat",
+    "flat",
+    "flat_to_down_60",
+    "down_60",
+    "down_60",
+    "down_60_to_flat",
+    "flat",
+    {
+      "speed": 21,
+      "t": "brakes"
+    },
+    "flat_to_up_25",
+    "up_25",
+    "up_25",
+    "right_vertical_loop",
+    "down_25",
+    "down_25",
+    "down_25_to_flat",
+    {
+      "speed": 25,
+      "t": "booster"
+    },
+    "s_bend_right",
+    "flat",
+    "flat_to_up_25",
+    "up_25",
+    "up_25_to_flat",
+    "flat",
+    "flat_to_down_25",
+    "down_25",
+    "down_25_to_flat",
+    "flat",
+    "s_bend_left",
+    "right_turn_5",
+    "flat",
+    "right_turn_5",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    {
+      "speed": 20,
+      "t": "brakes"
+    },
+    "flat_to_up_25",
+    "up_25",
+    "up_25",
+    "right_vertical_loop",
+    "down_25",
+    "down_25",
+    "down_25_to_flat",
+    "flat_to_up_25",
+    "up_25",
+    "up_25_to_flat",
+    "flat",
+    "flat_to_down_25",
+    "down_25",
+    "down_25_to_flat",
+    "flat",
+    "s_bend_right",
+    {
+      "speed": 24,
+      "t": "booster"
+    },
+    "flat_to_down_25",
+    "down_25_to_flat",
+    "flat",
+    "flat",
+    "flat",
+    {
+      "speed": 20,
+      "t": "brakes"
+    },
+    "flat_to_up_25",
+    "up_25",
+    "up_25",
+    "left_vertical_loop",
+    "down_25",
+    "down_25",
+    "down_25_to_flat",
+    "s_bend_right",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "flat",
+    "right_turn_5",
+    "right_turn_5",
+    "flat"
+  ],
+  "ride_type": 51,
+  "start": {
+    "dir": 2,
+    "x": 34,
+    "y": 84
+  }
+}
