@@ -2110,10 +2110,11 @@ fn present_archived_round(
         let name = ephemeral_sandbox_name(&base, epoch_secs());
         println!("creating sandbox {name} from {image}");
         _ephemeral = Some(create_sandbox(&recipe, args.port, root, &name)?);
-        match contender.harness {
-            Harness::ClaudeCode => args.sandbox = name,
-            Harness::Opencode => args.opencode_sandbox = name,
-            Harness::Codex => args.codex_sandbox = name,
+        match contender.lane() {
+            Lane::ClaudeCode => args.sandbox = name,
+            Lane::ClaudeCodeOpenRouter => args.claude_openrouter_sandbox = name,
+            Lane::Opencode => args.opencode_sandbox = name,
+            Lane::Codex => args.codex_sandbox = name,
         }
     }
 

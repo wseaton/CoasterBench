@@ -41,6 +41,25 @@ pub fn poster_path(out: &str) -> String {
     }
 }
 
+/// Widest or tallest a clip may be encoded. Hardware H.264 decoders refuse
+/// much above 4096, and a browser that cannot decode shows the first frame and
+/// never advances, which reads as a frozen video rather than an error. A track
+/// big enough to need it (an evolution's camera is the union of every round)
+/// therefore gets scaled at the encoder, leaving the camera itself alone.
+const MAX_ENCODED_DIMENSION: u32 = 2560;
+
+/// Encoded size for a frame of `width` x `height`, capped and kept even for
+/// yuv420p.
+fn encoded_dimensions(width: u32, height: u32) -> (u32, u32) {
+    let longest = width.max(height);
+    if longest <= MAX_ENCODED_DIMENSION {
+        return (width, height);
+    }
+    let scale = f64::from(MAX_ENCODED_DIMENSION) / f64::from(longest);
+    let even = |v: u32| (((f64::from(v) * scale).round() as u32) & !1).max(2);
+    (even(width), even(height))
+}
+
 /// Starts an ffmpeg that takes raw RGBA frames on stdin and writes `out`.
 ///
 /// One keyframe for the whole clip (`-g gop_frames`): the camera never moves in
@@ -53,12 +72,18 @@ pub fn spawn_encoder(
     fps: f64,
     gop_frames: usize,
 ) -> Result<std::process::Child, String> {
-    std::process::Command::new("ffmpeg")
+    let (out_width, out_height) = encoded_dimensions(width, height);
+    let mut command = std::process::Command::new("ffmpeg");
+    command
         .args(["-y", "-loglevel", "error"])
         .args(["-f", "rawvideo", "-pix_fmt", "rgba"])
         .args(["-s", &format!("{width}x{height}")])
         .args(["-framerate", &format!("{fps}")])
-        .args(["-i", "-"])
+        .args(["-i", "-"]);
+    if (out_width, out_height) != (width, height) {
+        command.args(["-vf", &format!("scale={out_width}:{out_height}")]);
+    }
+    command
         .args(["-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "28"])
         .args([
             "-g",
@@ -240,5 +265,24 @@ mod tests {
         assert_eq!(frames_for_seconds(59, 2), 1180);
         // every=0 clamps to one tick per frame rather than dividing by zero.
         assert_eq!(frames_for_seconds(1, 0), 40);
+    }
+
+    #[test]
+    fn oversized_frames_are_scaled_into_what_decoders_accept() {
+        assert_eq!(encoded_dimensions(2560, 1600), (2560, 1600));
+        assert_eq!(encoded_dimensions(1984, 1424), (1984, 1424));
+        assert_eq!(encoded_dimensions(2944, 2096), (2560, 1822));
+
+        // The two published clips that froze: an evolution's union camera.
+        let (w, h) = encoded_dimensions(4288, 2784);
+        assert_eq!((w, h), (2560, 1662));
+        let (w, h) = encoded_dimensions(4960, 3840);
+        assert_eq!((w, h), (2560, 1982));
+
+        for (sw, sh) in [(4288, 2784), (4960, 3840), (9728, 5008), (1000, 8000)] {
+            let (w, h) = encoded_dimensions(sw, sh);
+            assert!(w.max(h) <= MAX_ENCODED_DIMENSION, "{sw}x{sh} -> {w}x{h}");
+            assert_eq!((w % 2, h % 2), (0, 0), "yuv420p needs even dimensions");
+        }
     }
 }
