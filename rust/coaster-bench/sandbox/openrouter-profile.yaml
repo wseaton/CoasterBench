@@ -1,7 +1,7 @@
 id: openrouter
-resource_version: 1
+resource_version: 3
 display_name: OpenRouter
-description: OpenRouter OpenAI-compatible inference API (opencode harness)
+description: OpenRouter inference API (opencode, codex and Claude Code harnesses)
 category: inference
 credentials:
 - name: api_key
@@ -27,6 +27,7 @@ binaries:
 - /home/sandbox/bin/codex
 - /usr/local/bin/node
 - /usr/local/lib/node_modules/opencode-ai/bin/opencode.exe
+- /usr/local/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe
 inference_capable: true
 discovery:
   credentials:

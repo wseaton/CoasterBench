@@ -141,6 +141,21 @@ struct Args {
     #[arg(long, default_value = "openrouter")]
     opencode_sandbox_provider: String,
 
+    /// Sandbox for `claude-code:openrouter/...` contenders. Its own lane, not
+    /// the opencode one: both run out of the coaster-or image, and a fresh run
+    /// would otherwise create two sandboxes and keep only one name.
+    #[arg(long, default_value = "coaster-cc-or")]
+    claude_openrouter_sandbox: String,
+
+    #[arg(long, default_value = "localhost/coaster-or")]
+    claude_openrouter_sandbox_image: String,
+
+    #[arg(
+        long,
+        default_value = "rust/coaster-bench/sandbox/opencode-policy.yaml"
+    )]
+    claude_openrouter_sandbox_policy: String,
+
     /// Continue an existing run directory instead of starting a dated one:
     /// rounds already archived there are kept, and the loop picks up at the
     /// first round each model is missing. Raise --rounds to add more. Ignores
@@ -625,6 +640,18 @@ impl Harness {
     }
 }
 
+/// A sandbox recipe, which is a harness plus the backend it authenticates
+/// against. Claude Code has two: the subscription and OpenRouter's
+/// Anthropic-compatible endpoint. They cannot share a sandbox, because the
+/// policy and the injected credential differ.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Lane {
+    ClaudeCode,
+    ClaudeCodeOpenRouter,
+    Opencode,
+    Codex,
+}
+
 impl Contender {
     fn parse(spec: &str) -> Contender {
         match spec.split_once(':') {
@@ -646,6 +673,16 @@ impl Contender {
                 },
                 model: model.to_string(),
             },
+            Some(("claude-code", model)) => Contender {
+                harness: Harness::ClaudeCode,
+                modalities: match model.strip_prefix("openrouter/") {
+                    Some(or) => {
+                        openrouter_modalities(or).unwrap_or(Modalities::TEXT | Modalities::IMAGE)
+                    }
+                    None => Modalities::TEXT | Modalities::IMAGE,
+                },
+                model: model.to_string(),
+            },
             _ => Contender {
                 harness: Harness::ClaudeCode,
                 model: spec.to_string(),
@@ -659,12 +696,24 @@ impl Contender {
         self.model.replace('/', "_")
     }
 
-    /// Which OpenShell sandbox this contender's harness runs in.
-    fn sandbox<'a>(&self, args: &'a Args) -> &'a str {
+    fn lane(&self) -> Lane {
         match self.harness {
-            Harness::ClaudeCode => &args.sandbox,
-            Harness::Opencode => &args.opencode_sandbox,
-            Harness::Codex => &args.codex_sandbox,
+            Harness::ClaudeCode if self.claude_openrouter_model().is_some() => {
+                Lane::ClaudeCodeOpenRouter
+            }
+            Harness::ClaudeCode => Lane::ClaudeCode,
+            Harness::Opencode => Lane::Opencode,
+            Harness::Codex => Lane::Codex,
+        }
+    }
+
+    /// Which OpenShell sandbox this contender's lane runs in.
+    fn sandbox<'a>(&self, args: &'a Args) -> &'a str {
+        match self.lane() {
+            Lane::ClaudeCode => &args.sandbox,
+            Lane::ClaudeCodeOpenRouter => &args.claude_openrouter_sandbox,
+            Lane::Opencode => &args.opencode_sandbox,
+            Lane::Codex => &args.codex_sandbox,
         }
     }
 
@@ -672,12 +721,27 @@ impl Contender {
         (self.harness == Harness::Codex).then(|| self.model.strip_prefix("openrouter/"))?
     }
 
+    /// The bare OpenRouter slug a Claude Code contender runs, if it is one.
+    /// Claude Code takes the model without the provider prefix, because the
+    /// prefix is carried by ANTHROPIC_BASE_URL instead.
+    fn claude_openrouter_model(&self) -> Option<&str> {
+        (self.harness == Harness::ClaudeCode).then(|| self.model.strip_prefix("openrouter/"))?
+    }
+
+    /// Whether this contender's tokens are billed by OpenRouter, and so are
+    /// counted by the key's spend delta rather than the transcript.
+    fn billed_by_openrouter(&self) -> bool {
+        matches!(self.lane(), Lane::Opencode | Lane::ClaudeCodeOpenRouter)
+            || self.codex_openrouter_model().is_some()
+    }
+
     fn provider<'a>(&self, args: &'a Args) -> &'a str {
-        match self.harness {
-            Harness::ClaudeCode => &args.sandbox_provider,
-            Harness::Opencode => &args.opencode_sandbox_provider,
-            Harness::Codex if self.codex_openrouter_model().is_some() => "openrouter",
-            Harness::Codex => &args.codex_sandbox_provider,
+        match self.lane() {
+            Lane::ClaudeCode => &args.sandbox_provider,
+            Lane::ClaudeCodeOpenRouter => "openrouter",
+            Lane::Opencode => &args.opencode_sandbox_provider,
+            Lane::Codex if self.codex_openrouter_model().is_some() => "openrouter",
+            Lane::Codex => &args.codex_sandbox_provider,
         }
     }
 
@@ -1319,11 +1383,10 @@ fn run_agent_session(
     shutdown: &AtomicBool,
 ) -> SessionResult {
     let mut cmd = Command::new("openshell");
-    let spend_before = match contender.harness {
-        Harness::Opencode => openrouter_spend(),
-        Harness::Codex if contender.codex_openrouter_model().is_some() => openrouter_spend(),
-        Harness::ClaudeCode | Harness::Codex => None,
-    };
+    let spend_before = contender
+        .billed_by_openrouter()
+        .then(openrouter_spend)
+        .flatten();
     match contender.harness {
         Harness::ClaudeCode => {
             let mcp_config = json!({
@@ -1331,13 +1394,50 @@ fn run_agent_session(
                     "coaster": {"type": "http", "url": contender.mcp_url(args.port, lease, args.mode)}
                 }
             });
-            cmd.args(["sandbox", "exec", "-n", &args.sandbox, "--"])
-                .args(["claude", "--model", &contender.model, "-p", prompt])
-                .args(["--mcp-config", &mcp_config.to_string()])
-                .args(["--allowedTools", &allowed_tools(args)])
-                .args(["--max-turns", &args.max_turns.to_string()])
+            let claude = vec![
+                "claude".to_string(),
+                "--model".to_string(),
+                contender
+                    .claude_openrouter_model()
+                    .unwrap_or(&contender.model)
+                    .to_string(),
+                "-p".to_string(),
+                prompt.to_string(),
+                "--mcp-config".to_string(),
+                mcp_config.to_string(),
+                "--allowedTools".to_string(),
+                allowed_tools(args),
+                "--max-turns".to_string(),
+                args.max_turns.to_string(),
                 // Event stream, not a summary: the round's trace is built from it.
-                .args(["--output-format", "stream-json", "--verbose"]);
+                "--output-format".to_string(),
+                "stream-json".to_string(),
+                "--verbose".to_string(),
+            ];
+            cmd.args(["sandbox", "exec", "-n", contender.sandbox(args), "--"]);
+            match contender.claude_openrouter_model() {
+                // OpenRouter answers the Anthropic Messages API, so Claude Code
+                // drives a non-Anthropic model by base URL alone. The token
+                // stays the gateway's placeholder, which the egress proxy
+                // substitutes; the sandbox never holds the key. Telemetry is
+                // off because this lane's policy grants OpenRouter and the game,
+                // and nothing else, so the reporting hosts would only generate
+                // denials.
+                Some(_) => {
+                    let script = concat!(
+                        "export ANTHROPIC_BASE_URL=https://openrouter.ai/api\n",
+                        "export ANTHROPIC_AUTH_TOKEN=\"$OPENROUTER_API_KEY\"\n",
+                        "export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1\n",
+                        "export DISABLE_TELEMETRY=1 DISABLE_ERROR_REPORTING=1\n",
+                        "exec \"$@\"",
+                    );
+                    cmd.args(["sh", "-c", script, "claude-session"])
+                        .args(&claude);
+                }
+                None => {
+                    cmd.args(&claude);
+                }
+            }
         }
         Harness::Opencode => {
             // opencode reads its MCP server list from a config file inside the
@@ -1429,9 +1529,14 @@ fn run_agent_session(
         eprintln!("trace write failed: {e}");
     }
     let mut usage = trace.usage.clone();
-    // opencode reports per-step cost, but only when the provider sends it back.
-    // Fall back to the key's spend delta, which is right for a run of one.
-    if spend_before.is_some() && usage.get("cost_usd").and_then(Value::as_f64).unwrap_or(0.0) == 0.0
+    // opencode reports per-step cost, but only when the provider sends it back,
+    // and Claude Code prices whatever it ran at Anthropic's rates (costBasis
+    // "unknown" for anything else). The key's spend delta is the real number
+    // for either, and is right for a run of one.
+    let transcript_cost_is_wrong = contender.claude_openrouter_model().is_some();
+    if spend_before.is_some()
+        && (transcript_cost_is_wrong
+            || usage.get("cost_usd").and_then(Value::as_f64).unwrap_or(0.0) == 0.0)
     {
         if let (Some(before), Some(after)) = (spend_before, openrouter_spend()) {
             if after >= before {
@@ -1971,20 +2076,26 @@ fn present_archived_round(
         } else {
             args.codex_sandbox_provider.clone()
         };
-        let (image, policy, provider, base) = match contender.harness {
-            Harness::ClaudeCode => (
+        let (image, policy, provider, base) = match contender.lane() {
+            Lane::ClaudeCode => (
                 args.sandbox_image.clone(),
                 args.sandbox_policy.clone(),
                 args.sandbox_provider.clone(),
                 args.sandbox.clone(),
             ),
-            Harness::Opencode => (
+            Lane::ClaudeCodeOpenRouter => (
+                args.claude_openrouter_sandbox_image.clone(),
+                args.claude_openrouter_sandbox_policy.clone(),
+                "openrouter".to_string(),
+                args.claude_openrouter_sandbox.clone(),
+            ),
+            Lane::Opencode => (
                 args.opencode_sandbox_image.clone(),
                 args.opencode_sandbox_policy.clone(),
                 args.opencode_sandbox_provider.clone(),
                 args.opencode_sandbox.clone(),
             ),
-            Harness::Codex => (
+            Lane::Codex => (
                 args.codex_sandbox_image.clone(),
                 args.codex_sandbox_policy.clone(),
                 codex_providers,
@@ -2291,7 +2402,7 @@ fn main() -> Result<(), String> {
     if args.fresh_sandbox {
         let lanes = [
             (
-                Harness::ClaudeCode,
+                Lane::ClaudeCode,
                 SandboxRecipe {
                     image: &args.sandbox_image,
                     policy: &args.sandbox_policy,
@@ -2300,7 +2411,16 @@ fn main() -> Result<(), String> {
                 args.sandbox.clone(),
             ),
             (
-                Harness::Opencode,
+                Lane::ClaudeCodeOpenRouter,
+                SandboxRecipe {
+                    image: &args.claude_openrouter_sandbox_image,
+                    policy: &args.claude_openrouter_sandbox_policy,
+                    provider: "openrouter",
+                },
+                args.claude_openrouter_sandbox.clone(),
+            ),
+            (
+                Lane::Opencode,
                 SandboxRecipe {
                     image: &args.opencode_sandbox_image,
                     policy: &args.opencode_sandbox_policy,
@@ -2309,7 +2429,7 @@ fn main() -> Result<(), String> {
                 args.opencode_sandbox.clone(),
             ),
             (
-                Harness::Codex,
+                Lane::Codex,
                 SandboxRecipe {
                     image: &args.codex_sandbox_image,
                     policy: &args.codex_sandbox_policy,
@@ -2318,21 +2438,22 @@ fn main() -> Result<(), String> {
                 args.codex_sandbox.clone(),
             ),
         ];
-        let mut renamed: Vec<(Harness, String)> = Vec::new();
-        for (harness, recipe, base) in &lanes {
-            if !contenders.iter().any(|c| c.harness == *harness) {
+        let mut renamed: Vec<(Lane, String)> = Vec::new();
+        for (lane, recipe, base) in &lanes {
+            if !contenders.iter().any(|c| c.lane() == *lane) {
                 continue;
             }
             let name = ephemeral_sandbox_name(base, epoch_secs());
             println!("creating sandbox {name} from {}", recipe.image);
             _ephemeral.push(create_sandbox(recipe, args.port, &root, &name)?);
-            renamed.push((*harness, name));
+            renamed.push((*lane, name));
         }
-        for (harness, name) in renamed {
-            match harness {
-                Harness::ClaudeCode => args.sandbox = name,
-                Harness::Opencode => args.opencode_sandbox = name,
-                Harness::Codex => args.codex_sandbox = name,
+        for (lane, name) in renamed {
+            match lane {
+                Lane::ClaudeCode => args.sandbox = name,
+                Lane::ClaudeCodeOpenRouter => args.claude_openrouter_sandbox = name,
+                Lane::Opencode => args.opencode_sandbox = name,
+                Lane::Codex => args.codex_sandbox = name,
             }
         }
     }
@@ -2429,6 +2550,10 @@ fn main() -> Result<(), String> {
         "claude_code": {
             "reference": args.sandbox_image,
             "image_id": image_id(&args.sandbox_image, &root),
+        },
+        "claude_code_openrouter": {
+            "reference": args.claude_openrouter_sandbox_image,
+            "image_id": image_id(&args.claude_openrouter_sandbox_image, &root),
         },
         "opencode": {
             "reference": args.opencode_sandbox_image,
@@ -2529,6 +2654,7 @@ fn main() -> Result<(), String> {
             "round_reset": "baseline-park-snapshot",
             "artifact_integrity": "sha256",
             "sandbox": args.sandbox,
+            "claude_openrouter_sandbox": args.claude_openrouter_sandbox,
             "opencode_sandbox": args.opencode_sandbox,
             "codex_sandbox": args.codex_sandbox,
             "allowed_tools": allowed_tools(&args),
@@ -2806,6 +2932,41 @@ mod tests {
             Contender::parse("codex:gpt-5.6-sol").sandbox(&args),
             "codex-arena"
         );
+    }
+
+    #[test]
+    fn claude_code_runs_openrouter_models_in_their_own_lane() {
+        let args = Args::parse_from(["coaster-bench"]);
+        let sub = Contender::parse("claude-opus-5");
+        let via_openrouter = Contender::parse("claude-code:openrouter/z-ai/glm-5.3-flash");
+
+        assert_eq!(sub.harness, Harness::ClaudeCode);
+        assert_eq!(via_openrouter.harness, Harness::ClaudeCode);
+        assert_eq!(
+            via_openrouter.claude_openrouter_model(),
+            Some("z-ai/glm-5.3-flash"),
+            "Claude Code takes the bare slug; the prefix is the base URL's job"
+        );
+        assert_eq!(sub.claude_openrouter_model(), None);
+        assert_eq!(
+            Contender::parse("opencode:openrouter/z-ai/glm-5.3-flash").claude_openrouter_model(),
+            None,
+            "other harnesses are never the Claude Code backend"
+        );
+
+        // Same harness, different backend, and therefore a different sandbox:
+        // the credential and the policy are not the same.
+        assert_eq!(sub.lane(), Lane::ClaudeCode);
+        assert_eq!(via_openrouter.lane(), Lane::ClaudeCodeOpenRouter);
+        assert_eq!(sub.sandbox(&args), "coaster-sub");
+        assert_eq!(via_openrouter.sandbox(&args), "coaster-cc-or");
+        assert_eq!(sub.provider(&args), "claude-sub");
+        assert_eq!(via_openrouter.provider(&args), "openrouter");
+
+        // Claude Code prices every model at Anthropic's rates, so its
+        // transcript cost is fiction here and the spend delta is the record.
+        assert!(via_openrouter.billed_by_openrouter());
+        assert!(!sub.billed_by_openrouter());
     }
 
     #[test]
