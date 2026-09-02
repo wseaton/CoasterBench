@@ -55,6 +55,12 @@ works, and with the pinned versions produces claude-code 2.1.218 and opencode
 1.18.5), which is why both are `ARG`s: bumping an agent version should be a
 deliberate edit, not a side effect of rebuilding.
 
+Claude Code pin raised to 2.1.258 on 2026-09-02: the API refuses
+`claude-fable-5-1` from anything older than 2.1.251 ("does not support this
+model"), and every round of a run on the old image failed on its first turn
+with zero tool calls. Runs before that date were produced by 2.1.218; run.json
+records the version per contender either way.
+
 `python3` is installed for agents that want to compute track geometry before
 placing it (observed: fable doing exactly that when run outside a sandbox). It
 has no network at all, verified: DNS fails for anthropic and pypi, a raw

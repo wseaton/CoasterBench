@@ -1,0 +1,21 @@
+{
+  "agent_version": "2.1.258",
+  "completed_at": "2026-09-02T21:18:58.000Z",
+  "harness": "claude-code",
+  "kind": "posthoc-presentation",
+  "model": "claude-fable-5-1",
+  "presentation": {
+    "name": "Kingfisher's Gauntlet",
+    "rail_color": "light_orange",
+    "support_color": "white",
+    "track_color": "teal"
+  },
+  "reasoning_effort": null,
+  "score_after": 7.909999847412109,
+  "score_before": 7.909999847412109,
+  "session_error": null,
+  "source_park_sha256": "c71e236c43a354b083a4d01a587a60e690bdf82873d5dc804428fbd57eae0002",
+  "source_report_sha256": "c5cefcc0dbef293b70b55de93aaaed0859b9b48a8bf57627bcb8e325edd46b4f",
+  "styled_park_sha256": "e26e0b76f183ebe4d5ab5dcd5912df1e5eb879af0541eab8122ec29aea3c4e6f",
+  "styled_report_sha256": "bbc89e09c152e126bf58aaad9d12e0449edc56ad5206904a17247f86be022264"
+}

@@ -1,0 +1,16 @@
+{
+  "fps": 20.0,
+  "frames": 296,
+  "hold_frames": 40,
+  "kind": "build-montage",
+  "seconds": 14.8,
+  "segments": [
+    {
+      "build_frames": 255,
+      "pieces_per_stage": 1,
+      "pieces_placed": 255,
+      "pieces_total": 255,
+      "stages": 255
+    }
+  ]
+}
