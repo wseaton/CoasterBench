@@ -1,0 +1,143 @@
+{
+  "agent_state": "fresh-sandbox",
+  "allowed_tools": "mcp__coaster__*",
+  "artifact_integrity": "sha256",
+  "budgets": {
+    "idle_retries": 1,
+    "idle_timeout_seconds": 1200,
+    "max_agent_turns": 120,
+    "replay_cap_seconds": 90,
+    "replay_fps": 20,
+    "rounds": 6,
+    "session_timeout_seconds": 1800,
+    "simulation_ticks": 25000
+  },
+  "capabilities": [],
+  "claude_openrouter_sandbox": "coaster-cc-or",
+  "codex_reasoning_effort": "medium",
+  "codex_sandbox": "codex-arena",
+  "codex_sandbox_mode": "read-only",
+  "condition": "design",
+  "environment": {
+    "arch": "aarch64",
+    "os": "macos",
+    "rustc": "rustc 1.98.0 (88d9e12ae 2026-08-18)",
+    "sandbox_images": {
+      "claude_code": {
+        "image_id": "0a1d9bfe50c13a7265b69b9b4cb5f785db2d86b5dce807c588d60fde9e6036d7",
+        "reference": "localhost/coaster-sandbox"
+      },
+      "claude_code_openrouter": {
+        "image_id": "e039e717bd1b4ae34e3da7591b12c73ea7763dcf127b1bd215dacca7548cd7a4",
+        "reference": "localhost/coaster-or"
+      },
+      "codex": {
+        "image_id": null,
+        "reference": "localhost/codex-arena"
+      },
+      "opencode": {
+        "image_id": "e039e717bd1b4ae34e3da7591b12c73ea7763dcf127b1bd215dacca7548cd7a4",
+        "reference": "localhost/coaster-or"
+      }
+    }
+  },
+  "harness": "opencode",
+  "harness_version": "0.2.0",
+  "harnesses": {
+    "openrouter_deepseek_deepseek-v4.1-flash": "opencode"
+  },
+  "modalities": {
+    "openrouter_deepseek_deepseek-v4.1-flash": "text,image"
+  },
+  "mode": "design",
+  "model_specs": {
+    "openrouter_deepseek_deepseek-v4.1-flash": {
+      "agent_version": "1.18.4",
+      "harness": "opencode",
+      "id": "openrouter/deepseek/deepseek-v4.1-flash",
+      "modalities": "text,image",
+      "provider": "openrouter",
+      "reasoning_effort": null,
+      "shell": false
+    }
+  },
+  "models": [
+    "openrouter_deepseek_deepseek-v4.1-flash"
+  ],
+  "open_note": false,
+  "open_note_source": null,
+  "opencode_permission": {
+    "bash": "deny",
+    "doom_loop": "allow",
+    "edit": "deny",
+    "external_directory": "deny",
+    "glob": "deny",
+    "grep": "deny",
+    "read": "deny",
+    "webfetch": "deny",
+    "websearch": "deny"
+  },
+  "opencode_sandbox": "coaster-or-a2abdd",
+  "openrouter_provider": "deepseek",
+  "orchestrator": "coaster-bench",
+  "ride_type": 51,
+  "round_reset": "baseline-park-snapshot",
+  "rounds": 6,
+  "sandbox": "coaster-sub",
+  "scenario": {
+    "path": "~/rct2-assets/Scenarios/Build your own Six Flags Park.SC6",
+    "sha256": "3974d7ffaa5a1dc8be192d4538fdb88c46e0a354a4b45d3ee79172ee15209c8d"
+  },
+  "schema_version": 2,
+  "scorer": {
+    "name": "adjusted_excitement",
+    "similarity_grace": 0.5,
+    "version": "0.2.0"
+  },
+  "segments": [
+    {
+      "environment": {
+        "arch": "aarch64",
+        "os": "macos",
+        "rustc": "rustc 1.98.0 (88d9e12ae 2026-08-18)",
+        "sandbox_images": {
+          "claude_code": {
+            "image_id": "0a1d9bfe50c13a7265b69b9b4cb5f785db2d86b5dce807c588d60fde9e6036d7",
+            "reference": "localhost/coaster-sandbox"
+          },
+          "claude_code_openrouter": {
+            "image_id": "e039e717bd1b4ae34e3da7591b12c73ea7763dcf127b1bd215dacca7548cd7a4",
+            "reference": "localhost/coaster-or"
+          },
+          "codex": {
+            "image_id": null,
+            "reference": "localhost/codex-arena"
+          },
+          "opencode": {
+            "image_id": "e039e717bd1b4ae34e3da7591b12c73ea7763dcf127b1bd215dacca7548cd7a4",
+            "reference": "localhost/coaster-or"
+          }
+        }
+      },
+      "first_round": {
+        "openrouter_deepseek_deepseek-v4.1-flash": 1
+      },
+      "harness_version": "0.2.0",
+      "openrouter_provider": "deepseek",
+      "rounds": 6,
+      "source": {
+        "commit": "9cd2199cca9757a00b7d0757bf65b78aefcfb7f1",
+        "dirty": false,
+        "dirty_diff_sha256": null
+      },
+      "started_at": "2026-09-10T13:07:03.000Z"
+    }
+  ],
+  "similarity_grace": 0.5,
+  "source": {
+    "commit": "9cd2199cca9757a00b7d0757bf65b78aefcfb7f1",
+    "dirty": false,
+    "dirty_diff_sha256": null
+  },
+  "ticks": 25000
+}

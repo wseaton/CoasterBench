@@ -1,0 +1,9 @@
+{
+  "cache_read_tokens": 5356416,
+  "cost_usd": 0.07715404800000002,
+  "harness": "opencode",
+  "input_tokens": 43652,
+  "model": "openrouter/deepseek/deepseek-v4.1-flash",
+  "num_turns": 63,
+  "output_tokens": 90895
+}
