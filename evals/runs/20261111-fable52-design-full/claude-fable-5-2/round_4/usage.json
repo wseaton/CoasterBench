@@ -1,0 +1,9 @@
+{
+  "cache_read_tokens": 209392,
+  "cost_usd": 1.0179264,
+  "harness": "claude-code",
+  "input_tokens": 14,
+  "model": "claude-fable-5-2",
+  "num_turns": 14,
+  "output_tokens": 10988
+}

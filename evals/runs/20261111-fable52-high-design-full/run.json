@@ -1,0 +1,146 @@
+{
+  "agent_state": "fresh-sandbox",
+  "allowed_tools": "mcp__coaster__*",
+  "artifact_integrity": "sha256",
+  "budgets": {
+    "idle_retries": 1,
+    "idle_timeout_seconds": 1200,
+    "max_agent_turns": 120,
+    "replay_cap_seconds": 90,
+    "replay_fps": 20,
+    "rounds": 6,
+    "session_timeout_seconds": 1800,
+    "simulation_ticks": 25000
+  },
+  "capabilities": [],
+  "claude_openrouter_sandbox": "coaster-cc-or",
+  "claude_reasoning_effort": "high",
+  "codex_reasoning_effort": "medium",
+  "codex_sandbox": "codex-arena",
+  "codex_sandbox_mode": "read-only",
+  "condition": "design",
+  "environment": {
+    "arch": "aarch64",
+    "os": "macos",
+    "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)",
+    "sandbox_images": {
+      "claude_code": {
+        "image_id": "264e7b023d20d2b9c89d8513453d3624c5ca490d33d5de736043af8cdb99285d",
+        "reference": "localhost/coaster-sandbox"
+      },
+      "claude_code_openrouter": {
+        "image_id": null,
+        "reference": "localhost/coaster-or"
+      },
+      "codex": {
+        "image_id": null,
+        "reference": "localhost/codex-arena"
+      },
+      "opencode": {
+        "image_id": null,
+        "reference": "localhost/coaster-or"
+      }
+    }
+  },
+  "harness": "claude-code",
+  "harness_version": "0.2.0",
+  "harnesses": {
+    "claude-fable-5-2": "claude-code"
+  },
+  "modalities": {
+    "claude-fable-5-2": "text,image"
+  },
+  "mode": "design",
+  "model_specs": {
+    "claude-fable-5-2": {
+      "agent_version": "2.1.322",
+      "harness": "claude-code",
+      "id": "claude-fable-5-2",
+      "modalities": "text,image",
+      "opencode_provider": null,
+      "provider": "claude-sub",
+      "reasoning_effort": "high",
+      "shell": false
+    }
+  },
+  "models": [
+    "claude-fable-5-2"
+  ],
+  "open_note": false,
+  "open_note_source": null,
+  "opencode_permission": {
+    "bash": "deny",
+    "doom_loop": "allow",
+    "edit": "deny",
+    "external_directory": "deny",
+    "glob": "deny",
+    "grep": "deny",
+    "read": "deny",
+    "webfetch": "deny",
+    "websearch": "deny"
+  },
+  "opencode_reasoning_effort": null,
+  "opencode_sandbox": "coaster-or",
+  "openrouter_provider": null,
+  "orchestrator": "coaster-bench",
+  "ride_type": 51,
+  "round_reset": "baseline-park-snapshot",
+  "rounds": 6,
+  "sandbox": "coaster-sub-f4814f",
+  "scenario": {
+    "path": "~/rct2-assets/Scenarios/Build your own Six Flags Park.SC6",
+    "sha256": "3974d7ffaa5a1dc8be192d4538fdb88c46e0a354a4b45d3ee79172ee15209c8d"
+  },
+  "schema_version": 2,
+  "scorer": {
+    "name": "adjusted_excitement",
+    "similarity_grace": 0.5,
+    "version": "0.2.0"
+  },
+  "segments": [
+    {
+      "environment": {
+        "arch": "aarch64",
+        "os": "macos",
+        "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)",
+        "sandbox_images": {
+          "claude_code": {
+            "image_id": "264e7b023d20d2b9c89d8513453d3624c5ca490d33d5de736043af8cdb99285d",
+            "reference": "localhost/coaster-sandbox"
+          },
+          "claude_code_openrouter": {
+            "image_id": null,
+            "reference": "localhost/coaster-or"
+          },
+          "codex": {
+            "image_id": null,
+            "reference": "localhost/codex-arena"
+          },
+          "opencode": {
+            "image_id": null,
+            "reference": "localhost/coaster-or"
+          }
+        }
+      },
+      "first_round": {
+        "claude-fable-5-2": 1
+      },
+      "harness_version": "0.2.0",
+      "openrouter_provider": null,
+      "rounds": 6,
+      "source": {
+        "commit": "9d7897ca428745346da7a6abd76d1e8780fb0b8b",
+        "dirty": true,
+        "dirty_diff_sha256": "bb8988e05eb02cd71c715e08df9d8939037a5fe6a7328e368df60cdefd455e79"
+      },
+      "started_at": "2026-11-11T14:51:21.000Z"
+    }
+  ],
+  "similarity_grace": 0.5,
+  "source": {
+    "commit": "9d7897ca428745346da7a6abd76d1e8780fb0b8b",
+    "dirty": true,
+    "dirty_diff_sha256": "bb8988e05eb02cd71c715e08df9d8939037a5fe6a7328e368df60cdefd455e79"
+  },
+  "ticks": 25000
+}

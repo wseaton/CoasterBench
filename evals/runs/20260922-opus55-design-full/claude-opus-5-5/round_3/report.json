@@ -1,0 +1,184 @@
+{
+  "bounds": {
+    "max_tile_x": 67,
+    "max_tile_y": 75,
+    "max_z": 344,
+    "min_tile_x": 38,
+    "min_tile_y": 55,
+    "min_z": 112
+  },
+  "placed_pieces": [
+    "begin_station",
+    "middle_station",
+    "middle_station",
+    "end_station",
+    {
+      "chain": true,
+      "t": "flat_to_up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25"
+    },
+    {
+      "chain": true,
+      "t": "up_25_to_flat"
+    },
+    "left_turn_5",
+    "flat_to_down_25",
+    "down_25_to_down_60",
+    "down_60",
+    "down_60",
+    "down_60_to_down_25",
+    "down_25_to_flat",
+    "flat_to_up_25",
+    "right_vertical_loop",
+    "down_25_to_flat",
+    "flat",
+    "right_corkscrew_up",
+    "right_corkscrew_down",
+    {
+      "speed": 20,
+      "t": "booster"
+    },
+    {
+      "speed": 20,
+      "t": "booster"
+    },
+    "left_corkscrew_up",
+    "right_corkscrew_down",
+    "right_corkscrew_up",
+    "left_corkscrew_down",
+    "flat",
+    "flat",
+    "flat_to_up_25",
+    "up_25_to_flat",
+    "flat_to_down_25",
+    "down_25_to_flat",
+    "flat_to_right_bank",
+    "banked_right_turn_5",
+    "right_bank_to_flat",
+    {
+      "speed": 19,
+      "t": "booster"
+    },
+    "flat_to_up_25",
+    "left_vertical_loop",
+    "down_25_to_flat",
+    "flat_to_up_25",
+    "right_vertical_loop",
+    "down_25_to_flat",
+    {
+      "speed": 18,
+      "t": "booster"
+    },
+    "flat_to_up_25",
+    "up_25_to_flat",
+    "flat_to_down_25",
+    "down_25_to_flat",
+    "flat_to_up_25",
+    "up_25_to_flat",
+    "flat_to_down_25",
+    "down_25_to_flat",
+    "flat",
+    "flat",
+    {
+      "speed": 4,
+      "t": "brakes"
+    },
+    "right_turn_3",
+    "flat",
+    "right_turn_3"
+  ],
+  "program": null,
+  "rides": [
+    {
+      "average_speed": 461117,
+      "circuit": {
+        "looped": true,
+        "orphan_pieces": 0,
+        "total_pieces": 68,
+        "walked_pieces": 68
+      },
+      "crashed": false,
+      "excitement": 6.940000057220459,
+      "highest_drop": 26,
+      "id": 0,
+      "intensity": 10.220000267028809,
+      "max_lateral_g": 2.890000104904175,
+      "max_negative_g": -0.9700000286102296,
+      "max_positive_g": 4.579999923706055,
+      "max_speed": 1376976,
+      "nausea": 6.010000228881836,
+      "num_drops": 10,
+      "num_inversions": 6,
+      "ride_length": 533,
+      "ride_time": 58,
+      "ride_type": 51,
+      "status": "testing",
+      "tested": true,
+      "total_air_time": 36
+    }
+  ],
+  "score": 6.940000057220459,
+  "similarity": {
+    "common_substring_share": 0.2058823529411765,
+    "edit_similarity": 0.39583333333333337,
+    "mirrored": true,
+    "nearest_design": "Time Twister",
+    "nearest_ride_type": 51,
+    "similarity": 0.39583333333333337
+  },
+  "start": {
+    "bank": 0,
+    "dir": 2,
+    "slope": 0,
+    "x": 40,
+    "y": 60,
+    "z": 112
+  }
+}

@@ -6,7 +6,7 @@
 FROM node:22-bookworm-slim
 
 # Pinned: a rebuild must reproduce the agent that produced past results.
-ARG CLAUDE_VERSION=2.1.258
+ARG CLAUDE_VERSION=2.1.322
 
 RUN apt-get update && apt-get install -y --no-install-recommends iproute2 ca-certificates python3 \
     && rm -rf /var/lib/apt/lists/* \
