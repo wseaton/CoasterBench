@@ -34,6 +34,7 @@ use crate::presentation::{self, RidePresentation};
 use crate::program;
 use crate::replay;
 use crate::report;
+use crate::scenery::{self, CatalogEntry, Decoration};
 
 /// Content kinds a client can accept, named after the OpenRouter model
 /// catalogue's `input_modalities` so a harness can pass a model's declared
@@ -97,8 +98,26 @@ impl std::ops::BitOr for Modalities {
 enum Condition {
     Design,
     Library,
+    /// Design, plus decorating the banked coaster's park with scenery.
+    Park,
     Presentation,
 }
+
+/// Tools only the park condition has. Decorating is presentation: it edits the
+/// already-rated winner and cannot move its score.
+const PARK_TOOLS: [&str; 4] = [
+    "scenery_catalog",
+    "decorate_best_ride",
+    "clear_decorations",
+    "best_closeup",
+];
+
+/// scenery_catalog results up to this many carry every field; a longer listing
+/// is ids and names, to be narrowed with a filter.
+const MAX_DETAILED_CATALOG_ENTRIES: usize = 40;
+
+/// Decorations one decorate_best_ride call may carry.
+const MAX_DECORATIONS_PER_CALL: usize = 100;
 
 impl Condition {
     fn from_request_target(target: &str) -> Condition {
@@ -110,6 +129,7 @@ impl Condition {
             .find_map(|param| param.strip_prefix("condition="))
         {
             Some("library") => Condition::Library,
+            Some("park") => Condition::Park,
             Some("presentation") => Condition::Presentation,
             _ => Condition::Design,
         }
@@ -123,6 +143,9 @@ impl Condition {
         if self == Condition::Presentation {
             return matches!(name, "best_result" | "best_screenshot" | "style_best_ride");
         }
+        if PARK_TOOLS.contains(&name) {
+            return self == Condition::Park;
+        }
         self.allows_library() || !matches!(name, "search_track_designs" | "get_track_design")
     }
 
@@ -130,6 +153,7 @@ impl Condition {
         match self {
             Condition::Design => "design",
             Condition::Library => "library",
+            Condition::Park => "park",
             Condition::Presentation => "presentation",
         }
     }
@@ -189,6 +213,20 @@ fn capture_park_png(fit_track: bool) -> Result<Vec<u8>, String> {
     result
 }
 
+/// The park cropped to `frame`, or to the track alone without one.
+fn capture_fit_png(frame: Option<&host::TrackBounds>) -> Result<Vec<u8>, String> {
+    let Some(frame) = frame else {
+        return capture_park_png(true);
+    };
+    let path = std::env::temp_dir().join(format!("orct2-agent-framed-{}.png", std::process::id()));
+    if !host::capture_framed(&path.to_string_lossy(), 0, 0, Some(frame), false) {
+        return Err("capture failed".into());
+    }
+    let result = std::fs::read(&path).map_err(|e| format!("read capture: {e}"));
+    let _ = std::fs::remove_file(path);
+    result
+}
+
 fn park_snapshot_path(label: &str) -> std::path::PathBuf {
     std::env::temp_dir().join(format!("orct2-agent-{label}-{}.park", std::process::id()))
 }
@@ -224,7 +262,7 @@ fn image_content(bytes: Vec<u8>) -> Vec<Value> {
 /// The content kind a tool answers with; everything not listed here is text.
 fn tool_modality(name: &str) -> Modalities {
     match name {
-        "screenshot" | "best_screenshot" => Modalities::IMAGE,
+        "screenshot" | "best_screenshot" | "best_closeup" => Modalities::IMAGE,
         _ => Modalities::TEXT,
     }
 }
@@ -321,6 +359,14 @@ struct BestCandidate {
     park: Option<Vec<u8>>,
     shot: Option<Vec<u8>>,
     shot_fit: Option<Vec<u8>>,
+    /// The park as it was rated, kept from the first decoration on so the
+    /// decorations can be taken off again.
+    undecorated: Option<Vec<u8>>,
+    /// What decorate_best_ride has put in `park` so far.
+    decorations: Vec<Value>,
+    /// The track and the decorations together: what the close-up and the
+    /// replay frame once the park is decorated. None frames the track alone.
+    frame: Option<host::TrackBounds>,
 }
 
 struct CandidateArtifacts {
@@ -334,6 +380,8 @@ struct Session {
     build: Option<Build>,
     /// Stock design library, loaded from the host on first use.
     library: Option<Vec<LibraryDesign>>,
+    /// Placeable scenery, loaded from the host on first use.
+    scenery: Option<Vec<CatalogEntry>>,
     /// Who currently owns the park, if anyone.
     ///
     /// There is one park and one build state, so two agents connected at once
@@ -390,42 +438,85 @@ fn apply_presentation(ride_id: u16, presentation: &RidePresentation) -> Result<(
     )
 }
 
+/// Runs `edit` on a copy of the banked winner's park (`park`) and returns what
+/// it produced with the edited park's artifacts. `edit` also says what the
+/// close-up should frame (None: the track alone). The live park and build are
+/// put back whether or not the edit worked: the model may be halfway through a
+/// different coaster.
+fn edit_best_park<T>(
+    session: &mut Session,
+    park: &[u8],
+    edit: impl FnOnce(&Build) -> Result<(T, Option<host::TrackBounds>), String>,
+) -> Result<(T, CandidateArtifacts), String> {
+    let best_build = session
+        .best
+        .as_ref()
+        .ok_or("no rated test yet this round; call finish_and_test first")?
+        .build
+        .clone();
+    let live_park = snapshot_park("before-edit")?;
+    let live_build = session.build.clone();
+
+    let edited: Result<(T, CandidateArtifacts), String> = (|| {
+        load_park_snapshot("best-edit", park)?;
+        let (value, frame) = edit(&best_build)?;
+        Ok((
+            value,
+            CandidateArtifacts {
+                park: snapshot_park("best-edited")?,
+                shot: capture_park_png(false)?,
+                shot_fit: capture_fit_png(frame.as_ref())?,
+            },
+        ))
+    })();
+
+    let restored = load_park_snapshot("after-edit", &live_park);
+    session.build = live_build;
+    restored.map_err(|error| format!("failed to restore the live park: {error}"))?;
+    edited
+}
+
+fn banked_park(session: &Session) -> Result<Vec<u8>, String> {
+    session
+        .best
+        .as_ref()
+        .ok_or("no rated test yet this round; call finish_and_test first")?
+        .park
+        .clone()
+        .ok_or_else(|| "best result has no park snapshot".to_string())
+}
+
+impl BestCandidate {
+    fn replace_artifacts(&mut self, artifacts: CandidateArtifacts) {
+        self.park = Some(artifacts.park);
+        self.shot = Some(artifacts.shot);
+        self.shot_fit = Some(artifacts.shot_fit);
+    }
+
+    fn record_decorations(&mut self) -> Result<(), String> {
+        let report = self
+            .report
+            .as_object_mut()
+            .ok_or("best report is not an object")?;
+        if self.decorations.is_empty() {
+            report.remove("decorations");
+        } else {
+            report.insert("decorations".into(), json!(self.decorations));
+        }
+        Ok(())
+    }
+}
+
 /// Restyles the already-banked winner without disturbing the coaster the model
 /// is currently building. The winner's park bytes and both screenshots are
 /// replaced as one unit only after the live park has been restored.
 fn style_best_ride(session: &mut Session, presentation: RidePresentation) -> Result<Value, String> {
-    let candidate = session
-        .best
-        .as_ref()
-        .ok_or("no rated test yet this round; call finish_and_test first")?;
-    let best_park = candidate
-        .park
-        .clone()
-        .ok_or("best result has no park snapshot")?;
-    let best_build = candidate.build.clone();
-    let live_park = snapshot_park("before-style")?;
-    let live_build = session.build.clone();
-
-    let styled: Result<CandidateArtifacts, String> = (|| {
-        load_park_snapshot("best-style", &best_park)?;
-        apply_presentation(best_build.ride_id, &presentation)?;
-        Ok(CandidateArtifacts {
-            park: snapshot_park("best-styled")?,
-            shot: capture_park_png(false)?,
-            shot_fit: capture_park_png(true)?,
-        })
-    })();
-
-    // Restoration is mandatory even when styling or capture failed: the model
-    // may be halfway through a different build.
-    let restored = load_park_snapshot("after-style", &live_park);
-    session.build = live_build;
-    if let Err(error) = restored {
-        return Err(format!(
-            "failed to restore the live park after styling: {error}"
-        ));
-    }
-    let styled = styled?;
+    let park = banked_park(session)?;
+    let frame = session.best.as_ref().and_then(|best| best.frame);
+    let ((), styled) = edit_best_park(session, &park, |best| {
+        apply_presentation(best.ride_id, &presentation)?;
+        Ok(((), frame))
+    })?;
 
     // Presentation follows the live candidate too, so screenshot remains
     // intuitive and a later winning finish can inherit the same choice.
@@ -442,9 +533,7 @@ fn style_best_ride(session: &mut Session, presentation: RidePresentation) -> Res
         .as_mut()
         .ok_or("best result disappeared while styling")?;
     presentation.annotate(&mut best.report)?;
-    best.park = Some(styled.park);
-    best.shot = Some(styled.shot);
-    best.shot_fit = Some(styled.shot_fit);
+    best.replace_artifacts(styled);
     let score = best.score;
     session.presentation = Some(presentation.clone());
     Ok(json!({
@@ -453,6 +542,103 @@ fn style_best_ride(session: &mut Session, presentation: RidePresentation) -> Res
         "score": score,
         "score_changed": false,
     }))
+}
+
+/// Adds scenery to the banked winner's park. Each item is resolved and placed
+/// on its own, so one bad item costs that item and not the batch.
+fn decorate_best_ride(session: &mut Session, items: &[Value]) -> Result<Value, String> {
+    if items.len() > MAX_DECORATIONS_PER_CALL {
+        return Err(format!(
+            "{} items; at most {MAX_DECORATIONS_PER_CALL} per call",
+            items.len()
+        ));
+    }
+    let park = banked_park(session)?;
+    let catalog = session.scenery()?;
+    let resolved: Vec<Result<Decoration, String>> = items
+        .iter()
+        .map(|item| Decoration::parse(item, catalog))
+        .collect();
+
+    let framed = session.best.as_ref().and_then(|best| best.frame);
+    let ((outcomes, frame), decorated) = edit_best_park(session, &park, |_| {
+        let mut frame = framed.or_else(host::track_bounds);
+        let outcomes: Vec<Result<scenery::Outcome, String>> = resolved
+            .iter()
+            .map(|decoration| {
+                let decoration = decoration.as_ref().map_err(String::clone)?;
+                let outcome = decoration.apply();
+                if outcome.placed > 0 {
+                    frame = frame.map(|frame| decoration.widen(frame));
+                }
+                Ok(outcome)
+            })
+            .collect();
+        Ok(((outcomes, frame), frame))
+    })?;
+
+    let best = session
+        .best
+        .as_mut()
+        .ok_or("best result disappeared while decorating")?;
+    let mut results = Vec::with_capacity(items.len());
+    let mut placed_total = 0u32;
+    for (item, outcome) in items.iter().zip(&outcomes) {
+        match outcome {
+            Ok(outcome) => {
+                placed_total += outcome.placed;
+                if outcome.placed > 0 {
+                    best.decorations.push(scenery::record(item, outcome));
+                }
+                results.push(json!(outcome));
+            }
+            Err(error) => results.push(json!({"placed": 0, "error": error})),
+        }
+    }
+    if placed_total > 0 {
+        best.undecorated.get_or_insert(park);
+        best.frame = frame;
+        best.replace_artifacts(decorated);
+        best.record_decorations()?;
+    }
+    Ok(json!({
+        "decorated": "best_result",
+        "placed": placed_total,
+        "results": results,
+        "score": best.score,
+        "score_changed": false,
+    }))
+}
+
+/// Takes every decoration back off the banked winner.
+fn clear_decorations(session: &mut Session) -> Result<Value, String> {
+    let undecorated = session
+        .best
+        .as_ref()
+        .ok_or("no rated test yet this round; call finish_and_test first")?
+        .undecorated
+        .clone();
+    let Some(undecorated) = undecorated else {
+        return Ok(json!({"cleared": 0}));
+    };
+    let presentation = session.presentation.clone();
+    let ((), plain) = edit_best_park(session, &undecorated, |best| {
+        if let Some(presentation) = &presentation {
+            apply_presentation(best.ride_id, presentation)?;
+        }
+        Ok(((), None))
+    })?;
+    let best = session
+        .best
+        .as_mut()
+        .ok_or("best result disappeared while clearing decorations")?;
+    let cleared = best.decorations.len();
+    best.decorations.clear();
+    best.undecorated = None;
+    best.frame = None;
+    best.replace_artifacts(plain);
+    best.record_decorations()?;
+    Ok(json!({"cleared": cleared}))
 }
 
 const NO_RIDE: &str = "no active ride; call new_ride first";
@@ -478,6 +664,13 @@ impl Session {
         }
         // The Option was just filled; unwrap_or_default keeps this panic-free.
         Ok(self.library.as_deref().unwrap_or_default())
+    }
+
+    fn scenery(&mut self) -> Result<&[CatalogEntry], String> {
+        if self.scenery.is_none() {
+            self.scenery = Some(scenery::load()?);
+        }
+        Ok(self.scenery.as_deref().unwrap_or_default())
     }
 }
 
@@ -938,11 +1131,13 @@ fn call_control_tool(
             let every = arg_i64(args, "every_ticks").unwrap_or(2).clamp(1, 400) as u32;
             let zoom = arg_i64(args, "zoom").unwrap_or(0).clamp(0, 3) as i32;
             let best = args.get("best").and_then(Value::as_bool).unwrap_or(false);
+            let mut camera = None;
             if best {
                 let candidate = session
                     .best
                     .as_ref()
                     .ok_or("no rated test yet this round")?;
+                camera = candidate.frame;
                 let park = candidate
                     .park
                     .clone()
@@ -957,7 +1152,7 @@ fn call_control_tool(
                 every,
                 zoom,
                 session.build.as_ref().map(|b| b.ride_id),
-                None,
+                camera,
             )?;
             Ok(text_content(json!({
                 "out": out,
@@ -986,9 +1181,53 @@ fn call_control_tool(
     }
 }
 
+/// The park condition's own tools, kept out of the main list's macro call,
+/// which is already at the expansion depth serde_json allows.
+fn park_tool_definitions() -> Vec<Value> {
+    let colours = json!(presentation::COLOURS);
+    vec![
+        json!({
+            "name": "scenery_catalog",
+            "description": "List the scenery this park can place: trees, flowers, statues and fountains (small), buildings and set pieces (large), fences and walls (wall), and footpath surfaces and railings. Each object has an id for decorate_best_ride, its footprint or tile list, its height, and how many colours it takes. A listing of more than 40 objects comes back as ids and names only; narrow it with kind and search to get the details.",
+            "inputSchema": {"type": "object", "properties": {
+                "kind": {"type": "string", "enum": ["small", "large", "wall", "path_surface", "path_railings"]},
+                "search": {"type": "string", "description": "Case-insensitive substring of the object's name or id, e.g. \"tree\", \"fountain\", \"fence\""}
+            }}
+        }),
+        json!({
+            "name": "decorate_best_ride",
+            "description": "Decorate the park around your banked best_result with scenery and footpaths. This is presentation only: the coaster was already rated, and nothing placed here changes its score. Decorations go onto the saved winner (not the ride you may be building now) and are lost if a later finish_and_test beats it, so decorate once you are done improving the coaster. Each item is placed independently and the game validates every tile: track, water and slopes can refuse an object, and a refused tile is skipped. Returns per-item placed/rejected counts with the game's first refusal reason. Look at the result with best_closeup or best_screenshot.",
+            "inputSchema": {"type": "object", "required": ["items"], "properties": {
+                "items": {"type": "array", "maxItems": MAX_DECORATIONS_PER_CALL, "items": {"type": "object", "required": ["object", "x", "y"], "properties": {
+                    "object": {"type": "string", "description": "Object id from scenery_catalog. A path_surface id lays footpath."},
+                    "x": {"type": "integer", "description": "Tile x"},
+                    "y": {"type": "integer", "description": "Tile y"},
+                    "x2": {"type": "integer", "description": "Optional: fill the rectangle from (x, y) to (x2, y2) with this object, one per tile"},
+                    "y2": {"type": "integer"},
+                    "z": {"type": "integer", "description": "World height to place at; omit to sit on the ground"},
+                    "dir": {"type": "integer", "minimum": 0, "maximum": 3, "description": "Facing. For a wall, the tile edge it stands on."},
+                    "quadrant": {"type": "integer", "minimum": 0, "maximum": 3, "description": "Which corner of the tile, for small scenery with a quarter footprint"},
+                    "colours": {"type": "array", "maxItems": 3, "items": {"type": "string", "enum": colours}, "description": "Primary, secondary, tertiary colour for objects that take them"},
+                    "railings": {"type": "string", "description": "path_railings id, for footpath; defaults to the first loaded"}
+                }}}
+            }}
+        }),
+        json!({
+            "name": "clear_decorations",
+            "description": "Remove every decoration from your banked best_result, back to the park as it was rated.",
+            "inputSchema": {"type": "object", "properties": {}}
+        }),
+        json!({
+            "name": "best_closeup",
+            "description": "Rendered image of your banked best_result cropped to the coaster and its surroundings, decorations included. Closer than best_screenshot, which shows the whole map.",
+            "inputSchema": {"type": "object", "properties": {}}
+        }),
+    ]
+}
+
 fn all_tool_definitions() -> Value {
     let colours = json!(presentation::COLOURS);
-    json!([
+    let mut tools = json!([
         {
             "name": "new_ride",
             "description": "Create a new coaster and set the build cursor at a start tile. Demolishes any ride previously built in this session. Station pieces must come first.",
@@ -1092,7 +1331,11 @@ fn all_tool_definitions() -> Value {
                 }
             }}
         }
-    ])
+    ]);
+    if let Some(list) = tools.as_array_mut() {
+        list.extend(park_tool_definitions());
+    }
+    tools
 }
 
 fn text_content(value: Value) -> Vec<Value> {
@@ -1246,11 +1489,55 @@ fn call_tool(name: &str, args: &Value, session: &mut Session) -> Result<Vec<Valu
                         park: snapshot_park("best").ok(),
                         shot: capture_park_png(false).ok(),
                         shot_fit: capture_park_png(true).ok(),
+                        undecorated: None,
+                        decorations: Vec::new(),
+                        frame: None,
                     });
                 }
             }
             Ok(text_content(report))
         }
+        "scenery_catalog" => {
+            let kind = match args.get("kind").and_then(Value::as_str) {
+                Some(name) => Some(
+                    scenery::Kind::parse(name).ok_or_else(|| format!("unknown kind {name:?}"))?,
+                ),
+                None => None,
+            };
+            let query = args.get("search").and_then(Value::as_str);
+            let matches = scenery::search(session.scenery()?, kind, query);
+            // A broad listing is names only: the whole catalog with details
+            // is tens of thousands of tokens.
+            let detailed = matches.len() <= MAX_DETAILED_CATALOG_ENTRIES;
+            let objects = if detailed {
+                json!(matches)
+            } else {
+                matches
+                    .iter()
+                    .map(|entry| json!({"id": entry.id, "name": entry.name, "kind": entry.kind}))
+                    .collect()
+            };
+            Ok(text_content(json!({
+                "count": matches.len(),
+                "detailed": detailed,
+                "objects": objects,
+            })))
+        }
+        "decorate_best_ride" => {
+            let items = args
+                .get("items")
+                .and_then(Value::as_array)
+                .ok_or("items required")?;
+            Ok(text_content(decorate_best_ride(session, items)?))
+        }
+        "clear_decorations" => Ok(text_content(clear_decorations(session)?)),
+        "best_closeup" => match &session.best {
+            Some(best) if best.shot_fit.is_some() => {
+                Ok(image_content(best.shot_fit.clone().unwrap_or_default()))
+            }
+            None => Err("no rated test yet this round".into()),
+            Some(_) => Err("best-result close-up capture failed".into()),
+        },
         "style_best_ride" => {
             let presentation = RidePresentation::from_args(args)?;
             Ok(text_content(style_best_ride(session, presentation)?))
@@ -1992,6 +2279,9 @@ mod tests {
                 park: None,
                 shot: None,
                 shot_fit: None,
+                undecorated: None,
+                decorations: Vec::new(),
+                frame: None,
             }),
             presentation: Some(RidePresentation {
                 name: "Old Winner".into(),
@@ -2122,5 +2412,169 @@ mod tests {
             resp.pointer("/result/isError").and_then(Value::as_bool),
             Some(true)
         );
+    }
+
+    fn listed_tools(condition: Condition, modalities: Modalities) -> Vec<String> {
+        let mut session = Session::default();
+        let msg = json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list"});
+        dispatch(&msg, &mut session, modalities, condition, Source::Mcp)
+            .pointer("/result/tools")
+            .and_then(Value::as_array)
+            .expect("tools array")
+            .iter()
+            .filter_map(|tool| tool.get("name").and_then(Value::as_str))
+            .map(str::to_string)
+            .collect()
+    }
+
+    fn call(
+        session: &mut Session,
+        condition: Condition,
+        name: &str,
+        arguments: Value,
+    ) -> (bool, String) {
+        let msg = json!({
+            "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": {"name": name, "arguments": arguments}
+        });
+        let resp = dispatch(&msg, session, Modalities::ALL, condition, Source::Mcp);
+        (
+            resp.pointer("/result/isError")
+                .and_then(Value::as_bool)
+                .expect("isError"),
+            resp.pointer("/result/content/0/text")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+        )
+    }
+
+    #[test]
+    fn only_the_park_condition_has_the_decoration_tools() {
+        assert_eq!(
+            Condition::from_request_target("/mcp?condition=park&lease=r1"),
+            Condition::Park
+        );
+        assert_eq!(Condition::Park.name(), "park");
+
+        let park = listed_tools(Condition::Park, Modalities::ALL);
+        let design = listed_tools(Condition::Design, Modalities::ALL);
+        for tool in PARK_TOOLS {
+            assert!(park.iter().any(|name| name == tool), "park lists {tool}");
+            for condition in [
+                Condition::Design,
+                Condition::Library,
+                Condition::Presentation,
+            ] {
+                assert!(
+                    !listed_tools(condition, Modalities::ALL)
+                        .iter()
+                        .any(|name| name == tool),
+                    "{} must not list {tool}",
+                    condition.name()
+                );
+                let (is_error, text) = call(&mut Session::default(), condition, tool, json!({}));
+                assert!(is_error);
+                assert!(
+                    text.contains(&format!(
+                        "unavailable in the {} condition",
+                        condition.name()
+                    )),
+                    "{text}"
+                );
+            }
+        }
+        let without_park_tools: Vec<&String> = park
+            .iter()
+            .filter(|name| !PARK_TOOLS.contains(&name.as_str()))
+            .collect();
+        assert_eq!(
+            without_park_tools,
+            design.iter().collect::<Vec<_>>(),
+            "park is design plus the decoration tools, and nothing else"
+        );
+        assert!(!park.iter().any(|name| name == "search_track_designs"));
+    }
+
+    #[test]
+    fn a_text_only_park_client_keeps_the_text_tools_and_loses_the_closeup() {
+        let tools = listed_tools(Condition::Park, Modalities::TEXT);
+        assert!(!tools.iter().any(|name| name == "best_closeup"));
+        for tool in ["scenery_catalog", "decorate_best_ride", "clear_decorations"] {
+            assert!(tools.iter().any(|name| name == tool), "{tool}");
+        }
+    }
+
+    #[test]
+    fn decorating_needs_a_banked_coaster_and_a_bounded_batch() {
+        let mut session = Session::default();
+        for (tool, arguments) in [
+            ("decorate_best_ride", json!({"items": []})),
+            ("clear_decorations", json!({})),
+            ("best_closeup", json!({})),
+        ] {
+            let (is_error, text) = call(&mut session, Condition::Park, tool, arguments);
+            assert!(is_error, "{tool}");
+            assert!(
+                text.contains("no rated test yet this round"),
+                "{tool}: {text}"
+            );
+        }
+        let (is_error, text) = call(
+            &mut session,
+            Condition::Park,
+            "decorate_best_ride",
+            json!({}),
+        );
+        assert!(is_error);
+        assert!(text.contains("items required"), "{text}");
+
+        let too_many = vec![json!({"object": "a", "x": 1, "y": 1}); MAX_DECORATIONS_PER_CALL + 1];
+        let (is_error, text) = call(
+            &mut session,
+            Condition::Park,
+            "decorate_best_ride",
+            json!({"items": too_many}),
+        );
+        assert!(is_error);
+        assert!(text.contains("at most 100 per call"), "{text}");
+
+        let (is_error, text) = call(
+            &mut session,
+            Condition::Park,
+            "scenery_catalog",
+            json!({"kind": "banner"}),
+        );
+        assert!(is_error);
+        assert!(text.contains("unknown kind"), "{text}");
+    }
+
+    #[test]
+    fn decoration_records_follow_the_report() {
+        let mut best = BestCandidate {
+            score: 7.0,
+            report: json!({"rides": []}),
+            build: test_build(),
+            park: None,
+            shot: None,
+            shot_fit: None,
+            undecorated: None,
+            decorations: vec![json!({"item": {"object": "a"}, "placed": 3, "rejected": 1})],
+            frame: None,
+        };
+        best.record_decorations().expect("record");
+        assert_eq!(best.report["decorations"][0]["placed"], json!(3));
+        best.decorations.clear();
+        best.record_decorations().expect("clear");
+        assert!(best.report.get("decorations").is_none());
+
+        best.replace_artifacts(CandidateArtifacts {
+            park: vec![1],
+            shot: vec![2],
+            shot_fit: vec![3],
+        });
+        assert_eq!(best.park, Some(vec![1]));
+        assert_eq!(best.shot, Some(vec![2]));
+        assert_eq!(best.shot_fit, Some(vec![3]));
     }
 }

@@ -18,6 +18,7 @@ mod presentation;
 mod program;
 mod replay;
 mod report;
+mod scenery;
 mod similarity;
 
 use std::ffi::CStr;

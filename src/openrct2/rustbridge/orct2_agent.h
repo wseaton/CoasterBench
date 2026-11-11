@@ -377,6 +377,28 @@ extern bool orct2_host_piece_delta(uint16_t track_type,
 
 extern char *orct2_host_track_library_json(void);
 
+extern char *orct2_host_scenery_catalog_json(void);
+
+extern bool orct2_host_scenery_place(uint8_t kind,
+                                     uint16_t index,
+                                     int32_t tile_x,
+                                     int32_t tile_y,
+                                     int32_t z,
+                                     uint8_t direction,
+                                     uint8_t quadrant,
+                                     uint8_t primary,
+                                     uint8_t secondary,
+                                     uint8_t tertiary,
+                                     char *err,
+                                     uintptr_t err_len);
+
+extern bool orct2_host_footpath_place(int32_t tile_x,
+                                      int32_t tile_y,
+                                      uint16_t surface,
+                                      uint16_t railings,
+                                      char *err,
+                                      uintptr_t err_len);
+
 extern void orct2_host_string_free(char *s);
 
 extern uint16_t orct2_host_track_mirror(uint16_t track_type);

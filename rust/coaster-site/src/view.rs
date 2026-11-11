@@ -11,11 +11,15 @@ pub const TAGLINE: &str = "A benchmark in which language models design roller co
 pub const CSS: &str = include_str!("../static/site.css");
 pub const JS: &str = include_str!("../static/site.js");
 
-pub const MODE_TAGLINES: [(&str, &str); 3] = [
+pub const MODE_TAGLINES: [(&str, &str); 4] = [
     ("design", "design mode — models build from scratch"),
     (
         "library",
         "library mode — models may search the stock track design library, which measures retrieval and adaptation; copies score zero",
+    ),
+    (
+        "park",
+        "park mode — models build from scratch, then decorate the park around their coaster with scenery and paths; decoration is not scored",
     ),
     (
         "open note",

@@ -364,17 +364,6 @@ fn piece_count(program_json: &str) -> usize {
         .unwrap_or(0)
 }
 
-fn merge(a: host::TrackBounds, b: host::TrackBounds) -> host::TrackBounds {
-    host::TrackBounds {
-        min_tile_x: a.min_tile_x.min(b.min_tile_x),
-        min_tile_y: a.min_tile_y.min(b.min_tile_y),
-        max_tile_x: a.max_tile_x.max(b.max_tile_x),
-        max_tile_y: a.max_tile_y.max(b.max_tile_y),
-        min_z: a.min_z.min(b.min_z),
-        max_z: a.max_z.max(b.max_z),
-    }
-}
-
 /// Builds every segment once, unioning what each one occupies, and leaves the
 /// park empty again. The camera has to be known before the first frame, and
 /// only the game can say how much room a program takes.
@@ -383,7 +372,7 @@ fn union_bounds(segments: &[Segment]) -> Option<host::TrackBounds> {
     for (index, segment) in segments.iter().enumerate() {
         let outcome = program::run(&segment.program_json);
         if let Some(bounds) = host::track_bounds() {
-            union = Some(union.map_or(bounds, |u| merge(u, bounds)));
+            union = Some(union.map_or(bounds, |u| u.union(bounds)));
         } else {
             host::log(&format!(
                 "orct2-agent: evolution round {index} built no track"
@@ -642,7 +631,7 @@ pub fn film_trace(out: &str, actions: &[TraceAction], zoom: i32) -> Result<Monta
         for action in actions {
             let _ = build.apply(action);
             if let Some(bounds) = host::track_bounds() {
-                union = Some(union.map_or(bounds, |u| merge(u, bounds)));
+                union = Some(union.map_or(bounds, |u| u.union(bounds)));
             }
         }
         if let Some(ride) = build.ride {

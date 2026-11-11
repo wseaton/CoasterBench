@@ -24,6 +24,10 @@
     #include "../actions/ride/RideSetAppearanceAction.h"
     #include "../actions/ride/RideSetNameAction.h"
     #include "../actions/ride/RideSetStatusAction.h"
+    #include "../actions/footpath/FootpathPlaceAction.h"
+    #include "../actions/scenery/LargeSceneryPlaceAction.h"
+    #include "../actions/scenery/SmallSceneryPlaceAction.h"
+    #include "../actions/scenery/WallPlaceAction.h"
     #include "../actions/track/TrackPlaceAction.h"
     #include "../actions/track/TrackRemoveAction.h"
     #include "../drawing/Colour.h"
@@ -38,7 +42,10 @@
     #include "../interface/Screenshot.h"
     #include "../interface/Viewport.h"
     #include "../object/ObjectLimits.h"
+    #include "../object/LargeSceneryEntry.h"
     #include "../object/ObjectManager.h"
+    #include "../object/SmallSceneryEntry.h"
+    #include "../object/WallSceneryEntry.h"
     #include "../park/ParkFile.h"
     #include "../ride/Ride.h"
     #include "../ride/RideData.h"
@@ -52,7 +59,9 @@
     #include "../ride/TrackDesign.h"
     #include "../ride/TrackDesignRepository.h"
     #include "../ride/ted/TrackElemType.h"
+    #include "../world/Footpath.h"
     #include "../world/Map.h"
+    #include "../world/tile_element/SurfaceElement.h"
     #include "orct2_agent.h"
 
     #include <algorithm>
@@ -60,6 +69,7 @@
     #include <cctype>
     #include <cstdlib>
     #include <cstring>
+    #include <functional>
     #include <unistd.h>
     #include <unordered_set>
     #include <vector>
@@ -814,6 +824,163 @@ bool orct2_host_circuit_stats(uint16_t ride_id, Orct2CircuitStats* out)
 // every design into a JSON array of {name, ride_type, pieces}. The result is
 // malloc'd; the Rust side frees it via orct2_host_string_free. Maze designs
 // (no track elements) are skipped: there is nothing to compare.
+// Every scenery object the loaded park can place, as JSON: small scenery,
+// large scenery, walls, and footpath surfaces and railings. `index` is the
+// loaded-object slot orct2_host_scenery_place and orct2_host_footpath_place
+// take; `id` is the object's stable identifier.
+char* orct2_host_scenery_catalog_json(void)
+{
+    try
+    {
+        auto& objManager = GetContext()->GetObjectManager();
+        json_t catalog = json_t::array();
+        const auto each = [&objManager, &catalog](
+                              ObjectType type, uint16_t limit, const char* kind,
+                              const std::function<void(Object&, json_t&)>& describe) {
+            for (uint16_t index = 0; index < limit; index++)
+            {
+                auto* object = objManager.GetLoadedObject(type, index);
+                if (object == nullptr)
+                {
+                    continue;
+                }
+                json_t entry;
+                entry["kind"] = kind;
+                entry["index"] = index;
+                entry["id"] = std::string(object->GetIdentifier());
+                entry["name"] = object->GetName();
+                describe(*object, entry);
+                catalog.push_back(std::move(entry));
+            }
+        };
+        each(ObjectType::smallScenery, kMaxSmallSceneryObjects, "small", [](Object& object, json_t& entry) {
+            const auto* scenery = static_cast<const SmallSceneryEntry*>(object.GetLegacyData());
+            const auto flags = scenery->flags;
+            const char* footprint = "quarter";
+            if (flags.has(SmallSceneryFlag::occupiesFullTile))
+            {
+                footprint = "full";
+            }
+            else if (flags.has(SmallSceneryFlag::occupiesThreeQuarters))
+            {
+                footprint = "three_quarters";
+            }
+            else if (flags.has(SmallSceneryFlag::occupiesHalfTile))
+            {
+                footprint = "half";
+            }
+            else if (flags.has(SmallSceneryFlag::isDiagonal))
+            {
+                footprint = "diagonal";
+            }
+            entry["footprint"] = footprint;
+            entry["height"] = scenery->height;
+            entry["rotatable"] = flags.has(SmallSceneryFlag::isRotatable);
+            entry["tree"] = flags.has(SmallSceneryFlag::isTree);
+            entry["needs_flat_ground"] = flags.has(SmallSceneryFlag::requiresFlatSurface);
+            entry["stackable"] = flags.has(SmallSceneryFlag::isStackable);
+            entry["colours"] = static_cast<int>(flags.has(SmallSceneryFlag::hasPrimaryColour))
+                + static_cast<int>(flags.has(SmallSceneryFlag::hasSecondaryColour))
+                + static_cast<int>(flags.has(SmallSceneryFlag::hasTertiaryColour));
+        });
+        each(ObjectType::largeScenery, kMaxLargeSceneryObjects, "large", [](Object& object, json_t& entry) {
+            const auto* scenery = static_cast<const LargeSceneryEntry*>(object.GetLegacyData());
+            json_t tiles = json_t::array();
+            for (const auto& tile : scenery->tiles)
+            {
+                tiles.push_back({ tile.offset.x / kCoordsXYStep, tile.offset.y / kCoordsXYStep });
+            }
+            entry["tiles"] = std::move(tiles);
+            entry["colours"] = static_cast<int>(scenery->flags.has(LargeSceneryFlag::hasPrimaryColour))
+                + static_cast<int>(scenery->flags.has(LargeSceneryFlag::hasSecondaryColour))
+                + static_cast<int>(scenery->flags.has(LargeSceneryFlag::hasTertiaryColour));
+        });
+        each(ObjectType::walls, kMaxWallSceneryObjects, "wall", [](Object& object, json_t& entry) {
+            const auto* wall = static_cast<const WallSceneryEntry*>(object.GetLegacyData());
+            entry["height"] = wall->height;
+            entry["needs_flat_ground"] = (wall->flags & WALL_SCENERY_CANT_BUILD_ON_SLOPE) != 0;
+            entry["colours"] = static_cast<int>((wall->flags & WALL_SCENERY_HAS_PRIMARY_COLOUR) != 0)
+                + static_cast<int>((wall->flags & WALL_SCENERY_HAS_SECONDARY_COLOUR) != 0)
+                + static_cast<int>((wall->flags & WALL_SCENERY_HAS_TERTIARY_COLOUR) != 0);
+        });
+        const auto nothing = [](Object&, json_t&) {};
+        each(ObjectType::footpathSurface, kMaxFootpathSurfaceObjects, "path_surface", nothing);
+        each(ObjectType::footpathRailings, kMaxFootpathRailingsObjects, "path_railings", nothing);
+
+        auto dumped = catalog.dump();
+        auto* out = static_cast<char*>(std::malloc(dumped.size() + 1));
+        if (out == nullptr)
+        {
+            return nullptr;
+        }
+        std::memcpy(out, dumped.c_str(), dumped.size() + 1);
+        return out;
+    }
+    catch (const std::exception& e)
+    {
+        LOG_ERROR("scenery catalog scan failed: %s", e.what());
+        return nullptr;
+    }
+}
+
+// Places one scenery object through its game action. kind: 0 small scenery,
+// 1 large scenery, 2 wall. z is world height, 0 meaning "on the surface".
+// direction is the facing (for a wall, the tile edge it stands on); quadrant
+// only matters to small scenery that occupies less than a tile.
+bool orct2_host_scenery_place(
+    uint8_t kind, uint16_t index, int32_t tile_x, int32_t tile_y, int32_t z, uint8_t direction, uint8_t quadrant,
+    uint8_t primary, uint8_t secondary, uint8_t tertiary, char* err, size_t err_len)
+{
+    if (primary >= Drawing::kColourNumNormal || secondary >= Drawing::kColourNumNormal
+        || tertiary >= Drawing::kColourNumNormal)
+    {
+        CopyError(err, err_len, "colour out of range");
+        return false;
+    }
+    const auto colour1 = static_cast<Drawing::Colour>(primary);
+    const auto colour2 = static_cast<Drawing::Colour>(secondary);
+    const auto colour3 = static_cast<Drawing::Colour>(tertiary);
+    const CoordsXYZD loc{ tile_x * kCoordsXYStep, tile_y * kCoordsXYStep, z, static_cast<Direction>(direction & 3) };
+    GameActions::Result result;
+    switch (kind)
+    {
+        case 0:
+        {
+            auto action = GameActions::SmallSceneryPlaceAction(loc, quadrant & 3, index, colour1, colour2, colour3);
+            return ExecuteForBridge(action, err, err_len, result);
+        }
+        case 1:
+        {
+            auto action = GameActions::LargeSceneryPlaceAction(loc, index, colour1, colour2, colour3);
+            return ExecuteForBridge(action, err, err_len, result);
+        }
+        case 2:
+        {
+            auto action = GameActions::WallPlaceAction(index, loc, direction & 3, colour1, colour2, colour3);
+            return ExecuteForBridge(action, err, err_len, result);
+        }
+        default:
+            CopyError(err, err_len, "unknown scenery kind");
+            return false;
+    }
+}
+
+// Lays one flat footpath tile on the surface of a tile.
+bool orct2_host_footpath_place(
+    int32_t tile_x, int32_t tile_y, uint16_t surface, uint16_t railings, char* err, size_t err_len)
+{
+    const auto* ground = MapGetSurfaceElementAt(TileCoordsXY{ tile_x, tile_y });
+    if (ground == nullptr)
+    {
+        CopyError(err, err_len, "tile is off the map");
+        return false;
+    }
+    const CoordsXYZ loc{ tile_x * kCoordsXYStep, tile_y * kCoordsXYStep, ground->getBaseZ() };
+    auto action = GameActions::FootpathPlaceAction(loc, FootpathSlope{}, surface, railings);
+    GameActions::Result result;
+    return ExecuteForBridge(action, err, err_len, result);
+}
+
 char* orct2_host_track_library_json(void)
 {
     try

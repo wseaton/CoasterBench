@@ -49,7 +49,8 @@ struct Args {
     ride_type: u16,
 
     /// Benchmark condition. Design is MCP-only, library exposes stock-design
-    /// lookup, and open-note stages the scorer's upstream engine source.
+    /// lookup, park adds non-scoring scenery tools for decorating the banked
+    /// coaster, and open-note stages the scorer's upstream engine source.
     #[arg(long, value_enum, default_value_t = BenchmarkMode::Design)]
     mode: BenchmarkMode,
 
@@ -190,6 +191,11 @@ struct Args {
     #[arg(long, value_enum, default_value_t = CodexReasoningEffort::Medium)]
     codex_reasoning_effort: CodexReasoningEffort,
 
+    /// `--effort` passed to Claude Code contenders. Unset leaves the agent's
+    /// default for the model.
+    #[arg(long, value_enum)]
+    claude_reasoning_effort: Option<ClaudeReasoningEffort>,
+
     /// Extra tools to allow the agent, comma separated (e.g. "Bash"). Open note
     /// implies the file tools; this grants them without staging any source.
     #[arg(long)]
@@ -211,6 +217,8 @@ enum BenchmarkMode {
     Design,
     Library,
     OpenNote,
+    /// Design, plus decorating the banked coaster's park with scenery.
+    Park,
     /// Internal mode selected by --present-round. It is a capability boundary,
     /// not a standalone benchmark condition.
     #[value(skip)]
@@ -225,6 +233,38 @@ enum CodexReasoningEffort {
     Xhigh,
     Max,
     Ultra,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum ClaudeReasoningEffort {
+    Low,
+    Medium,
+    High,
+    Xhigh,
+    Max,
+}
+
+impl ClaudeReasoningEffort {
+    fn as_str(self) -> &'static str {
+        match self {
+            ClaudeReasoningEffort::Low => "low",
+            ClaudeReasoningEffort::Medium => "medium",
+            ClaudeReasoningEffort::High => "high",
+            ClaudeReasoningEffort::Xhigh => "xhigh",
+            ClaudeReasoningEffort::Max => "max",
+        }
+    }
+
+    fn parse(name: &str) -> Option<ClaudeReasoningEffort> {
+        match name {
+            "low" => Some(ClaudeReasoningEffort::Low),
+            "medium" => Some(ClaudeReasoningEffort::Medium),
+            "high" => Some(ClaudeReasoningEffort::High),
+            "xhigh" => Some(ClaudeReasoningEffort::Xhigh),
+            "max" => Some(ClaudeReasoningEffort::Max),
+            _ => None,
+        }
+    }
 }
 
 impl CodexReasoningEffort {
@@ -247,6 +287,7 @@ impl BenchmarkMode {
         match self {
             BenchmarkMode::Design | BenchmarkMode::OpenNote => "design",
             BenchmarkMode::Library => "library",
+            BenchmarkMode::Park => "park",
             BenchmarkMode::Presentation => "presentation",
         }
     }
@@ -255,6 +296,7 @@ impl BenchmarkMode {
         match self {
             BenchmarkMode::Library => "library",
             BenchmarkMode::Design | BenchmarkMode::OpenNote => "design",
+            BenchmarkMode::Park => "park",
             BenchmarkMode::Presentation => "presentation",
         }
     }
@@ -264,6 +306,7 @@ impl BenchmarkMode {
             BenchmarkMode::Design => "design",
             BenchmarkMode::Library => "library",
             BenchmarkMode::OpenNote => "open-note",
+            BenchmarkMode::Park => "park",
             BenchmarkMode::Presentation => "presentation",
         }
     }
@@ -1368,6 +1411,50 @@ fn allowed_tools(args: &Args) -> String {
     allowed.join(",")
 }
 
+/// The effort a contender's sessions are pinned to; `None` is the agent's own
+/// default for the model.
+fn reasoning_effort(args: &Args, contender: &Contender) -> Option<&'static str> {
+    match contender.harness {
+        Harness::Codex => Some(args.codex_reasoning_effort.as_str()),
+        Harness::Opencode => None,
+        Harness::ClaudeCode => args
+            .claude_reasoning_effort
+            .map(ClaudeReasoningEffort::as_str),
+    }
+}
+
+fn claude_argv(
+    args: &Args,
+    contender: &Contender,
+    prompt: &str,
+    mcp_config: &Value,
+) -> Vec<String> {
+    let mut claude = vec![
+        "claude".to_string(),
+        "--model".to_string(),
+        contender
+            .claude_openrouter_model()
+            .unwrap_or(&contender.model)
+            .to_string(),
+        "-p".to_string(),
+        prompt.to_string(),
+        "--mcp-config".to_string(),
+        mcp_config.to_string(),
+        "--allowedTools".to_string(),
+        allowed_tools(args),
+        "--max-turns".to_string(),
+        args.max_turns.to_string(),
+        // Event stream, not a summary: the round's trace is built from it.
+        "--output-format".to_string(),
+        "stream-json".to_string(),
+        "--verbose".to_string(),
+    ];
+    if let Some(effort) = args.claude_reasoning_effort {
+        claude.extend(["--effort".to_string(), effort.as_str().to_string()]);
+    }
+    claude
+}
+
 /// One agent session in the harness's sandbox. Success is judged by game
 /// state, not the transcript; usage is captured best-effort either way.
 /// Output streams to `session.log` / `session.err` in the round directory as
@@ -1394,26 +1481,7 @@ fn run_agent_session(
                     "coaster": {"type": "http", "url": contender.mcp_url(args.port, lease, args.mode)}
                 }
             });
-            let claude = vec![
-                "claude".to_string(),
-                "--model".to_string(),
-                contender
-                    .claude_openrouter_model()
-                    .unwrap_or(&contender.model)
-                    .to_string(),
-                "-p".to_string(),
-                prompt.to_string(),
-                "--mcp-config".to_string(),
-                mcp_config.to_string(),
-                "--allowedTools".to_string(),
-                allowed_tools(args),
-                "--max-turns".to_string(),
-                args.max_turns.to_string(),
-                // Event stream, not a summary: the round's trace is built from it.
-                "--output-format".to_string(),
-                "stream-json".to_string(),
-                "--verbose".to_string(),
-            ];
+            let claude = claude_argv(args, contender, prompt, &mcp_config);
             cmd.args(["sandbox", "exec", "-n", contender.sandbox(args), "--"]);
             match contender.claude_openrouter_model() {
                 // OpenRouter answers the Anthropic Messages API, so Claude Code
@@ -1968,6 +2036,10 @@ fn use_archived_settings(args: &mut Args, run: &Value) {
     {
         args.replay_seconds = seconds.min(u32::MAX as u64) as u32;
     }
+    args.claude_reasoning_effort = run
+        .get("claude_reasoning_effort")
+        .and_then(Value::as_str)
+        .and_then(ClaudeReasoningEffort::parse);
     if let Some(effort) = run.get("codex_reasoning_effort").and_then(Value::as_str) {
         args.codex_reasoning_effort = match effort {
             "low" => CodexReasoningEffort::Low,
@@ -2264,8 +2336,7 @@ fn present_archived_round(
         "model": contender.model,
         "harness": contender.harness.name(),
         "agent_version": version,
-        "reasoning_effort": (contender.harness == Harness::Codex)
-            .then(|| args.codex_reasoning_effort.as_str()),
+        "reasoning_effort": reasoning_effort(args, &contender),
         "score_before": source_score,
         "score_after": styled_score,
         "source_report_sha256": source_report_sha256,
@@ -2342,6 +2413,7 @@ fn main() -> Result<(), String> {
                 budget_secs: args.session_timeout,
                 open_note_dir: args.open_note.then_some(OPEN_NOTE_DIR),
                 single_turn: contender.harness.single_turn(),
+                park: args.mode == BenchmarkMode::Park,
             })
         );
         return Ok(());
@@ -2517,6 +2589,9 @@ fn main() -> Result<(), String> {
     if args.mode == BenchmarkMode::Library {
         capabilities.push("track_library");
     }
+    if args.mode == BenchmarkMode::Park {
+        capabilities.push("scenery");
+    }
     if args.open_note {
         capabilities.extend(["engine_source", "file_tools", "python3", "shell"]);
     }
@@ -2537,8 +2612,7 @@ fn main() -> Result<(), String> {
                     "provider": contender.provider(&args),
                     "modalities": contender.modalities.as_query_value(),
                     "agent_version": agent_version(&args, contender),
-                    "reasoning_effort": (contender.harness == Harness::Codex)
-                        .then(|| args.codex_reasoning_effort.as_str()),
+                    "reasoning_effort": reasoning_effort(&args, contender),
                     "shell": has_shell(&args, contender),
                 }),
             )
@@ -2663,6 +2737,7 @@ fn main() -> Result<(), String> {
             "openrouter_provider": args.openrouter_provider,
             "codex_sandbox_mode": codex_sandbox_mode(&args),
             "codex_reasoning_effort": args.codex_reasoning_effort.as_str(),
+            "claude_reasoning_effort": args.claude_reasoning_effort.map(ClaudeReasoningEffort::as_str),
             "open_note_source": open_note_sha,
     });
     if let Some(mut existing) = existing_run {
@@ -2708,6 +2783,7 @@ fn main() -> Result<(), String> {
                 budget_secs: args.session_timeout,
                 open_note_dir: open_note_sha.as_ref().map(|_| OPEN_NOTE_DIR),
                 single_turn: contender.harness.single_turn(),
+                park: args.mode == BenchmarkMode::Park,
             });
             // Created up front: the session streams its logs in here while it
             // runs, so `tail -f` works on a round in progress.
@@ -3509,6 +3585,60 @@ mod tests {
             opencode_provider_routing(&args, &Contender::parse("claude-opus-5")).is_none(),
             "only openrouter-served models are keyed by an openrouter slug"
         );
+    }
+
+    #[test]
+    fn park_is_its_own_condition_on_every_surface() {
+        let args = Args::parse_from(["coaster-bench", "--mode", "park"]);
+        assert_eq!(args.mode, BenchmarkMode::Park);
+        assert_eq!(BenchmarkMode::Park.mcp_condition(), "park");
+        assert_eq!(BenchmarkMode::Park.base_mode(), "park");
+        assert_eq!(BenchmarkMode::Park.condition_name(), "park");
+        let url =
+            Contender::parse("claude-fable-5-2").mcp_url(8791, "lease-1", BenchmarkMode::Park);
+        assert!(url.contains("condition=park"), "{url}");
+        assert!(!args.open_note);
+    }
+
+    #[test]
+    fn claude_effort_is_passed_and_recorded_only_when_forced() {
+        let sub = Contender::parse("claude-fable-5-2");
+        let config = json!({});
+        let default = Args::parse_from(["coaster-bench"]);
+        assert!(!claude_argv(&default, &sub, "p", &config).contains(&"--effort".to_string()));
+        assert_eq!(reasoning_effort(&default, &sub), None);
+
+        for level in ["low", "medium", "high", "xhigh", "max"] {
+            let args = Args::parse_from(["coaster-bench", "--claude-reasoning-effort", level]);
+            let argv = claude_argv(&args, &sub, "p", &config);
+            let at = argv.iter().position(|a| a == "--effort").expect("--effort");
+            assert_eq!(argv[at + 1], level);
+            assert_eq!(reasoning_effort(&args, &sub), Some(level));
+            assert_eq!(
+                ClaudeReasoningEffort::parse(level).map(ClaudeReasoningEffort::as_str),
+                Some(level)
+            );
+        }
+        assert!(
+            Args::try_parse_from(["coaster-bench", "--claude-reasoning-effort", "ultra"]).is_err()
+        );
+        assert_eq!(ClaudeReasoningEffort::parse("ultra"), None);
+
+        let forced = Args::parse_from(["coaster-bench", "--claude-reasoning-effort", "high"]);
+        let codex = Contender::parse("codex:gpt-5.6-sol");
+        assert_eq!(reasoning_effort(&forced, &codex), Some("medium"));
+    }
+
+    #[test]
+    fn a_resumed_run_keeps_its_claude_effort() {
+        let mut args = Args::parse_from(["coaster-bench"]);
+        use_archived_settings(&mut args, &json!({"claude_reasoning_effort": "high"}));
+        assert_eq!(
+            args.claude_reasoning_effort,
+            Some(ClaudeReasoningEffort::High)
+        );
+        use_archived_settings(&mut args, &json!({}));
+        assert_eq!(args.claude_reasoning_effort, None);
     }
 
     /// A headless "ask" is an auto-reject, and opencode kills the session on a

@@ -83,6 +83,20 @@ pub struct TrackBounds {
     pub max_z: i32,
 }
 
+impl TrackBounds {
+    /// The smallest bounds holding both.
+    pub fn union(self, other: TrackBounds) -> TrackBounds {
+        TrackBounds {
+            min_tile_x: self.min_tile_x.min(other.min_tile_x),
+            min_tile_y: self.min_tile_y.min(other.min_tile_y),
+            max_tile_x: self.max_tile_x.max(other.max_tile_x),
+            max_tile_y: self.max_tile_y.max(other.max_tile_y),
+            min_z: self.min_z.min(other.min_z),
+            max_z: self.max_z.max(other.max_z),
+        }
+    }
+}
+
 /// What the game's own circuit walk finds for a ride, filled by
 /// `orct2_host_circuit_stats`.
 ///
@@ -177,6 +191,29 @@ unsafe extern "C" {
     ) -> bool;
     fn orct2_host_piece_delta(track_type: u16, dir_in: u8, out: *mut TrackCursor) -> bool;
     fn orct2_host_track_library_json() -> *mut c_char;
+    fn orct2_host_scenery_catalog_json() -> *mut c_char;
+    fn orct2_host_scenery_place(
+        kind: u8,
+        index: u16,
+        tile_x: i32,
+        tile_y: i32,
+        z: i32,
+        direction: u8,
+        quadrant: u8,
+        primary: u8,
+        secondary: u8,
+        tertiary: u8,
+        err: *mut c_char,
+        err_len: usize,
+    ) -> bool;
+    fn orct2_host_footpath_place(
+        tile_x: i32,
+        tile_y: i32,
+        surface: u16,
+        railings: u16,
+        err: *mut c_char,
+        err_len: usize,
+    ) -> bool;
     fn orct2_host_string_free(s: *mut c_char);
     fn orct2_host_track_mirror(track_type: u16) -> u16;
     fn orct2_host_circuit_stats(ride_id: u16, out: *mut CircuitStats) -> bool;
@@ -503,10 +540,8 @@ pub fn piece_delta(track_type: u16, dir_in: u8) -> Option<TrackCursor> {
     unsafe { orct2_host_piece_delta(track_type, dir_in, &mut out) }.then_some(out)
 }
 
-/// The stock track design library as a JSON string (see library.rs for the
-/// shape). None when the host has no library to give.
-pub fn track_library_json() -> Option<String> {
-    let ptr = unsafe { orct2_host_track_library_json() };
+/// Takes ownership of a host-allocated JSON string.
+fn take_host_string(ptr: *mut c_char) -> Option<String> {
     if ptr.is_null() {
         return None;
     }
@@ -515,6 +550,74 @@ pub fn track_library_json() -> Option<String> {
         .into_owned();
     unsafe { orct2_host_string_free(ptr) };
     Some(json)
+}
+
+/// The stock track design library as a JSON string (see library.rs for the
+/// shape). None when the host has no library to give.
+pub fn track_library_json() -> Option<String> {
+    take_host_string(unsafe { orct2_host_track_library_json() })
+}
+
+/// Every scenery object the loaded park can place, as a JSON string (see
+/// scenery.rs for the shape).
+pub fn scenery_catalog_json() -> Option<String> {
+    take_host_string(unsafe { orct2_host_scenery_catalog_json() })
+}
+
+/// One scenery object placed through its game action. `kind` is 0 small
+/// scenery, 1 large scenery, 2 wall; `z` 0 means on the surface.
+pub struct SceneryPlacement {
+    pub kind: u8,
+    pub index: u16,
+    pub tile_x: i32,
+    pub tile_y: i32,
+    pub z: i32,
+    pub direction: u8,
+    pub quadrant: u8,
+    pub colours: [u8; 3],
+}
+
+pub fn scenery_place(p: &SceneryPlacement) -> Result<(), String> {
+    let mut err = err_buf();
+    if unsafe {
+        orct2_host_scenery_place(
+            p.kind,
+            p.index,
+            p.tile_x,
+            p.tile_y,
+            p.z,
+            p.direction,
+            p.quadrant,
+            p.colours[0],
+            p.colours[1],
+            p.colours[2],
+            err.as_mut_ptr(),
+            ERR_BUF_LEN,
+        )
+    } {
+        Ok(())
+    } else {
+        Err(err_to_string(&err))
+    }
+}
+
+/// One flat footpath tile on the surface of a tile.
+pub fn footpath_place(tile_x: i32, tile_y: i32, surface: u16, railings: u16) -> Result<(), String> {
+    let mut err = err_buf();
+    if unsafe {
+        orct2_host_footpath_place(
+            tile_x,
+            tile_y,
+            surface,
+            railings,
+            err.as_mut_ptr(),
+            ERR_BUF_LEN,
+        )
+    } {
+        Ok(())
+    } else {
+        Err(err_to_string(&err))
+    }
 }
 
 /// Left/right mirrored counterpart of a track piece (the game's TED mirror
@@ -667,6 +770,36 @@ mod test_stubs {
     }
     pub unsafe fn orct2_host_track_library_json() -> *mut c_char {
         std::ptr::null_mut()
+    }
+    pub unsafe fn orct2_host_scenery_catalog_json() -> *mut c_char {
+        std::ptr::null_mut()
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub unsafe fn orct2_host_scenery_place(
+        _k: u8,
+        _i: u16,
+        _x: i32,
+        _y: i32,
+        _z: i32,
+        _d: u8,
+        _q: u8,
+        _c1: u8,
+        _c2: u8,
+        _c3: u8,
+        _e: *mut c_char,
+        _l: usize,
+    ) -> bool {
+        false
+    }
+    pub unsafe fn orct2_host_footpath_place(
+        _x: i32,
+        _y: i32,
+        _s: u16,
+        _r: u16,
+        _e: *mut c_char,
+        _l: usize,
+    ) -> bool {
+        false
     }
     pub unsafe fn orct2_host_string_free(_s: *mut c_char) {}
     pub unsafe fn orct2_host_track_mirror(t: u16) -> u16 {

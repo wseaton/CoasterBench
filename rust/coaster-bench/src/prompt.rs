@@ -21,6 +21,8 @@ pub struct Round<'a> {
     pub budget_secs: u64,
     pub open_note_dir: Option<&'a str>,
     pub single_turn: bool,
+    /// The park condition: the round also decorates the banked coaster's park.
+    pub park: bool,
 }
 
 pub fn round_prompt(round_spec: &Round) -> String {
@@ -33,6 +35,7 @@ pub fn round_prompt(round_spec: &Round) -> String {
         budget_secs,
         open_note_dir,
         single_turn,
+        park,
     } = round_spec;
     let name = ride_name(ride_type);
     let budget_mins = budget_secs / 60;
@@ -67,9 +70,36 @@ pub fn round_prompt(round_spec: &Round) -> String {
         " Not this round: leave it for the final round."
     };
     let style_step = if final_round {
-        "6. This is the FINAL round. Call best_result, then style_best_ride once to give that winner its name and colours.\n"
+        "This is the FINAL round. Call best_result, then style_best_ride once to give that winner its name and colours."
     } else {
-        "6. Call best_result to confirm your banked score. Do NOT name or colour anything; style_best_ride is for the final round only, so spend this round's time on the track.\n"
+        "Call best_result to confirm your banked score. Do NOT name or colour anything; style_best_ride is for the final round only, so spend this round's time on the track."
+    };
+    let park_step = if park {
+        "6. Design the park around your banked coaster with decorate_best_ride (see Park design below). Do this in every round, once you have stopped improving the track.\n"
+    } else {
+        ""
+    };
+    let (style_number, summary_number) = if park { (7, 8) } else { (6, 7) };
+    let closeup = if modalities.contains(Modalities::IMAGE) {
+        "\n- best_closeup(): image of the banked coaster and its decorations, cropped close. Look at your work and revise it."
+    } else {
+        ""
+    };
+    let park_section = if park {
+        format!(
+            "\n## Park design\n\
+             This is the park condition. The coaster is still scored on excitement exactly as above, and\n\
+             nothing you place as decoration changes that score. The park you leave around it is judged by\n\
+             people looking at it: composition, theme, variety and restraint, not object count.\n\
+             - scenery_catalog(kind?, search?): what this park can place. kind is small (trees, flowers, statues, fountains), large (buildings, set pieces), wall (fences, walls), path_surface or path_railings. A broad listing is ids and names; filter to get footprints, heights and colour counts.\n\
+             - decorate_best_ride(items): place scenery and footpaths around the banked coaster. Each item is {{\"object\": id, \"x\": tile, \"y\": tile}} plus optional x2/y2 (fill a rectangle), dir, quadrant, z, colours. Tiles are the same x/y as new_ride. The game validates every tile and skips what it refuses (track, water, slopes).\n\
+             - clear_decorations(): take every decoration off and start the park again.{closeup}\n\
+             Decorations go on the banked best_result, not on a ride you are still building, and a later\n\
+             finish_and_test that beats it starts undecorated. Finish the coaster first, then keep roughly\n\
+             the last third of your time for the park.\n"
+        )
+    } else {
+        String::new()
     };
     let feedback = match previous_feedback {
         Some(report) => format!(
@@ -124,14 +154,15 @@ This is round {round} of {rounds}. You build interactively through the "coaster"
 3. Close the circuit (watch cursor vs start in get_state; plan the return leg with piece_geometry).
 4. finish_and_test as soon as you have a closed circuit, so you bank a score early.
 5. Only then experiment: demolish and rebuild to beat it. A worse or unfinished rebuild costs nothing, because best_result keeps your highest score.
-{style_step}7. End with a one-line summary of your best coaster and its excitement.
+{park_step}{style_number}. {style_step}
+{summary_number}. End with a one-line summary of your best coaster and its excitement.
 
 ## Budget
 You have about {budget_mins} minutes of wall-clock this round, then the session is cut off.
 Get a working, tested circuit banked EARLY; do not spend the whole budget on one perfect build.
 Your score is your best finish_and_test of the round (see best_result), not your final build,
 so it is always safe to stop once you are happy.
-{one_shot}{open_note}{feedback}"#
+{one_shot}{park_section}{open_note}{feedback}"#
     )
 }
 
@@ -154,6 +185,7 @@ mod tests {
             budget_secs: 1800,
             open_note_dir: None,
             single_turn: false,
+            park: false,
         });
         assert!(!looping.contains("one shot"));
 
@@ -166,6 +198,7 @@ mod tests {
             budget_secs: 1800,
             open_note_dir: None,
             single_turn: true,
+            park: false,
         });
         assert!(one_shot.contains("one shot"));
         assert!(
@@ -202,6 +235,7 @@ mod tests {
                 budget_secs: 1800,
                 open_note_dir: None,
                 single_turn: false,
+                park: false,
             });
             assert!(p.contains("booster"), "ride type {ride_type}");
             assert!(p.contains("\"speed\": 25"), "the syntax, not just the name");
@@ -220,6 +254,7 @@ mod tests {
             budget_secs: 1800,
             open_note_dir: None,
             single_turn: false,
+            park: false,
         });
         assert!(p.contains("ALLOWED"));
         assert!(p.contains("ride_type 51"));
@@ -236,7 +271,8 @@ mod tests {
             modalities: both(),
             budget_secs: 1800,
             open_note_dir: None,
-            single_turn: false
+            single_turn: false,
+            park: false,
         })
         .contains("NOT support"));
     }
@@ -252,6 +288,7 @@ mod tests {
             budget_secs: 1800,
             open_note_dir: None,
             single_turn: false,
+            park: false,
         });
         assert!(p.contains("Previous round result"));
         assert!(p.contains("excitement"));
@@ -268,6 +305,7 @@ mod tests {
             budget_secs: 1800,
             open_note_dir: None,
             single_turn: false,
+            park: false,
         });
         assert!(!p.contains("screenshot"));
         assert!(p.contains("demolish()"), "other tools still listed");
@@ -284,6 +322,7 @@ mod tests {
             budget_secs: 1800,
             open_note_dir: Some("/tmp/openrct2-src"),
             single_turn: false,
+            park: false,
         });
         assert!(p.contains("Engine source"));
         assert!(p.contains("/tmp/openrct2-src"));
@@ -304,6 +343,7 @@ mod tests {
             budget_secs: 1800,
             open_note_dir: None,
             single_turn: false,
+            park: false,
         });
         assert!(!p.contains("Engine source"));
         assert!(!p.contains("python3"), "python is an open-note capability");
@@ -320,6 +360,7 @@ mod tests {
             budget_secs: 1800,
             open_note_dir: Some("/tmp/openrct2-src"),
             single_turn: false,
+            park: false,
         });
         assert!(p.contains("python3"));
         assert!(p.contains("no network access"), "isolation stated");
@@ -339,6 +380,7 @@ mod tests {
             budget_secs: 1800,
             open_note_dir: None,
             single_turn: false,
+            park: false,
         });
         assert!(mid.contains("Not this round"));
         assert!(mid.contains("Do NOT name or colour anything"));
@@ -353,6 +395,7 @@ mod tests {
             budget_secs: 1800,
             open_note_dir: None,
             single_turn: false,
+            park: false,
         });
         assert!(last.contains("FINAL round"));
         assert!(last.contains("style_best_ride once"));
@@ -370,11 +413,80 @@ mod tests {
             budget_secs: 1800,
             open_note_dir: None,
             single_turn: false,
+            park: false,
         });
         assert!(p.contains("30 minutes"), "1800s -> 30 minutes");
         assert!(
             p.contains("best_result"),
             "wrap-up guidance points at the tool"
         );
+    }
+
+    fn park_round(round: u32, park: bool, modalities: Modalities) -> String {
+        round_prompt(&Round {
+            ride_type: 51,
+            round,
+            rounds: 6,
+            previous_feedback: None,
+            modalities,
+            budget_secs: 1800,
+            open_note_dir: None,
+            single_turn: false,
+            park,
+        })
+    }
+
+    #[test]
+    fn only_the_park_condition_is_told_to_decorate() {
+        let design = park_round(1, false, both());
+        for tool in [
+            "scenery_catalog",
+            "decorate_best_ride",
+            "clear_decorations",
+            "best_closeup",
+            "Park design",
+        ] {
+            assert!(!design.contains(tool), "design must not mention {tool}");
+        }
+        assert!(design.contains("\n6. Call best_result"));
+        assert!(design.contains("\n7. End with a one-line summary"));
+
+        let park = park_round(1, true, both());
+        for tool in [
+            "scenery_catalog(kind?, search?)",
+            "decorate_best_ride(items)",
+            "clear_decorations()",
+            "best_closeup()",
+        ] {
+            assert!(park.contains(tool), "park must describe {tool}");
+        }
+        assert!(park.contains("\n6. Design the park around your banked coaster"));
+        assert!(park.contains("\n7. Call best_result"));
+        assert!(park.contains("\n8. End with a one-line summary"));
+        assert!(
+            park.contains("nothing you place as decoration changes that score"),
+            "decoration must read as independent of scoring"
+        );
+        assert!(
+            park.contains("a later\nfinish_and_test that beats it starts undecorated"),
+            "the model has to know when its decorations are lost"
+        );
+    }
+
+    #[test]
+    fn park_rounds_decorate_every_round_and_style_only_the_last() {
+        let mid = park_round(3, true, both());
+        assert!(mid.contains("Do this in every round"));
+        assert!(mid.contains("\n7. Call best_result to confirm your banked score. Do NOT name"));
+        let last = park_round(6, true, both());
+        assert!(last.contains("Do this in every round"));
+        assert!(last.contains("\n7. This is the FINAL round."));
+    }
+
+    #[test]
+    fn a_text_only_park_round_is_not_offered_the_closeup() {
+        let text = park_round(1, true, Modalities::TEXT);
+        assert!(text.contains("decorate_best_ride(items)"));
+        assert!(!text.contains("best_closeup"));
     }
 }
