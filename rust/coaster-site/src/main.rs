@@ -114,16 +114,6 @@ fn usage_title(model: &ModelRun) -> String {
     )
 }
 
-/// The harness cell, carrying the pinned OpenRouter upstream when the run
-/// recorded one: "opencode · modal". Quantisation and cache pricing differ per
-/// upstream, so which one served the run is part of the experiment.
-fn harness_label(run: &EvalRun) -> String {
-    match &run.openrouter_provider {
-        Some(upstream) => format!("{} · {upstream}", run.harness),
-        None => run.harness.clone(),
-    }
-}
-
 fn fmt_opt(value: Option<f64>) -> String {
     value.map_or_else(|| "—".to_string(), |v| format!("{v:.2}"))
 }
@@ -474,6 +464,20 @@ fn round_shots(
     Ok(shots)
 }
 
+/// "round 2/6", or for a run still going, how far it has got.
+fn best_round_label(run: &EvalRun, model: &ModelRun, best: &Round) -> String {
+    let played = model.rounds.len() as u32;
+    let planned = run.expected_round_count();
+    if run.in_progress && played < planned {
+        format!(
+            "round {}/{played}, in progress ({played} of {planned})",
+            best.number
+        )
+    } else {
+        format!("round {}/{played}", best.number)
+    }
+}
+
 fn standings(run: &EvalRun) -> Vec<StandingRow> {
     run.ranked()
         .iter()
@@ -492,9 +496,7 @@ fn standings(run: &EvalRun) -> Vec<StandingRow> {
                     best.and_then(|r| r.similarity.as_ref())
                         .map(|s| s.similarity),
                 ),
-                best_round: best.map_or_else(String::new, |r| {
-                    format!("round {}/{}", r.number, model.rounds.len())
-                }),
+                best_round: best.map_or_else(String::new, |r| best_round_label(run, model, r)),
                 usage: usage_cell(model),
                 usage_title: usage_title(model),
             }
@@ -790,6 +792,13 @@ fn model_stats(run: &EvalRun, model: &ModelRun) -> Vec<Stat> {
         // differ per upstream, so an unpinned rerun is not the same experiment.
         stats.push(stat("upstream", format!("{upstream} (pinned)"), "dim"));
     }
+    if let Some(effort) = &run.claude_reasoning_effort {
+        stats.push(stat(
+            "effort",
+            format!("{effort} (default elsewhere)"),
+            "dim",
+        ));
+    }
     stats
 }
 
@@ -832,7 +841,7 @@ fn build_model_page(
             "{} · {} · {} · {}",
             run.mode_label(),
             run.ride_name(),
-            harness_label(run),
+            run.harness_label(),
             view::mode_tagline(if run.open_note {
                 "open note"
             } else {
@@ -954,7 +963,7 @@ fn index_rows(runs: &[EvalRun], store: &ArtStore, out: &Path) -> Result<Vec<Inde
                 date: run.date(),
                 mode: run.mode_label(),
                 coaster: run.ride_name(),
-                harness: harness_label(run),
+                harness: run.harness_label(),
                 model: model.model.clone(),
                 thumb: model_thumb(model, store, out, run)?,
                 place: place_label(i + 1),
@@ -967,9 +976,7 @@ fn index_rows(runs: &[EvalRun], store: &ArtStore, out: &Path) -> Result<Vec<Inde
 
                 intensity: fmt_opt(ride.and_then(|r| r.intensity)),
                 nausea: fmt_opt(ride.and_then(|r| r.nausea)),
-                best_round: best.map_or_else(String::new, |r| {
-                    format!("round {}/{}", r.number, model.rounds.len())
-                }),
+                best_round: best.map_or_else(String::new, |r| best_round_label(run, model, r)),
                 usage: usage_cell(model),
                 usage_title: usage_title(model),
             });
@@ -1264,7 +1271,7 @@ fn contenders(runs: &[EvalRun], store: &ArtStore, out: &Path) -> Result<Vec<view
                 coaster: run.ride_name(),
                 // Half the compare scenario key: open note must not fight black box.
                 mode: run.mode_label(),
-                harness: harness_label(run),
+                harness: run.harness_label(),
                 thumb: model_card_shot(model, store, out, run)?,
                 thumb_srcset: model_best_shot(model).and_then(|shot| {
                     let widths = [640, 1280, 1920];
@@ -1666,7 +1673,7 @@ fn main() -> Result<()> {
         // leaderboard hides still resolves instead of 404ing. The partial
         // filter only decides what the index lists, not what exists.
         build_run_page(&run, &store, out, base_url)?;
-        match run.incomplete_reason() {
+        match run.hidden_as_partial() {
             Some(reason) if !args.include_partial => {
                 eprintln!("partial run {} hidden from index ({reason})", run.name);
             }

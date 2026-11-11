@@ -43,6 +43,8 @@ struct RunMeta {
     /// The one OpenRouter upstream the run was pinned to; absent means
     /// OpenRouter routed freely among the model's endpoints.
     openrouter_provider: Option<String>,
+    /// `--effort` passed to Claude Code; absent means the agent's default.
+    claude_reasoning_effort: Option<String>,
     /// What the orchestrator set out to run. Present since coaster-bench;
     /// used to tell a finished run from one that died (or is still going)
     /// half way through.
@@ -55,6 +57,10 @@ struct RunMeta {
     /// Set false to keep a run out of the published site. Absent means yes: a
     /// run has to be deliberately withdrawn, never accidentally.
     published: Option<bool>,
+    /// Still being run: listed on the index with its rounds so far, where an
+    /// abandoned partial run is hidden.
+    #[serde(default)]
+    in_progress: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -367,10 +373,16 @@ pub struct EvalRun {
     pub ride_type: i64,
     pub harness: String,
     pub openrouter_provider: Option<String>,
+    /// `--effort` the run forced on Claude Code; absent means the agent's
+    /// default, which is what every other run used.
+    pub claude_reasoning_effort: Option<String>,
     pub open_note: bool,
     /// Whether this run belongs on the published site; `published: false` in
     /// run.json withdraws it without deleting the evidence.
     pub published: bool,
+    /// `in_progress: true` in run.json: short of its rounds because it is
+    /// still going, not because it died.
+    pub in_progress: bool,
     /// Models and round count run.json promised, when it recorded them.
     expected_models: Vec<String>,
     expected_rounds: Option<u32>,
@@ -431,6 +443,32 @@ impl EvalRun {
         } else {
             Some(format!("short rounds: {}", short.join(", ")))
         }
+    }
+
+    /// Why the index should leave this run out: unfinished, unless run.json
+    /// says it is still going.
+    pub fn hidden_as_partial(&self) -> Option<String> {
+        if self.in_progress {
+            None
+        } else {
+            self.incomplete_reason()
+        }
+    }
+
+    /// The harness cell, carrying the pinned OpenRouter upstream when the run
+    /// recorded one: "opencode · modal". Quantisation and cache pricing differ
+    /// per upstream, so which one served the run is part of the experiment. A
+    /// forced reasoning effort rides along the same way:
+    /// "claude-code · effort high".
+    pub fn harness_label(&self) -> String {
+        let mut label = self.harness.clone();
+        if let Some(upstream) = &self.openrouter_provider {
+            label.push_str(&format!(" · {upstream}"));
+        }
+        if let Some(effort) = &self.claude_reasoning_effort {
+            label.push_str(&format!(" · effort {effort}"));
+        }
+        label
     }
 
     /// Mode alone, for tagline lookup. Not for display: see `mode_label()`.
@@ -665,8 +703,10 @@ pub fn load_runs(runs_dir: &Path, store: &ArtStore) -> Result<Vec<EvalRun>> {
             ride_type: meta.ride_type.unwrap_or(52),
             harness: meta.harness.unwrap_or_else(|| "driver-api".to_string()),
             openrouter_provider: meta.openrouter_provider,
+            claude_reasoning_effort: meta.claude_reasoning_effort,
             open_note: meta.open_note,
             published: meta.published.unwrap_or(true),
+            in_progress: meta.in_progress,
             expected_models: meta.models,
             expected_rounds: meta.rounds,
         });
@@ -785,8 +825,10 @@ mod tests {
             ride_type: 52,
             harness: "test".to_string(),
             openrouter_provider: None,
+            claude_reasoning_effort: None,
             open_note: false,
             published: true,
+            in_progress: false,
             expected_models: expected.iter().map(|m| m.to_string()).collect(),
             expected_rounds: rounds,
         }
@@ -822,6 +864,46 @@ mod tests {
             partial.incomplete_reason().as_deref(),
             Some("short rounds: b 4/6")
         );
+    }
+
+    #[test]
+    fn harness_label_names_every_deviation_from_the_default_setup() {
+        let mut r = run(vec![("a", 6)], &["a"], Some(6));
+        r.harness = "claude-code".to_string();
+        assert_eq!(r.harness_label(), "claude-code");
+        r.claude_reasoning_effort = Some("high".to_string());
+        assert_eq!(r.harness_label(), "claude-code · effort high");
+        r.claude_reasoning_effort = None;
+        r.openrouter_provider = Some("modal".to_string());
+        assert_eq!(r.harness_label(), "claude-code · modal");
+        r.claude_reasoning_effort = Some("max".to_string());
+        assert_eq!(r.harness_label(), "claude-code · modal · effort max");
+    }
+
+    #[test]
+    fn run_json_effort_is_read_and_absent_means_default() {
+        let forced: RunMeta =
+            serde_json::from_str(r#"{"claude_reasoning_effort": "high"}"#).unwrap();
+        assert_eq!(forced.claude_reasoning_effort.as_deref(), Some("high"));
+        let default: RunMeta = serde_json::from_str("{}").unwrap();
+        assert_eq!(default.claude_reasoning_effort, None);
+    }
+
+    #[test]
+    fn a_run_in_progress_is_listed_but_still_reads_as_unfinished() {
+        let mut r = run(vec![("a", 2)], &["a"], Some(6));
+        assert_eq!(
+            r.hidden_as_partial().as_deref(),
+            Some("short rounds: a 2/6")
+        );
+        r.in_progress = true;
+        assert_eq!(r.hidden_as_partial(), None);
+        assert_eq!(
+            r.incomplete_reason().as_deref(),
+            Some("short rounds: a 2/6"),
+            "head-to-heads still see it as unfinished"
+        );
+        assert!(!r.model_completed(&r.models[0]));
     }
 
     #[test]
